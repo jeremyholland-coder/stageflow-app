@@ -470,30 +470,73 @@ export function isPlanMyDayRequest(message: string): boolean {
 /**
  * Parse AI text response into structured checklist items
  * Extracts action items from Plan My Day response sections
+ *
+ * PHASE 20: Enhanced to handle unstructured text and always generate checklist
+ * Detects: JSON blocks, Markdown checklists (- [ ]), bullets (•), numbered lists,
+ * section markers, and action verbs
  */
 export function parseChecklistFromResponse(responseText: string, deals: any[]): AIChecklistItem[] {
   const checklist: AIChecklistItem[] = [];
+
+  // PHASE 20: First, try to extract JSON block if present
+  const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item.task || item.action || item.title) {
+            checklist.push({
+              id: `task-${Date.now()}-${checklist.length}`,
+              task: (item.task || item.action || item.title).substring(0, 200),
+              completed: false,
+              priority: item.priority || 'medium',
+              dealId: item.dealId,
+              dealName: item.dealName
+            });
+          }
+        }
+        if (checklist.length > 0) return checklist.slice(0, 10);
+      }
+    } catch {
+      // JSON parsing failed, continue with text parsing
+    }
+  }
+
   const lines = responseText.split('\n');
 
   let currentSection = '';
   let priorityMap: { [key: string]: 'high' | 'medium' | 'low' } = {
     'closest to close': 'high',
     'momentum builders': 'medium',
+    'momentum': 'medium',
     'relationship nurture': 'low',
-    'pipeline hygiene': 'low'
+    'relationship': 'low',
+    'touchpoint': 'low',
+    'pipeline hygiene': 'low',
+    'workflow': 'low',
+    'insight': 'medium',
+    'next actions': 'high',
+    'priority': 'high',
+    'urgent': 'high',
+    'today': 'high'
   };
+
+  // PHASE 20: Enhanced section detection
+  const sectionMarkers = [
+    'section', 'closest to close', 'momentum', 'relationship', 'pipeline hygiene',
+    'next actions', 'priority', 'today', 'touchpoint', 'workflow', 'insight'
+  ];
 
   for (const line of lines) {
     const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
 
     // Detect section headers
-    if (trimmedLine.toLowerCase().includes('section') ||
-        trimmedLine.toLowerCase().includes('closest to close') ||
-        trimmedLine.toLowerCase().includes('momentum') ||
-        trimmedLine.toLowerCase().includes('relationship') ||
-        trimmedLine.toLowerCase().includes('pipeline hygiene')) {
+    const lineLower = trimmedLine.toLowerCase();
+    if (sectionMarkers.some(marker => lineLower.includes(marker))) {
       for (const [key, priority] of Object.entries(priorityMap)) {
-        if (trimmedLine.toLowerCase().includes(key)) {
+        if (lineLower.includes(key)) {
           currentSection = key;
           break;
         }
@@ -501,23 +544,36 @@ export function parseChecklistFromResponse(responseText: string, deals: any[]): 
       continue;
     }
 
-    // Extract actionable items (lines that look like tasks)
+    // PHASE 20: Enhanced task patterns to catch more formats
     const taskPatterns = [
-      /^[-•*]\s*(.+)$/,  // Bullet points
+      /^[-•*]\s*\[\s*\]\s*(.+)$/,  // Markdown checklist - [ ]
+      /^[-•*]\s*\[[xX]\]\s*(.+)$/,  // Completed markdown checklist - [x]
+      /^[-•*]\s*(.+)$/,  // Regular bullet points
       /^\d+[\.\)]\s*(.+)$/,  // Numbered lists
-      /^(?:Follow up|Contact|Review|Schedule|Send|Prepare|Check|Update|Create)\s+(.+)/i  // Action verbs
+      /^(?:Follow up|Contact|Review|Schedule|Send|Prepare|Check|Update|Create|Call|Email|Reach out|Connect|Draft|Finalize|Close|Negotiate|Present|Demo|Meet)\s+(.+)/i,  // Action verbs
+      /^(?:→|▶|➤|►|⚡|🎯|✅|❌|⏰|📞|📧)\s*(.+)$/,  // Emoji/arrow indicators
+      /^(?:ACTION|TODO|TASK|NEXT|DO):\s*(.+)/i  // Explicit markers
     ];
 
     for (const pattern of taskPatterns) {
       const match = trimmedLine.match(pattern);
       if (match) {
-        const taskText = match[1] || trimmedLine;
+        let taskText = match[1] || trimmedLine;
+
+        // Clean up task text
+        taskText = taskText
+          .replace(/^\*\*(.+)\*\*$/, '$1')  // Remove bold markers
+          .replace(/^_(.+)_$/, '$1')  // Remove italic markers
+          .trim();
+
+        // Skip if it's just a header or too short
+        if (taskText.length < 5 || taskText.endsWith(':')) continue;
 
         // Try to match with a deal
         let matchedDeal = null;
         for (const deal of deals) {
-          const dealName = deal.name || deal.company || '';
-          if (dealName && taskText.toLowerCase().includes(dealName.toLowerCase())) {
+          const dealClient = deal.client || deal.name || deal.company || '';
+          if (dealClient && taskText.toLowerCase().includes(dealClient.toLowerCase())) {
             matchedDeal = deal;
             break;
           }
@@ -525,14 +581,50 @@ export function parseChecklistFromResponse(responseText: string, deals: any[]): 
 
         checklist.push({
           id: `task-${Date.now()}-${checklist.length}`,
-          task: taskText.substring(0, 200), // Limit task length
+          task: taskText.substring(0, 200),
           completed: false,
           priority: priorityMap[currentSection] || 'medium',
           dealId: matchedDeal?.id,
-          dealName: matchedDeal?.name || matchedDeal?.company
+          dealName: matchedDeal?.client || matchedDeal?.name || matchedDeal?.company
         });
         break;
       }
+    }
+  }
+
+  // PHASE 20: If no checklist items found, generate minimum viable checklist from paragraphs
+  // This ensures checklist always renders even with fully unstructured text
+  if (checklist.length === 0 && deals.length > 0) {
+    // Fallback: Create tasks from deal context
+    const activeDeals = deals.filter(d => d.status === 'active').slice(0, 5);
+
+    // Group by priority (closing stages = high, early stages = low)
+    const closingStages = ['negotiation', 'verbal_commit', 'contract_sent', 'proposal_sent', 'proposal'];
+    const earlyStages = ['lead', 'lead_captured', 'contacted', 'discovery'];
+
+    for (const deal of activeDeals) {
+      const dealName = deal.client || deal.name || 'Deal';
+      const stageLower = (deal.stage || '').toLowerCase();
+
+      let priority: 'high' | 'medium' | 'low' = 'medium';
+      let task = `Review ${dealName}`;
+
+      if (closingStages.some(s => stageLower.includes(s))) {
+        priority = 'high';
+        task = `Follow up with ${dealName} to close`;
+      } else if (earlyStages.some(s => stageLower.includes(s))) {
+        priority = 'low';
+        task = `Nurture relationship with ${dealName}`;
+      }
+
+      checklist.push({
+        id: `fallback-${Date.now()}-${checklist.length}`,
+        task,
+        completed: false,
+        priority,
+        dealId: deal.id,
+        dealName
+      });
     }
   }
 

@@ -175,16 +175,82 @@ class OnboardingStorageManager {
   /**
    * Check if welcome modal should be shown
    * CRITICAL FIX: Also check dismissed flag - if user completed onboarding, don't show welcome again
+   * PHASE 20: Added catch-all - any unexpected condition assumes onboarding completed
    * @param {string} userId
    * @returns {boolean}
    */
   shouldShowWelcome(userId) {
-    const state = this.getState(userId);
-    // Don't show welcome if:
-    // 1. No state exists (show welcome) → return true
-    // 2. welcomeShown is true → return false
-    // 3. dismissed is true (completed onboarding) → return false
-    return !state || (!state.welcomeShown && !state.dismissed);
+    try {
+      const state = this.getState(userId);
+
+      // PHASE 20: No state = brand new user, show welcome
+      if (!state) return true;
+
+      // PHASE 20 CATCH-ALL: If ANY completion indicator exists, don't show
+      // This prevents onboarding reappearing in unexpected edge cases
+      const isCompleted = state.welcomeShown === true ||
+                         state.dismissed === true ||
+                         state.tourFullyCompleted === true ||
+                         (Array.isArray(state.completed) && state.completed.length >= 3);
+
+      return !isCompleted;
+    } catch (error) {
+      // PHASE 20: On ANY error, assume onboarding is complete (safe default)
+      logger.error('[OnboardingStorage] Error checking shouldShowWelcome, assuming complete:', error);
+      return false;
+    }
+  }
+
+  /**
+   * PHASE 20: Check if onboarding should be shown (comprehensive check)
+   * Returns false on any unexpected condition (fail-safe)
+   * @param {string} userId
+   * @returns {boolean}
+   */
+  shouldShowOnboarding(userId) {
+    try {
+      const state = this.getState(userId);
+
+      // No state AND explicitly new user - only case to show
+      if (!state) {
+        // PHASE 20: Could be truly new, but check for other indicators
+        // Check legacy localStorage keys as additional safeguard
+        const legacyKeys = [
+          `stageflow_welcome_seen_${userId}`,
+          `onboarding_${userId}`,
+          `stageflow_goal_${userId}`
+        ];
+
+        for (const key of legacyKeys) {
+          if (localStorage.getItem(key)) {
+            // Legacy data exists - user is not new
+            logger.debug('[OnboardingStorage] Found legacy key, user is not new:', key);
+            return false;
+          }
+        }
+
+        return true; // Truly new user
+      }
+
+      // PHASE 20: Comprehensive completion check
+      // dismissed OR tourFullyCompleted OR welcomeShown OR completed_steps >= 3
+      if (state.dismissed === true ||
+          state.tourFullyCompleted === true ||
+          state.welcomeShown === true ||
+          (Array.isArray(state.completed) && state.completed.length >= 3)) {
+        return false;
+      }
+
+      // PHASE 20: Additional safeguard - if state exists but all fields are default,
+      // check if this is an old user by looking at account creation date
+      // For now, if any state exists, assume not-new unless explicitly incomplete
+      return !state.welcomeShown && !state.dismissed &&
+             Array.isArray(state.completed) && state.completed.length < 3;
+    } catch (error) {
+      // PHASE 20: On ANY error, assume onboarding is complete (safe default)
+      logger.error('[OnboardingStorage] Error checking shouldShowOnboarding, assuming complete:', error);
+      return false;
+    }
   }
 
   /**

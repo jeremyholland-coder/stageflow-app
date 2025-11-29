@@ -168,9 +168,16 @@ class DataPrefetcher {
 
   /**
    * Smart prefetch based on user context and likely navigation
+   * PHASE 20: Enhanced with tab visibility and network quality checks
    */
   async prefetchNavigation(user, organization) {
     if (!user || !organization) return;
+
+    // PHASE 20: Only prefetch when tab is visible
+    if (document.visibilityState !== 'visible') {
+      logger.log('[Prefetch] Skipping - tab not visible');
+      return;
+    }
 
     // NEXT-LEVEL: Check network quality - reduce prefetching on slow connections
     const networkQuality = getCurrentNetworkQuality();
@@ -180,10 +187,27 @@ class DataPrefetcher {
       return;
     }
 
+    // PHASE 20: Check navigator.connection for effective connection type
+    // Only prefetch on strong connections (4g or better)
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (connection?.effectiveType && !['4g', '5g'].includes(connection.effectiveType)) {
+      logger.log('[Prefetch] Skipping on slow connection:', connection.effectiveType);
+      return;
+    }
+
     // Use requestIdleCallback to avoid blocking main thread
+    // PHASE 20: Enhanced to check CPU idle state
     const scheduleIdlePrefetch = (prefetchFn) => {
       if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => prefetchFn(), { timeout: 2000 });
+        requestIdleCallback((deadline) => {
+          // PHASE 20: Only prefetch if we have enough idle time (>30ms)
+          if (deadline.timeRemaining() > 30) {
+            prefetchFn();
+          } else {
+            // Reschedule if not enough idle time
+            requestIdleCallback(() => prefetchFn(), { timeout: 3000 });
+          }
+        }, { timeout: 2000 });
       } else {
         // Fallback for Safari
         setTimeout(() => prefetchFn(), 100);

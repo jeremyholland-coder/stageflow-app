@@ -211,6 +211,8 @@ export const AISettings = () => {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState(null);
+  // PHASE 20: Track removal in progress to prevent double-click
+  const [removingProviderId, setRemovingProviderId] = useState(null);
 
   // FIX v1.7.80 (#2): Use useCallback to properly memoize fetchProviders
   // REASON: Prevents recreation on every render, fixes "Can't find variable" error
@@ -292,67 +294,104 @@ export const AISettings = () => {
   // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
   // RLS policies deny all client-side mutations. Backend has service role.
   const handleRemoveProvider = async (providerId) => {
+    // PHASE 20: Prevent double-click - check if already removing this provider
+    if (removingProviderId === providerId) {
+      return;
+    }
+
     if (!confirm('Remove this AI provider? You can reconnect it anytime.')) return;
 
-    try {
-      const provider = getConnectedProvider(providerId);
-      if (!provider) return;
+    const provider = getConnectedProvider(providerId);
+    if (!provider) return;
 
-      const response = await fetch('/.netlify/functions/remove-ai-provider', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Send HttpOnly cookies for auth
-        body: JSON.stringify({
-          providerId: provider.id,
-          organizationId: organization.id
-        })
-      });
+    // PHASE 20: Mark as removing to prevent double-click
+    setRemovingProviderId(providerId);
 
-      // PHASE 19 FIX: Defensive JSON parsing to prevent crashes on invalid responses
-      let result;
+    // PHASE 20: Optimistic UI - remove card instantly before server response
+    const previousProviders = [...providers];
+    const remainingProviders = providers.filter(p => p.id !== provider.id);
+    setProviders(remainingProviders);
+
+    // PHASE 20: Retry logic for transient 500s
+    const MAX_RETRIES = 2;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        result = await response.json();
-      } catch (parseError) {
-        throw new Error(`Server error (${response.status}): Unable to parse response`);
+        const response = await fetch('/.netlify/functions/remove-ai-provider', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Send HttpOnly cookies for auth
+          body: JSON.stringify({
+            providerId: provider.id,
+            organizationId: organization.id
+          })
+        });
+
+        // PHASE 19 FIX: Defensive JSON parsing to prevent crashes on invalid responses
+        let result;
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          throw new Error(`Server error (${response.status}): Unable to parse response`);
+        }
+
+        if (!response.ok) {
+          // PHASE 20: Check for typed error responses
+          if (result.code === 'ALREADY_REMOVED') {
+            // Provider already removed - treat as success
+            break;
+          }
+          if (result.code === 'invalid_provider') {
+            // Invalid provider - don't retry, show error
+            throw new Error('Invalid provider - it may have already been removed');
+          }
+          // PHASE 19 FIX: Ensure error is always a string (not object)
+          const errorMsg = typeof result.error === 'string'
+            ? result.error
+            : (result.error?.message || `Remove failed: ${response.status}`);
+          throw new Error(errorMsg);
+        }
+
+        // Success - update cache and dispatch event
+        if (organization?.id) {
+          const cacheKey = `ai_provider_${organization.id}`;
+          const hasRemainingProviders = remainingProviders.length > 0;
+          localStorage.setItem(cacheKey, JSON.stringify({
+            hasProvider: hasRemainingProviders,
+            timestamp: Date.now()
+          }));
+          sessionStorage.removeItem(cacheKey);
+
+          // Dispatch event so Dashboard updates immediately
+          window.dispatchEvent(new CustomEvent('ai-provider-removed', {
+            detail: { providerId, organizationId: organization.id }
+          }));
+        }
+
+        addNotification('AI provider removed', 'success');
+        setRemovingProviderId(null);
+        return; // Success - exit function
+
+      } catch (error) {
+        lastError = error;
+        console.error(`[AISettings] Remove attempt ${attempt + 1} failed:`, error);
+
+        // PHASE 20: Only retry on transient 500 errors
+        if (attempt < MAX_RETRIES && error.message?.includes('500')) {
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          continue;
+        }
+        break; // Don't retry on other errors
       }
-
-      if (!response.ok) {
-        // PHASE 19 FIX: Ensure error is always a string (not object)
-        const errorMsg = typeof result.error === 'string'
-          ? result.error
-          : (result.error?.message || `Remove failed: ${response.status}`);
-        throw new Error(errorMsg);
-      }
-
-      // AIWIRE-05 FIX: Update local state immediately (optimistic update)
-      const remainingProviders = providers.filter(p => p.id !== provider.id);
-      setProviders(remainingProviders);
-
-      // CRITICAL: Set cache based on whether any providers remain
-      if (organization?.id) {
-        const cacheKey = `ai_provider_${organization.id}`;
-        const hasRemainingProviders = remainingProviders.length > 0;
-        localStorage.setItem(cacheKey, JSON.stringify({
-          hasProvider: hasRemainingProviders,
-          timestamp: Date.now()
-        }));
-        sessionStorage.removeItem(cacheKey);
-
-        // Dispatch event so Dashboard updates immediately
-        window.dispatchEvent(new CustomEvent('ai-provider-removed', {
-          detail: { providerId, organizationId: organization.id }
-        }));
-      }
-
-      addNotification('AI provider removed', 'success');
-
-      // HARDENING: Refresh provider list to ensure UI is in sync with DB
-      await fetchProviders();
-    } catch (error) {
-      console.error('Failed to remove provider:', error);
-      // HARDENING: Improved error message with details
-      addNotification(`Failed to remove provider: ${error.message || 'Unknown error'}`, 'error');
     }
+
+    // All retries failed - rollback optimistic update
+    console.error('Failed to remove provider after retries:', lastError);
+    setProviders(previousProviders); // Rollback to previous state
+    setRemovingProviderId(null);
+    addNotification(`Failed to remove provider: ${lastError?.message || 'Unknown error'}`, 'error');
   };
 
   if (loading) {

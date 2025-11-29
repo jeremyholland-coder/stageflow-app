@@ -1,0 +1,101 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Editor
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+    
+    // Files
+    "files.exclude": {
+      "**/.git": true,
+      "**/.DS_Store": true,
+      "**/node_modules": false,
+      "**/dist": false
+    },
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/dist/**": true
+    },
+    
+    // Search
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.netlify": true
+    },
+    
+    // JavaScript/TypeScript
+    "javascript.updateImportsOnFileMove.enabled": "always",
+    "typescript.updateImportsOnFileMove.enabled": "always",
+    "javascript.suggest.autoImports": true,
+    "typescript.suggest.autoImports": true,
+    
+    // Netlify Functions
+    "files.associations": {
+      "*.mjs": "javascript"
+    },
+    
+    // Claude Code
+    "claudeCode.selectedModel": "default",
+    
+    // Terminal
+    "terminal.integrated.cwd": "${workspaceFolder}",
+    "terminal.integrated.defaultProfile.osx": "zsh"
+  },
+  "extensions": {
+    "recommendations": [
+      "anthropic.claude-code",
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "bradlc.vscode-tailwindcss",
+      "supabase.vscode-supabase-extension",
+      "stripe.vscode-stripe"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "chrome",
+        "request": "launch",
+        "name": "Launch StageFlow (Dev)",
+        "url": "http://localhost:8888",
+        "webRoot": "${workspaceFolder}/src",
+        "preLaunchTask": "npm: dev"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "type": "npm",
+        "script": "dev",
+        "problemMatcher": [],
+        "label": "npm: dev",
+        "detail": "netlify dev"
+      },
+      {
+        "type": "npm",
+        "script": "build",
+        "problemMatcher": [],
+        "label": "npm: build",
+        "detail": "vite build"
+      },
+      {
+        "type": "npm",
+        "script": "test:all",
+        "problemMatcher": [],
+        "label": "npm: test:all",
+        "detail": "Run all tests"
+      }
+    ]
+  }
+}

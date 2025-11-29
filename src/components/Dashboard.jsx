@@ -848,8 +848,12 @@ export const Dashboard = () => {
                 ))}
               </div>
             </div>
+            {/* PHASE 20 CLS FIX: Contain layout to prevent shifts, reserve min-height for board */}
             <ListErrorBoundary listName="Pipeline Board">
-              <div data-onboarding="kanban-board">
+              <div
+                data-onboarding="kanban-board"
+                style={{ contain: 'layout paint', minHeight: '400px' }}
+              >
                 <KanbanBoard
                   deals={filteredDeals}
                   filterStatus={filterStatus}

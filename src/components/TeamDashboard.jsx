@@ -25,6 +25,10 @@ export const TeamDashboard = () => {
   const [displayedCount, setDisplayedCount] = useState(TEAM_PAGE_SIZE);
   const [totalMemberCount, setTotalMemberCount] = useState(0);
 
+  // PHASE 20: Incremental rendering - render first batch immediately, rest via idle callbacks
+  const INITIAL_RENDER_COUNT = 10;
+  const BATCH_SIZE = 10;
+
   // PRO TIER FIX: Check if user has a paid plan that unlocks team features
   const hasPaidPlan = contextOrganization?.plan && ['startup', 'growth', 'pro'].includes(contextOrganization.plan.toLowerCase());
 
@@ -183,6 +187,33 @@ export const TeamDashboard = () => {
       // PAGINATION FIX: Store all members and track total count
       setTeamMembers(sortedMembers);
       setTotalMemberCount(sortedMembers.length);
+
+      // PHASE 20: Incremental rendering - show first 10 immediately
+      // Then progressively load remaining members via idle callbacks
+      if (sortedMembers.length > INITIAL_RENDER_COUNT) {
+        setDisplayedCount(INITIAL_RENDER_COUNT);
+
+        // Schedule incremental rendering of remaining members
+        const scheduleNextBatch = (currentCount) => {
+          if (currentCount >= sortedMembers.length) return;
+
+          const loadNextBatch = () => {
+            setDisplayedCount(prev => Math.min(prev + BATCH_SIZE, sortedMembers.length));
+            scheduleNextBatch(currentCount + BATCH_SIZE);
+          };
+
+          if ('requestIdleCallback' in window) {
+            requestIdleCallback(loadNextBatch, { timeout: 1000 });
+          } else {
+            setTimeout(loadNextBatch, 50);
+          }
+        };
+
+        // Start incremental loading after initial render
+        setTimeout(() => scheduleNextBatch(INITIAL_RENDER_COUNT), 100);
+      } else {
+        setDisplayedCount(sortedMembers.length);
+      }
     } catch (error) {
       console.error('Error loading team data:', error);
     } finally {
@@ -339,6 +370,7 @@ export const TeamDashboard = () => {
       </div>
 
       {/* Team Overview Metrics */}
+      {/* PHASE 20: All metrics use defensive null-safe access with ?? fallbacks */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Total Pipeline */}
         <div className="bg-gradient-to-br from-[#F0FDF4] to-[#DCFCE7] rounded-xl p-6 border border-[#BBF7D0]">
@@ -346,17 +378,17 @@ export const TeamDashboard = () => {
             <div>
               <p className="text-sm text-[#6B7280] mb-1">Total Pipeline</p>
               <p className="text-3xl font-bold text-[#16A34A]">
-                {formatCurrency(teamMetrics.totalPipeline)}
+                {formatCurrency(teamMetrics?.totalPipeline ?? 0)}
               </p>
               <p className="text-sm text-[#6B7280] mt-2 flex items-center gap-1">
-                {/* PHASE 19 FIX: Use teamMetrics.teamTrend (was undefined teamTrend) */}
-                {teamMetrics.teamTrend === 'up' ? (
+                {/* PHASE 19/20 FIX: Use teamMetrics?.teamTrend with null-safe access */}
+                {(teamMetrics?.teamTrend ?? 'up') === 'up' ? (
                   <TrendingUp className="w-4 h-4 text-[#16A34A]" />
                 ) : (
                   <TrendingDown className="w-4 h-4 text-[#DC2626]" />
                 )}
-                <span className={teamMetrics.teamTrend === 'up' ? 'text-[#16A34A]' : 'text-[#DC2626]'}>
-                  {teamMetrics.teamTrend === 'up' ? 'Trending up' : 'Trending down'}
+                <span className={(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'text-[#16A34A]' : 'text-[#DC2626]'}>
+                  {(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'Trending up' : 'Trending down'}
                 </span>
               </p>
             </div>
@@ -370,7 +402,7 @@ export const TeamDashboard = () => {
             <div>
               <p className="text-sm text-[#6B7280] mb-1">Expected Revenue</p>
               <p className="text-3xl font-bold text-[#0284C7]">
-                {formatCurrency(teamMetrics.totalExpectedRevenue)}
+                {formatCurrency(teamMetrics?.totalExpectedRevenue ?? 0)}
               </p>
               <p className="text-sm text-[#6B7280] mt-2">70% avg probability</p>
             </div>
@@ -382,7 +414,7 @@ export const TeamDashboard = () => {
         <div className="bg-gradient-to-br from-[#F0FDF4] to-[#DCFCE7] rounded-xl p-6 border border-[#BBF7D0]">
           <div>
             <p className="text-sm text-[#6B7280] mb-1">Deals Added (This Week)</p>
-            <p className="text-3xl font-bold text-[#16A34A]">{teamMetrics.totalDealsAdded}</p>
+            <p className="text-3xl font-bold text-[#16A34A]">{teamMetrics?.totalDealsAdded ?? 0}</p>
           </div>
         </div>
 
@@ -390,8 +422,8 @@ export const TeamDashboard = () => {
         <div className="bg-gradient-to-br from-[#FAF5FF] to-[#F3E8FF] rounded-xl p-6 border border-[#E9D5FF]">
           <div>
             <p className="text-sm text-[#6B7280] mb-1">Deals Closed (This Week)</p>
-            <p className="text-3xl font-bold text-[#9333EA]">{teamMetrics.totalDealsClosed}</p>
-            <p className="text-sm text-[#6B7280] mt-2">{formatCurrency(teamMetrics.totalClosedValue)}</p>
+            <p className="text-3xl font-bold text-[#9333EA]">{teamMetrics?.totalDealsClosed ?? 0}</p>
+            <p className="text-sm text-[#6B7280] mt-2">{formatCurrency(teamMetrics?.totalClosedValue ?? 0)}</p>
           </div>
         </div>
       </div>

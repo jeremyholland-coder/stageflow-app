@@ -1,22 +1,67 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Check, Circle, TrendingUp, TrendingDown, Minus, Target, DollarSign, Briefcase } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Check, Circle, TrendingUp, TrendingDown, Minus, Target, DollarSign, Briefcase, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 
 /**
- * PlanMyDayChecklist - Phase 17/19B Interactive Checklist Component
+ * PlanMyDayChecklist - Phase 17/19B/20 Interactive Checklist Component
  *
  * PHASE 19B ENHANCEMENT: Visual upgrade with StageFlow card styling
+ * PHASE 20 ENHANCEMENT: Carry-over incomplete tasks, expand/collapse sections
  *
  * Renders structured AI response with:
  * - Interactive checklist with localStorage persistence
  * - Metrics display with trends
  * - Priority-based task grouping
  * - Dark glass card styling with accent borders
+ * - Daily auto-reset with incomplete task carry-over
+ * - Expand/collapse sections by priority
  *
  * Uses StageFlow design tokens for consistent UI
  */
 
 // localStorage key for checklist persistence
 const CHECKLIST_STORAGE_KEY = 'stageflow_plan_my_day_checklist';
+const CARRYOVER_STORAGE_KEY = 'stageflow_plan_my_day_carryover';
+
+/**
+ * PHASE 20: Get yesterday's incomplete tasks for carry-over
+ * @param {string} organizationId - Organization ID for scoping
+ * @returns {Array} Array of incomplete task objects from previous day
+ */
+const getCarryOverTasks = (organizationId) => {
+  try {
+    const stored = localStorage.getItem(`${CARRYOVER_STORAGE_KEY}_${organizationId}`);
+    if (stored) {
+      const data = JSON.parse(stored);
+      // Only return if carryover data exists and is from previous day
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (data.date === yesterday.toDateString() && Array.isArray(data.tasks)) {
+        return data.tasks;
+      }
+    }
+  } catch (err) {
+    console.debug('[PlanMyDayChecklist] Error reading carryover tasks:', err);
+  }
+  return [];
+};
+
+/**
+ * PHASE 20: Save incomplete tasks for next day carry-over
+ * @param {string} organizationId - Organization ID for scoping
+ * @param {Array} incompleteTasks - Tasks that were not completed
+ */
+const saveCarryOverTasks = (organizationId, incompleteTasks) => {
+  try {
+    const data = {
+      date: new Date().toDateString(),
+      tasks: incompleteTasks,
+      savedAt: Date.now()
+    };
+    localStorage.setItem(`${CARRYOVER_STORAGE_KEY}_${organizationId}`, JSON.stringify(data));
+  } catch (err) {
+    console.debug('[PlanMyDayChecklist] Error saving carryover tasks:', err);
+  }
+};
 
 /**
  * Get persisted checklist state from localStorage
@@ -33,6 +78,13 @@ const getPersistedChecklist = (organizationId) => {
       if (data.date === today) {
         return data.items || {};
       }
+      // PHASE 20: If data is from yesterday, save incomplete tasks before reset
+      if (data.date && data.items && data.checklist) {
+        const incompleteTasks = data.checklist.filter(task => !data.items[task.id]);
+        if (incompleteTasks.length > 0) {
+          saveCarryOverTasks(organizationId, incompleteTasks);
+        }
+      }
     }
   } catch (err) {
     console.debug('[PlanMyDayChecklist] Error reading persisted checklist:', err);
@@ -44,15 +96,23 @@ const getPersistedChecklist = (organizationId) => {
  * Persist checklist state to localStorage
  * @param {string} organizationId - Organization ID for scoping
  * @param {Object} items - Map of task IDs to completion state
+ * @param {Array} checklist - Full checklist for carry-over tracking
  */
-const persistChecklist = (organizationId, items) => {
+const persistChecklist = (organizationId, items, checklist = []) => {
   try {
     const data = {
       date: new Date().toDateString(),
       items,
+      checklist, // PHASE 20: Store full checklist for carry-over tracking
       updatedAt: Date.now()
     };
     localStorage.setItem(`${CHECKLIST_STORAGE_KEY}_${organizationId}`, JSON.stringify(data));
+
+    // PHASE 20: Also save incomplete tasks to carryover storage at end of day
+    const incompleteTasks = checklist.filter(task => !items[task.id]);
+    if (incompleteTasks.length > 0) {
+      saveCarryOverTasks(organizationId, incompleteTasks);
+    }
   } catch (err) {
     console.debug('[PlanMyDayChecklist] Error persisting checklist:', err);
   }
@@ -183,12 +243,29 @@ const ChecklistItem = ({ item, isCompleted, onToggle }) => {
 
 /**
  * Main PlanMyDayChecklist Component
+ * PHASE 20: Enhanced with carry-over logic and expand/collapse sections
  */
 export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
   // Initialize state from localStorage
   const [completedItems, setCompletedItems] = useState(() =>
     getPersistedChecklist(organizationId)
   );
+
+  // PHASE 20: Track collapsed sections (by priority)
+  const [collapsedSections, setCollapsedSections] = useState({});
+
+  // PHASE 20: Track carry-over tasks
+  const [carryOverTasks, setCarryOverTasks] = useState([]);
+
+  // PHASE 20: Load carry-over tasks on mount
+  useEffect(() => {
+    if (organizationId) {
+      const tasks = getCarryOverTasks(organizationId);
+      if (tasks.length > 0) {
+        setCarryOverTasks(tasks);
+      }
+    }
+  }, [organizationId]);
 
   // CROSS-TAB SYNC FIX: Re-read from localStorage when window gains focus
   // This ensures Tab B sees changes made in Tab A after refresh or tab switch
@@ -219,12 +296,32 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
     };
   }, [organizationId]);
 
-  // Persist changes to localStorage
+  // Guard: Return null if no structured response
+  if (!structuredResponse || structuredResponse.response_type !== 'plan_my_day') {
+    return null;
+  }
+
+  const { summary, checklist = [], metrics = [] } = structuredResponse;
+
+  // PHASE 20: Merge carry-over tasks with current checklist
+  const mergedChecklist = useMemo(() => {
+    // Mark carry-over tasks with a flag
+    const carryOverWithFlag = carryOverTasks.map(task => ({
+      ...task,
+      isCarryOver: true,
+      id: `carryover-${task.id}` // Ensure unique ID
+    }));
+
+    // Combine: carry-over first (high priority), then today's tasks
+    return [...carryOverWithFlag, ...checklist];
+  }, [checklist, carryOverTasks]);
+
+  // Persist changes to localStorage (with full checklist for carry-over)
   useEffect(() => {
-    if (organizationId) {
-      persistChecklist(organizationId, completedItems);
+    if (organizationId && mergedChecklist.length > 0) {
+      persistChecklist(organizationId, completedItems, mergedChecklist);
     }
-  }, [completedItems, organizationId]);
+  }, [completedItems, organizationId, mergedChecklist]);
 
   // Toggle item completion
   const handleToggle = useCallback((itemId) => {
@@ -234,12 +331,39 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
     }));
   }, []);
 
-  // Guard: Return null if no structured response
-  if (!structuredResponse || structuredResponse.response_type !== 'plan_my_day') {
-    return null;
-  }
+  // PHASE 20: Toggle section collapse
+  const toggleSection = useCallback((priority) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [priority]: !prev[priority]
+    }));
+  }, []);
 
-  const { summary, checklist = [], metrics = [] } = structuredResponse;
+  // PHASE 20: Dismiss carry-over tasks
+  const dismissCarryOver = useCallback(() => {
+    setCarryOverTasks([]);
+    // Clear from storage
+    try {
+      localStorage.removeItem(`${CARRYOVER_STORAGE_KEY}_${organizationId}`);
+    } catch (err) {
+      console.debug('[PlanMyDayChecklist] Error clearing carryover:', err);
+    }
+  }, [organizationId]);
+
+  // PHASE 20: Group tasks by priority for collapsible sections
+  const tasksByPriority = useMemo(() => {
+    const grouped = { high: [], medium: [], low: [], carryover: [] };
+    for (const task of mergedChecklist) {
+      if (task.isCarryOver) {
+        grouped.carryover.push(task);
+      } else if (grouped[task.priority]) {
+        grouped[task.priority].push(task);
+      } else {
+        grouped.medium.push(task);
+      }
+    }
+    return grouped;
+  }, [mergedChecklist]);
 
   // Calculate completion percentage
   const completedCount = checklist.filter(item => completedItems[item.id]).length;
@@ -300,10 +424,113 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
         </div>
       )}
 
-      {/* Checklist */}
-      {checklist.length > 0 && (
+      {/* PHASE 20: Carry-over tasks section */}
+      {tasksByPriority.carryover.length > 0 && (
         <div className="space-y-2">
-          {checklist.map((item) => (
+          <div
+            className="flex items-center justify-between cursor-pointer group"
+            onClick={() => toggleSection('carryover')}
+          >
+            <div className="flex items-center gap-2">
+              {collapsedSections.carryover ? (
+                <ChevronRight className="w-4 h-4 text-amber-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-amber-400" />
+              )}
+              <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide flex items-center gap-2">
+                <RotateCcw className="w-3 h-3" />
+                Carried Over ({tasksByPriority.carryover.length})
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); dismissCarryOver(); }}
+              className="text-xs text-gray-500 hover:text-white transition-colors"
+            >
+              Dismiss all
+            </button>
+          </div>
+          {!collapsedSections.carryover && tasksByPriority.carryover.map((item) => (
+            <ChecklistItem
+              key={item.id}
+              item={{ ...item, priority: 'high' }}
+              isCompleted={completedItems[item.id] || false}
+              onToggle={() => handleToggle(item.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* PHASE 20: High priority section */}
+      {tasksByPriority.high.length > 0 && (
+        <div className="space-y-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => toggleSection('high')}
+          >
+            {collapsedSections.high ? (
+              <ChevronRight className="w-4 h-4 text-red-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-red-400" />
+            )}
+            <span className="text-xs font-semibold text-red-400 uppercase tracking-wide">
+              High Priority ({tasksByPriority.high.length})
+            </span>
+          </div>
+          {!collapsedSections.high && tasksByPriority.high.map((item) => (
+            <ChecklistItem
+              key={item.id}
+              item={item}
+              isCompleted={completedItems[item.id] || false}
+              onToggle={() => handleToggle(item.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* PHASE 20: Medium priority section */}
+      {tasksByPriority.medium.length > 0 && (
+        <div className="space-y-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => toggleSection('medium')}
+          >
+            {collapsedSections.medium ? (
+              <ChevronRight className="w-4 h-4 text-amber-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-amber-400" />
+            )}
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+              Medium Priority ({tasksByPriority.medium.length})
+            </span>
+          </div>
+          {!collapsedSections.medium && tasksByPriority.medium.map((item) => (
+            <ChecklistItem
+              key={item.id}
+              item={item}
+              isCompleted={completedItems[item.id] || false}
+              onToggle={() => handleToggle(item.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* PHASE 20: Low priority section */}
+      {tasksByPriority.low.length > 0 && (
+        <div className="space-y-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => toggleSection('low')}
+          >
+            {collapsedSections.low ? (
+              <ChevronRight className="w-4 h-4 text-blue-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-blue-400" />
+            )}
+            <span className="text-xs font-semibold text-blue-400 uppercase tracking-wide">
+              Low Priority ({tasksByPriority.low.length})
+            </span>
+          </div>
+          {!collapsedSections.low && tasksByPriority.low.map((item) => (
             <ChecklistItem
               key={item.id}
               item={item}
@@ -315,7 +542,7 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
       )}
 
       {/* Empty State */}
-      {checklist.length === 0 && (
+      {mergedChecklist.length === 0 && (
         <div className="text-center py-6">
           <p className="text-sm text-gray-400">No action items detected. Try asking for a more specific plan.</p>
         </div>

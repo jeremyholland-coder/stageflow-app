@@ -137,21 +137,74 @@ const renderSectionCard = (section, key) => {
 };
 
 /**
- * PHASE 19B: Render a single line with proper formatting
+ * PHASE 20: Priority chip component
+ */
+const PriorityChip = ({ priority }) => {
+  const colors = {
+    high: 'bg-red-500/20 text-red-300 border-red-500/30',
+    medium: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    low: 'bg-green-500/20 text-green-300 border-green-500/30'
+  };
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${colors[priority] || colors.medium}`}>
+      {priority}
+    </span>
+  );
+};
+
+/**
+ * PHASE 20: Deal badge component
+ */
+const DealBadge = ({ value, type }) => {
+  const badges = {
+    hot: { icon: '🔥', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
+    money: { icon: '$', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30' },
+    urgent: { icon: '⚡', bg: 'bg-yellow-500/20', border: 'border-yellow-500/30' }
+  };
+
+  const badge = badges[type] || badges.money;
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${badge.bg} border ${badge.border}`}>
+      <span>{badge.icon}</span>
+      {value && <span>{value}</span>}
+    </span>
+  );
+};
+
+/**
+ * PHASE 19B/20: Render a single line with proper formatting
+ * PHASE 20: Enhanced with priority chips and deal badges
  */
 const renderLine = (line, key) => {
   if (!line.trim()) {
     return <div key={key} className="h-2" />;
   }
 
+  // PHASE 20: Detect priority indicators and add chips
+  const priorityMatch = line.match(/\b(high|medium|low)\s*priority\b/i);
+  const hasPriorityChip = priorityMatch !== null;
+  const priority = priorityMatch?.[1]?.toLowerCase();
+
+  // PHASE 20: Detect deal value indicators
+  const valueMatch = line.match(/\$[\d,]+(?:\.\d{2})?(?:k|K|m|M)?/);
+  const hasValueBadge = valueMatch !== null;
+  const dealValue = valueMatch?.[0];
+
   // Numbered list (1. , 2. , etc.)
   const numberedMatch = line.match(/^(\d+)\.\s+(.+)$/);
   if (numberedMatch) {
     const [, num, content] = numberedMatch;
     return (
-      <div key={key} className="flex gap-2 mb-1.5 pl-1">
+      <div key={key} className="flex gap-2 mb-1.5 pl-1 items-start">
         <span className="text-[#1ABC9C] font-semibold flex-shrink-0 w-5">{num}.</span>
-        <span className="leading-relaxed">{formatInlineMarkdown(content)}</span>
+        <span className="leading-relaxed flex-1">
+          {formatInlineMarkdown(content)}
+          {/* PHASE 20: Add badges inline */}
+          {hasPriorityChip && <span className="ml-2"><PriorityChip priority={priority} /></span>}
+          {hasValueBadge && <span className="ml-2"><DealBadge value={dealValue} type="money" /></span>}
+        </span>
       </div>
     );
   }
@@ -160,10 +213,19 @@ const renderLine = (line, key) => {
   const bulletMatch = line.match(/^[\-\*•]\s+(.+)$/);
   if (bulletMatch) {
     const [, content] = bulletMatch;
+    // PHASE 20: Detect if this is a "hot" deal (🔥 indicator or "hot" word)
+    const isHot = line.toLowerCase().includes('hot') || line.includes('🔥');
+    const isUrgent = line.toLowerCase().includes('urgent') || line.includes('⚡');
+
     return (
-      <div key={key} className="flex gap-2 mb-1.5 pl-1">
+      <div key={key} className="flex gap-2 mb-1.5 pl-1 items-start">
         <span className="text-[#1ABC9C] flex-shrink-0 mt-1.5">•</span>
-        <span className="leading-relaxed">{formatInlineMarkdown(content)}</span>
+        <span className="leading-relaxed flex-1">
+          {formatInlineMarkdown(content)}
+          {/* PHASE 20: Add contextual badges */}
+          {hasPriorityChip && <span className="ml-2"><PriorityChip priority={priority} /></span>}
+          {hasValueBadge && <span className="ml-2"><DealBadge value={dealValue} type={isHot ? 'hot' : isUrgent ? 'urgent' : 'money'} /></span>}
+        </span>
       </div>
     );
   }

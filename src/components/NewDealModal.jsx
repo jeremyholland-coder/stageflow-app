@@ -170,7 +170,8 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
     setLoading(true);
     setProgressMessage('Verifying deal limit...'); // MEDIUM FIX: Progress feedback
 
-    const planLimits = getPlanLimits(organization.plan_tier || 'free');
+    // PHASE 20 FIX: Use 'plan' field (not 'plan_tier') - matches database schema
+    const planLimits = getPlanLimits(organization.plan || 'free');
     const { count: dealCount, error: countError } = await supabase
       .from('deals')
       .select('*', { count: 'exact', head: true })

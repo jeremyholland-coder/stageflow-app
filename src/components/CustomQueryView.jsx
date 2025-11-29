@@ -340,11 +340,12 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
       // PHASE 17: Track structured response for Plan My Day checklist
       let structuredResponse = null;
 
-      // PHASE 18 PERF: Throttled UI updates (batches multiple chunks into single render)
-      // Instead of updating state on every chunk, we batch updates every 50ms
+      // PHASE 18/20 PERF: Throttled UI updates (batches multiple chunks into single render)
+      // Instead of updating state on every chunk, we batch updates every 35ms
+      // PHASE 20: Lowered from 50ms to 35ms for smoother perceived output
       let pendingUpdate = false;
       let lastUpdateTime = 0;
-      const UPDATE_INTERVAL = 50; // ms between UI updates
+      const UPDATE_INTERVAL = 35; // ms between UI updates (PHASE 20: reduced for lower latency)
 
       const scheduleUIUpdate = () => {
         const now = Date.now();
