@@ -66,28 +66,29 @@ export const PlanMyDaySummary = ({ structuredResponse, content }) => {
   const getAccentColor = (iconType) => {
     switch (iconType) {
       case 'target':
-        return 'from-emerald-500/30 to-emerald-600/20 border-emerald-500/40 text-emerald-400';
+        return 'from-emerald-500/20 to-emerald-600/5 border-emerald-400/30 text-emerald-400';
       case 'alert':
-        return 'from-amber-500/30 to-amber-600/20 border-amber-500/40 text-amber-400';
+        return 'from-amber-500/20 to-amber-600/5 border-amber-400/30 text-amber-400';
       case 'users':
-        return 'from-purple-500/30 to-purple-600/20 border-purple-500/40 text-purple-400';
+        return 'from-purple-500/20 to-purple-600/5 border-purple-400/30 text-purple-400';
       case 'momentum':
-        return 'from-blue-500/30 to-blue-600/20 border-blue-500/40 text-blue-400';
+        return 'from-sky-500/20 to-sky-600/5 border-sky-400/30 text-sky-400';
       default:
-        return 'from-[#1ABC9C]/30 to-[#16A085]/20 border-[#1ABC9C]/40 text-[#1ABC9C]';
+        return 'from-[#0CE3B1]/20 to-[#0CE3B1]/5 border-[#0CE3B1]/30 text-[#0CE3B1]';
     }
   };
 
   return (
-    <div className="flex flex-wrap gap-2 mb-4 pb-3 border-b border-white/10">
+    <div className="flex flex-wrap gap-3 mb-5 pb-4 border-b border-white/[0.07]">
       {extractedMetrics.map((metric, idx) => (
         <div
           key={idx}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-br border backdrop-blur-sm ${getAccentColor(metric.icon || 'default')}`}
+          className={`flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-gradient-to-br border backdrop-blur-md shadow-[0_4px_16px_rgba(0,0,0,0.1)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.15)] transition-all duration-300 ease-out hover:scale-[1.02] ${getAccentColor(metric.icon || 'default')}`}
+          style={{ animationDelay: `${idx * 100}ms` }}
         >
-          <span className="opacity-80">{getIcon(metric.icon || 'default')}</span>
-          <span className="text-xs font-medium text-white/70">{metric.label}:</span>
-          <span className="text-sm font-bold text-white">{metric.value}</span>
+          <span className="opacity-90">{getIcon(metric.icon || 'default')}</span>
+          <span className="text-xs font-medium text-white/60">{metric.label}:</span>
+          <span className="text-sm font-bold text-white tracking-tight">{metric.value}</span>
         </div>
       ))}
     </div>

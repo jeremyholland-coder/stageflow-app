@@ -144,18 +144,19 @@ const MetricCard = ({ metric }) => {
   };
 
   // PHASE 19B: Enhanced card styling with gradient accent
+  // PHASE A: Apple-grade glass card with premium depth
   return (
-    <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/40 border border-[#1ABC9C]/20 rounded-xl p-3 flex-1 min-w-[120px] backdrop-blur-sm hover:border-[#1ABC9C]/40 transition-colors">
-      <div className="flex items-center gap-2 mb-1">
+    <div className="bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 flex-1 min-w-[130px] shadow-[0_4px_20px_rgba(0,0,0,0.1)] hover:border-[#0CE3B1]/30 hover:shadow-[0_6px_24px_rgba(12,227,177,0.08)] transition-all duration-300 ease-out hover:translate-y-[-2px]">
+      <div className="flex items-center gap-2.5 mb-2">
         {getIcon()}
-        <span className="text-xs text-gray-400 font-medium">{metric.label}</span>
+        <span className="text-xs text-white/60 font-medium tracking-wide">{metric.label}</span>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-lg font-bold text-white">{metric.value}</span>
+      <div className="flex items-center gap-2.5">
+        <span className="text-xl font-bold text-white tracking-tight">{metric.value}</span>
         {getTrendIcon()}
       </div>
       {metric.delta && (
-        <span className="text-xs text-gray-500">{metric.delta}</span>
+        <span className="text-xs text-white/40 mt-1">{metric.delta}</span>
       )}
     </div>
   );
@@ -163,29 +164,30 @@ const MetricCard = ({ metric }) => {
 
 /**
  * PHASE 19B: Checklist Item Component with enhanced visual styling
+ * PHASE A: Apple-grade styling with premium animations
  */
 const ChecklistItem = ({ item, isCompleted, onToggle }) => {
   const getPriorityStyles = () => {
     switch (item.priority) {
       case 'high':
-        return 'border-l-red-500/60 bg-gradient-to-r from-red-500/10 to-transparent';
+        return 'border-l-rose-400/70 bg-gradient-to-r from-rose-500/8 to-transparent';
       case 'medium':
-        return 'border-l-amber-500/60 bg-gradient-to-r from-amber-500/10 to-transparent';
+        return 'border-l-amber-400/70 bg-gradient-to-r from-amber-500/8 to-transparent';
       case 'low':
-        return 'border-l-blue-500/60 bg-gradient-to-r from-blue-500/10 to-transparent';
+        return 'border-l-sky-400/70 bg-gradient-to-r from-sky-500/8 to-transparent';
       default:
-        return 'border-l-[#1ABC9C]/60 bg-gradient-to-r from-[#1ABC9C]/10 to-transparent';
+        return 'border-l-[#0CE3B1]/70 bg-gradient-to-r from-[#0CE3B1]/8 to-transparent';
     }
   };
 
   const getPriorityBadge = () => {
     const badgeStyles = {
-      high: 'bg-red-500/20 text-red-400 border border-red-500/30',
-      medium: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
-      low: 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+      high: 'bg-rose-500/15 text-rose-400 border border-rose-400/25',
+      medium: 'bg-amber-500/15 text-amber-400 border border-amber-400/25',
+      low: 'bg-sky-500/15 text-sky-400 border border-sky-400/25'
     };
     return (
-      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeStyles[item.priority] || 'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`}>
+      <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${badgeStyles[item.priority] || 'bg-white/10 text-white/50 border border-white/10'}`}>
         {item.priority?.toUpperCase()}
       </span>
     );
@@ -199,25 +201,25 @@ const ChecklistItem = ({ item, isCompleted, onToggle }) => {
       tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onToggle()}
       className={`
-        flex items-start gap-3 p-3.5 rounded-xl border-l-4 cursor-pointer
-        transition-all duration-200 ease-out
-        hover:bg-white/5 hover:translate-x-0.5
+        flex items-start gap-4 p-4 rounded-2xl border-l-4 cursor-pointer
+        transition-all duration-300 ease-out
+        hover:bg-white/[0.04] hover:translate-x-1 hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)]
         ${getPriorityStyles()}
-        ${isCompleted ? 'opacity-50' : ''}
+        ${isCompleted ? 'opacity-40' : ''}
       `}
     >
-      {/* Checkbox */}
+      {/* Checkbox - Apple-style with bounce animation */}
       <div className={`
-        flex-shrink-0 w-5 h-5 mt-0.5 rounded-full border-2
+        flex-shrink-0 w-6 h-6 mt-0.5 rounded-full border-2
         flex items-center justify-center
-        transition-all duration-200
+        transition-all duration-300 ease-out
         ${isCompleted
-          ? 'bg-[#1ABC9C] border-[#1ABC9C] shadow-lg shadow-[#1ABC9C]/30'
-          : 'border-gray-500 hover:border-[#1ABC9C] hover:shadow-lg hover:shadow-[#1ABC9C]/20'
+          ? 'bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 border-[#0CE3B1] shadow-[0_4px_12px_rgba(12,227,177,0.35)] scale-110'
+          : 'border-white/20 hover:border-[#0CE3B1]/60 hover:shadow-[0_4px_12px_rgba(12,227,177,0.15)] hover:scale-105'
         }
       `}>
         {isCompleted ? (
-          <Check className="w-3 h-3 text-white" />
+          <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
         ) : (
           <Circle className="w-2 h-2 text-transparent" />
         )}
@@ -225,13 +227,13 @@ const ChecklistItem = ({ item, isCompleted, onToggle }) => {
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm text-white leading-relaxed ${isCompleted ? 'line-through text-gray-400' : ''}`}>
+        <p className={`text-sm text-white leading-relaxed ${isCompleted ? 'line-through text-white/40' : ''}`}>
           {item.task}
         </p>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2.5 mt-2">
           {getPriorityBadge()}
           {item.dealName && (
-            <span className="text-xs text-gray-500 truncate max-w-[150px]">
+            <span className="text-xs text-white/40 truncate max-w-[150px]">
               {item.dealName}
             </span>
           )}
@@ -371,45 +373,46 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
   const completionPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   // PHASE 19B: Enhanced container with dark glass card styling
+  // PHASE A: Apple-grade glass container with premium depth
   return (
-    <div className="bg-gradient-to-br from-gray-900/90 to-black/70 border border-[#1ABC9C]/30 rounded-2xl p-5 mt-4 space-y-4 backdrop-blur-sm shadow-xl shadow-black/20">
+    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl p-6 mt-5 space-y-5 shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
       {/* Header with Progress */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1ABC9C]/30 to-[#16A085]/20 border border-[#1ABC9C]/30 flex items-center justify-center shadow-lg shadow-[#1ABC9C]/10">
-            <Target className="w-5 h-5 text-[#1ABC9C]" />
+      <div className="flex items-center justify-between pb-4 border-b border-white/[0.07]">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/25 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_4px_16px_rgba(12,227,177,0.15)]">
+            <Target className="w-6 h-6 text-[#0CE3B1]" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-white tracking-wide">Today's Action Plan</h4>
-            <p className="text-xs text-gray-400">{completedCount} of {totalCount} completed</p>
+            <h4 className="text-base font-semibold text-white tracking-tight">Today's Action Plan</h4>
+            <p className="text-xs text-white/50 mt-0.5">{completedCount} of {totalCount} completed</p>
           </div>
         </div>
 
-        {/* Progress Ring - Enhanced */}
-        <div className="relative w-14 h-14">
-          <svg className="w-14 h-14 transform -rotate-90">
+        {/* Progress Ring - Enhanced with glow */}
+        <div className="relative w-16 h-16">
+          <svg className="w-16 h-16 transform -rotate-90">
             <circle
-              cx="28"
-              cy="28"
-              r="24"
+              cx="32"
+              cy="32"
+              r="26"
               stroke="currentColor"
               strokeWidth="4"
               fill="transparent"
-              className="text-gray-700/50"
+              className="text-white/[0.06]"
             />
             <circle
-              cx="28"
-              cy="28"
-              r="24"
+              cx="32"
+              cy="32"
+              r="26"
               stroke="currentColor"
               strokeWidth="4"
               fill="transparent"
-              strokeDasharray={`${completionPercentage * 1.51} 151`}
+              strokeDasharray={`${completionPercentage * 1.63} 163`}
               strokeLinecap="round"
-              className="text-[#1ABC9C] transition-all duration-500 drop-shadow-[0_0_8px_rgba(26,188,156,0.5)]"
+              className="text-[#0CE3B1] transition-all duration-500 drop-shadow-[0_0_12px_rgba(12,227,177,0.6)]"
             />
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white tracking-tight">
             {completionPercentage}%
           </span>
         </div>
@@ -417,7 +420,7 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* Metrics Row */}
       {metrics.length > 0 && (
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-3.5 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
           {metrics.map((metric, idx) => (
             <MetricCard key={idx} metric={metric} />
           ))}
@@ -426,25 +429,25 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* PHASE 20: Carry-over tasks section */}
       {tasksByPriority.carryover.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div
-            className="flex items-center justify-between cursor-pointer group"
+            className="flex items-center justify-between cursor-pointer group py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-all duration-300"
             onClick={() => toggleSection('carryover')}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               {collapsedSections.carryover ? (
-                <ChevronRight className="w-4 h-4 text-amber-400" />
+                <ChevronRight className="w-4 h-4 text-amber-400 transition-transform duration-300" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-amber-400" />
+                <ChevronDown className="w-4 h-4 text-amber-400 transition-transform duration-300" />
               )}
-              <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide flex items-center gap-2">
-                <RotateCcw className="w-3 h-3" />
+              <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                <RotateCcw className="w-3.5 h-3.5" />
                 Carried Over ({tasksByPriority.carryover.length})
               </span>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); dismissCarryOver(); }}
-              className="text-xs text-gray-500 hover:text-white transition-colors"
+              className="text-xs text-white/40 hover:text-amber-400 transition-all duration-300 px-2 py-1 rounded-lg hover:bg-amber-400/10"
             >
               Dismiss all
             </button>
@@ -462,17 +465,17 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* PHASE 20: High priority section */}
       {tasksByPriority.high.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div
-            className="flex items-center gap-2 cursor-pointer"
+            className="flex items-center gap-2.5 cursor-pointer py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-all duration-300"
             onClick={() => toggleSection('high')}
           >
             {collapsedSections.high ? (
-              <ChevronRight className="w-4 h-4 text-red-400" />
+              <ChevronRight className="w-4 h-4 text-rose-400 transition-transform duration-300" />
             ) : (
-              <ChevronDown className="w-4 h-4 text-red-400" />
+              <ChevronDown className="w-4 h-4 text-rose-400 transition-transform duration-300" />
             )}
-            <span className="text-xs font-semibold text-red-400 uppercase tracking-wide">
+            <span className="text-xs font-semibold text-rose-400 uppercase tracking-wider">
               High Priority ({tasksByPriority.high.length})
             </span>
           </div>
@@ -489,17 +492,17 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* PHASE 20: Medium priority section */}
       {tasksByPriority.medium.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div
-            className="flex items-center gap-2 cursor-pointer"
+            className="flex items-center gap-2.5 cursor-pointer py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-all duration-300"
             onClick={() => toggleSection('medium')}
           >
             {collapsedSections.medium ? (
-              <ChevronRight className="w-4 h-4 text-amber-400" />
+              <ChevronRight className="w-4 h-4 text-amber-400 transition-transform duration-300" />
             ) : (
-              <ChevronDown className="w-4 h-4 text-amber-400" />
+              <ChevronDown className="w-4 h-4 text-amber-400 transition-transform duration-300" />
             )}
-            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
               Medium Priority ({tasksByPriority.medium.length})
             </span>
           </div>
@@ -516,17 +519,17 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* PHASE 20: Low priority section */}
       {tasksByPriority.low.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div
-            className="flex items-center gap-2 cursor-pointer"
+            className="flex items-center gap-2.5 cursor-pointer py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-all duration-300"
             onClick={() => toggleSection('low')}
           >
             {collapsedSections.low ? (
-              <ChevronRight className="w-4 h-4 text-blue-400" />
+              <ChevronRight className="w-4 h-4 text-sky-400 transition-transform duration-300" />
             ) : (
-              <ChevronDown className="w-4 h-4 text-blue-400" />
+              <ChevronDown className="w-4 h-4 text-sky-400 transition-transform duration-300" />
             )}
-            <span className="text-xs font-semibold text-blue-400 uppercase tracking-wide">
+            <span className="text-xs font-semibold text-sky-400 uppercase tracking-wider">
               Low Priority ({tasksByPriority.low.length})
             </span>
           </div>
@@ -543,8 +546,8 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* Empty State */}
       {mergedChecklist.length === 0 && (
-        <div className="text-center py-6">
-          <p className="text-sm text-gray-400">No action items detected. Try asking for a more specific plan.</p>
+        <div className="text-center py-10">
+          <p className="text-sm text-white/40 leading-relaxed">No action items detected. Try asking for a more specific plan.</p>
         </div>
       )}
     </div>

@@ -265,8 +265,11 @@ export const TeamDashboard = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#1ABC9C]" />
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 flex items-center justify-center shadow-[0_4px_20px_rgba(12,227,177,0.15)]">
+          <Loader2 className="w-7 h-7 animate-spin text-[#0CE3B1]" />
+        </div>
+        <p className="text-sm text-white/50 font-medium">Loading team data...</p>
       </div>
     );
   }
@@ -278,29 +281,29 @@ export const TeamDashboard = () => {
     // Paid plan but no team data yet - show invite prompt instead of upgrade prompt
     if (hasPaidPlan) {
       return (
-        <div className="p-6 space-y-6 bg-white dark:bg-[#1A1A1A] min-h-screen">
+        <div className="p-6 space-y-8 min-h-screen">
           <div>
-            <h1 className="text-title-1 text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">Team Performance</h1>
-            <p className="text-body text-[#6B7280] dark:text-[#9CA3AF]">
+            <h1 className="text-title-1 text-white tracking-tight mb-2">Team Performance</h1>
+            <p className="text-body text-white/50">
               {contextOrganization?.name} • {contextOrganization?.plan?.charAt(0).toUpperCase() + contextOrganization?.plan?.slice(1)} Plan
             </p>
           </div>
 
-          <div className="bg-white dark:bg-[#0D1F2D] rounded-2xl p-8 border border-gray-200 dark:border-gray-700">
-            <div className="text-center space-y-4">
-              <div className="w-16 h-16 bg-[#1ABC9C]/10 rounded-full flex items-center justify-center mx-auto">
-                <Users className="w-8 h-8 text-[#1ABC9C]" />
+          <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-10 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+            <div className="text-center space-y-5">
+              <div className="w-18 h-18 bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 rounded-2xl flex items-center justify-center mx-auto w-[72px] h-[72px] border border-[#0CE3B1]/20 shadow-[0_4px_20px_rgba(12,227,177,0.15)]">
+                <Users className="w-9 h-9 text-[#0CE3B1]" />
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">Start Building Your Team</h4>
-                <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF] max-w-md mx-auto">
+                <h4 className="text-xl font-semibold text-white mb-2 tracking-tight">Start Building Your Team</h4>
+                <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
                   Your {contextOrganization?.plan} plan includes team collaboration features.
                   Invite team members from Settings to start tracking performance together.
                 </p>
               </div>
               <button
                 type="button"
-                className="bg-[#1ABC9C] text-white py-3 px-6 rounded-lg font-semibold hover:bg-[#16A085] transition shadow-md hover:shadow-lg"
+                className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white py-3.5 px-7 rounded-2xl font-semibold hover:from-[#0CE3B1] hover:to-[#16A085] transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
                 onClick={() => {
                   // Navigate to Settings general tab for team management
                   const url = new URL(window.location);
@@ -319,26 +322,26 @@ export const TeamDashboard = () => {
 
     // Free plan - show upgrade prompt
     return (
-      <div className="p-6 space-y-6 bg-white dark:bg-[#1A1A1A] min-h-screen">
+      <div className="p-6 space-y-8 min-h-screen">
         <div>
-          <h1 className="text-title-1 text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">Team</h1>
-          <p className="text-body text-[#6B7280] dark:text-[#9CA3AF]">Collaborate with your team</p>
+          <h1 className="text-title-1 text-white tracking-tight mb-2">Team</h1>
+          <p className="text-body text-white/50">Collaborate with your team</p>
         </div>
 
-        <div className="bg-white dark:bg-[#0D1F2D] rounded-2xl p-8 border border-gray-200 dark:border-gray-700">
-          <div className="text-center space-y-4">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto">
-              <Users className="w-8 h-8 text-[#6B7280] dark:text-[#9CA3AF]" />
+        <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-10 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+          <div className="text-center space-y-5">
+            <div className="w-[72px] h-[72px] bg-white/[0.05] rounded-2xl flex items-center justify-center mx-auto border border-white/[0.08]">
+              <Users className="w-9 h-9 text-white/40" />
             </div>
             <div>
-              <h4 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">Team Features Locked</h4>
-              <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF]">
+              <h4 className="text-xl font-semibold text-white mb-2 tracking-tight">Team Features Locked</h4>
+              <p className="text-sm text-white/50 leading-relaxed">
                 Upgrade to Startup plan to invite team members and collaborate
               </p>
             </div>
             <button
               type="button"
-              className="bg-[#1ABC9C] text-white py-3 px-6 rounded-lg font-semibold hover:bg-[#16A085] transition shadow-md hover:shadow-lg"
+              className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white py-3.5 px-7 rounded-2xl font-semibold hover:from-[#0CE3B1] hover:to-[#16A085] transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => {
                 // Navigate to Settings and set URL parameter for billing tab
                 const url = new URL(window.location);
@@ -358,91 +361,91 @@ export const TeamDashboard = () => {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-white dark:bg-[#1A1A1A] min-h-screen">
+    <div className="p-6 space-y-8 min-h-screen">
       {/* Header */}
       <div>
-        <h1 className="text-title-1 text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
+        <h1 className="text-title-1 text-white tracking-tight mb-2">
           Team Performance
         </h1>
-        <p className="text-body text-[#6B7280] dark:text-[#9CA3AF]">
+        <p className="text-body text-white/50">
           {organization?.name} • {teamMetrics.memberCount} Active {teamMetrics.memberCount === 1 ? 'Member' : 'Members'}
         </p>
       </div>
 
       {/* Team Overview Metrics */}
       {/* PHASE 20: All metrics use defensive null-safe access with ?? fallbacks */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Total Pipeline */}
-        <div className="bg-gradient-to-br from-[#F0FDF4] to-[#DCFCE7] rounded-xl p-6 border border-[#BBF7D0]">
+        <div className="bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 backdrop-blur-md rounded-2xl p-6 border border-emerald-400/25 shadow-[0_4px_20px_rgba(16,185,129,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(16,185,129,0.15)] hover:border-emerald-400/35">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-[#6B7280] mb-1">Total Pipeline</p>
-              <p className="text-3xl font-bold text-[#16A34A]">
+              <p className="text-sm text-white/60 mb-1.5 font-medium">Total Pipeline</p>
+              <p className="text-3xl font-bold text-emerald-400 tracking-tight">
                 {formatCurrency(teamMetrics?.totalPipeline ?? 0)}
               </p>
-              <p className="text-sm text-[#6B7280] mt-2 flex items-center gap-1">
+              <p className="text-sm text-white/50 mt-2.5 flex items-center gap-1.5">
                 {/* PHASE 19/20 FIX: Use teamMetrics?.teamTrend with null-safe access */}
                 {(teamMetrics?.teamTrend ?? 'up') === 'up' ? (
-                  <TrendingUp className="w-4 h-4 text-[#16A34A]" />
+                  <TrendingUp className="w-4 h-4 text-emerald-400" />
                 ) : (
-                  <TrendingDown className="w-4 h-4 text-[#DC2626]" />
+                  <TrendingDown className="w-4 h-4 text-rose-400" />
                 )}
-                <span className={(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'text-[#16A34A]' : 'text-[#DC2626]'}>
+                <span className={(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'text-emerald-400' : 'text-rose-400'}>
                   {(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'Trending up' : 'Trending down'}
                 </span>
               </p>
             </div>
-            <DollarSign className="w-10 h-10 text-[#16A34A] opacity-50" />
+            <DollarSign className="w-10 h-10 text-emerald-400/30" />
           </div>
         </div>
 
         {/* Expected Revenue */}
-        <div className="bg-gradient-to-br from-[#EBF8FF] to-[#E0F2FE] rounded-xl p-6 border border-[#BAE6FD]">
+        <div className="bg-gradient-to-br from-sky-500/15 to-sky-600/5 backdrop-blur-md rounded-2xl p-6 border border-sky-400/25 shadow-[0_4px_20px_rgba(14,165,233,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(14,165,233,0.15)] hover:border-sky-400/35">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-[#6B7280] mb-1">Expected Revenue</p>
-              <p className="text-3xl font-bold text-[#0284C7]">
+              <p className="text-sm text-white/60 mb-1.5 font-medium">Expected Revenue</p>
+              <p className="text-3xl font-bold text-sky-400 tracking-tight">
                 {formatCurrency(teamMetrics?.totalExpectedRevenue ?? 0)}
               </p>
-              <p className="text-sm text-[#6B7280] mt-2">70% avg probability</p>
+              <p className="text-sm text-white/50 mt-2.5">70% avg probability</p>
             </div>
-            <Target className="w-10 h-10 text-[#0284C7] opacity-50" />
+            <Target className="w-10 h-10 text-sky-400/30" />
           </div>
         </div>
 
         {/* Deals Added This Week */}
-        <div className="bg-gradient-to-br from-[#F0FDF4] to-[#DCFCE7] rounded-xl p-6 border border-[#BBF7D0]">
+        <div className="bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 backdrop-blur-md rounded-2xl p-6 border border-emerald-400/25 shadow-[0_4px_20px_rgba(16,185,129,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(16,185,129,0.15)] hover:border-emerald-400/35">
           <div>
-            <p className="text-sm text-[#6B7280] mb-1">Deals Added (This Week)</p>
-            <p className="text-3xl font-bold text-[#16A34A]">{teamMetrics?.totalDealsAdded ?? 0}</p>
+            <p className="text-sm text-white/60 mb-1.5 font-medium">Deals Added (This Week)</p>
+            <p className="text-3xl font-bold text-emerald-400 tracking-tight">{teamMetrics?.totalDealsAdded ?? 0}</p>
           </div>
         </div>
 
         {/* Deals Closed This Week */}
-        <div className="bg-gradient-to-br from-[#FAF5FF] to-[#F3E8FF] rounded-xl p-6 border border-[#E9D5FF]">
+        <div className="bg-gradient-to-br from-purple-500/15 to-purple-600/5 backdrop-blur-md rounded-2xl p-6 border border-purple-400/25 shadow-[0_4px_20px_rgba(168,85,247,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(168,85,247,0.15)] hover:border-purple-400/35">
           <div>
-            <p className="text-sm text-[#6B7280] mb-1">Deals Closed (This Week)</p>
-            <p className="text-3xl font-bold text-[#9333EA]">{teamMetrics?.totalDealsClosed ?? 0}</p>
-            <p className="text-sm text-[#6B7280] mt-2">{formatCurrency(teamMetrics?.totalClosedValue ?? 0)}</p>
+            <p className="text-sm text-white/60 mb-1.5 font-medium">Deals Closed (This Week)</p>
+            <p className="text-3xl font-bold text-purple-400 tracking-tight">{teamMetrics?.totalDealsClosed ?? 0}</p>
+            <p className="text-sm text-white/50 mt-2.5">{formatCurrency(teamMetrics?.totalClosedValue ?? 0)}</p>
           </div>
         </div>
       </div>
 
       {/* Team Members Performance */}
       <div>
-        <h2 className="text-title-2 text-[#1A1A1A] dark:text-[#E0E0E0] mb-4">
+        <h2 className="text-title-2 text-white tracking-tight mb-5">
           Team Member Performance
         </h2>
         {/* FIX H3: Empty state for no team members */}
         {teamMembers.length === 0 ? (
-          <div className="bg-white dark:bg-[#0D1F2D] rounded-2xl p-12 border border-gray-200 dark:border-gray-700 text-center">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-[#6B7280] dark:text-[#9CA3AF]" />
+          <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-12 border border-white/[0.08] text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+            <div className="w-[72px] h-[72px] bg-white/[0.05] rounded-2xl flex items-center justify-center mx-auto mb-5 border border-white/[0.08]">
+              <Users className="w-9 h-9 text-white/40" />
             </div>
-            <h3 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
+            <h3 className="text-xl font-semibold text-white mb-2 tracking-tight">
               No Team Members Yet
             </h3>
-            <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF] max-w-md mx-auto">
+            <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
               Invite your first team member from Settings to start collaborating on deals.
             </p>
           </div>
@@ -452,43 +455,43 @@ export const TeamDashboard = () => {
             {teamMembers.slice(0, displayedCount).map((member) => (
             <div
               key={member.userId}
-              className="bg-[#F9FAFB] dark:bg-[#1E1E1E] rounded-xl p-6 border-l-4 border-[#1ABC9C]"
+              className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-6 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
             >
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-5">
                 <div>
-                  <h3 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">
+                  <h3 className="text-lg font-semibold text-white tracking-tight">
                     {member.name}
                     {member.isCurrentUser && (
-                      <span className="ml-2 text-sm font-normal text-[#6B7280]">(You)</span>
+                      <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
                     )}
                   </h3>
-                  <p className="text-sm text-[#6B7280] capitalize">{member.role || 'Member'}</p>
+                  <p className="text-sm text-white/50 capitalize mt-0.5">{member.role || 'Member'}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#6B7280]">Deals Added:</span>
-                  <span className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                  <span className="text-sm text-white/50">Deals Added:</span>
+                  <span className="font-semibold text-white">
                     {member.dealsAdded} ({formatCurrency(member.dealsAddedValue)})
                     {member.dealsAddedTrend === 'up' ? (
-                      <TrendingUp className="inline w-4 h-4 ml-1 text-[#16A34A]" />
+                      <TrendingUp className="inline w-4 h-4 ml-1.5 text-emerald-400" />
                     ) : (
-                      <TrendingDown className="inline w-4 h-4 ml-1 text-[#DC2626]" />
+                      <TrendingDown className="inline w-4 h-4 ml-1.5 text-rose-400" />
                     )}
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#6B7280]">Deals Closed:</span>
-                  <span className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">
+                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                  <span className="text-sm text-white/50">Deals Closed:</span>
+                  <span className="font-semibold text-white">
                     {member.dealsClosed} won ({formatCurrency(member.dealsClosedValue)})
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#6B7280]">Active Pipeline:</span>
-                  <span className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">
+                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                  <span className="text-sm text-white/50">Active Pipeline:</span>
+                  <span className="font-semibold text-white">
                     {formatCurrency(member.activePipeline)} → {formatCurrency(member.expectedRevenue)}
                   </span>
                 </div>
@@ -498,20 +501,20 @@ export const TeamDashboard = () => {
 
             {/* PAGINATION FIX: Load More button when there are more members */}
             {displayedCount < totalMemberCount && (
-              <div className="flex justify-center pt-4">
+              <div className="flex justify-center pt-6">
                 <button
                   onClick={() => setDisplayedCount(prev => prev + TEAM_PAGE_SIZE)}
-                  className="flex items-center gap-2 px-6 py-3 bg-[#1ABC9C]/10 border border-[#1ABC9C]/30 text-[#1ABC9C] rounded-lg hover:bg-[#1ABC9C]/20 hover:border-[#1ABC9C]/50 transition font-medium"
+                  className="flex items-center gap-2.5 px-7 py-3.5 bg-white/[0.03] border border-white/[0.1] text-white rounded-2xl hover:bg-white/[0.06] hover:border-[#0CE3B1]/30 transition-all duration-300 font-medium shadow-[0_4px_16px_rgba(0,0,0,0.1)] hover:shadow-[0_6px_20px_rgba(12,227,177,0.1)]"
                 >
-                  <Users className="w-4 h-4" />
+                  <Users className="w-4 h-4 text-[#0CE3B1]" />
                   Load More ({totalMemberCount - displayedCount} remaining)
                 </button>
               </div>
             )}
 
             {/* PAGINATION FIX: Show count indicator */}
-            <div className="text-center pt-2">
-              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+            <div className="text-center pt-4">
+              <p className="text-xs text-white/40">
                 Showing {Math.min(displayedCount, totalMemberCount)} of {totalMemberCount} team members
               </p>
             </div>

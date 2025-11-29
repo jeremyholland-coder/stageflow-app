@@ -69,16 +69,16 @@ const MetricsSummaryStrip = ({ metrics }) => {
   if (statPills.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 mb-4">
+    <div className="flex flex-wrap gap-3 mb-5 pb-4 border-b border-white/[0.07]">
       {statPills.slice(0, 4).map((stat, idx) => (
         <div
           key={idx}
-          className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br ${stat.color} border ${stat.borderColor} backdrop-blur-sm`}
+          className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-gradient-to-br ${stat.color} border ${stat.borderColor} backdrop-blur-md shadow-[0_4px_20px_rgba(0,0,0,0.08)] transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-[0_6px_24px_rgba(0,0,0,0.12)]`}
         >
-          <stat.icon className="w-3.5 h-3.5 text-white/60" />
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-white/50">{stat.label}:</span>
-            <span className="text-sm font-semibold text-white">{stat.value}</span>
+          <stat.icon className="w-4 h-4 text-white/70" />
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-white/60 font-medium">{stat.label}:</span>
+            <span className="text-sm font-semibold text-white tracking-tight">{stat.value}</span>
           </div>
         </div>
       ))}
@@ -1074,28 +1074,31 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
       {/* REDESIGNED: Combined Chat Container - Auto-expands for charts, contracts for text */}
       {/* FIX E1: Increased container size for better readability and more space for results */}
+      {/* PHASE A: Apple-grade glass panel with premium depth */}
       <div
-        className="relative flex flex-col bg-[#0A0F14] dark:bg-[#0A0F14] border-2 border-[#1ABC9C]/20 rounded-2xl overflow-hidden shadow-2xl shadow-black/20"
+        className="relative flex flex-col bg-white/[0.03] dark:bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.25)]"
         style={{
           // E1 FIX: Larger container - 800px base, 1400px with charts
           maxHeight: hasCharts ? '1400px' : '800px',
           minHeight: conversationHistory.length === 0 ? '280px' : '500px',
-          transition: 'max-height 0.3s ease-out, min-height 0.3s ease-out'
+          transition: 'max-height 0.4s ease-out, min-height 0.4s ease-out'
         }}
       >
 
         {/* Chat Header with New Conversation Button */}
         {conversationHistory.length > 0 && (
-          <div className="flex-shrink-0 px-4 py-3 bg-[#0D1419] border-b border-[#1ABC9C]/10 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#1ABC9C]" />
-              <p className="text-sm font-medium text-white/90">AI Conversation</p>
+          <div className="flex-shrink-0 px-5 py-3.5 bg-gradient-to-r from-[#0D1419] to-[#0A0F14] border-b border-white/[0.07] flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-[#0CE3B1]" />
+              </div>
+              <p className="text-sm font-semibold text-white/90 tracking-tight">AI Conversation</p>
             </div>
             <button
               onClick={handleNewConversation}
-              className="flex items-center gap-2 text-xs px-3 py-1.5 bg-[#1ABC9C]/10 border border-[#1ABC9C]/30 rounded-lg hover:bg-[#1ABC9C]/20 hover:border-[#1ABC9C]/50 transition-colors text-[#1ABC9C]"
+              className="flex items-center gap-2 text-xs px-3.5 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl hover:bg-white/[0.08] hover:border-[#0CE3B1]/30 transition-all duration-300 text-white/70 hover:text-[#0CE3B1] shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
             >
-              <RotateCcw className="w-3 h-3" />
+              <RotateCcw className="w-3.5 h-3.5" />
               New Conversation
             </button>
           </div>
@@ -1109,25 +1112,28 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         )}
 
         {/* Scrollable Conversation Area - FIX E1: Increased padding for better readability */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1ABC9C #0A0F14' }}>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
 
           {/* Welcome State - Clean and minimal */}
           {conversationHistory.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center py-4 space-y-4">
-              {/* Simple Sparkles icon - no heavy background */}
+            <div className="flex flex-col items-center justify-center py-8 space-y-6">
+              {/* Premium glass icon container with gradient */}
               <div className="relative">
-                <Sparkles className="w-16 h-16 text-[#1ABC9C]" strokeWidth={1.5} />
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_8px_32px_rgba(12,227,177,0.15)]">
+                  <Sparkles className="w-10 h-10 text-[#0CE3B1]" strokeWidth={1.5} />
+                </div>
+                <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/10 to-transparent blur-xl -z-10" />
               </div>
 
-              {/* Title & Description - Apple-style minimal */}
-              <div className="text-center max-w-md space-y-1">
+              {/* Title & Description - Apple-style minimal with breathing room */}
+              <div className="text-center max-w-md space-y-2">
                 <h3 className="text-2xl font-semibold text-white tracking-tight">
-                  StageFlow
+                  StageFlow AI
                 </h3>
-                <p className="text-sm text-white/60">
+                <p className="text-sm text-white/60 leading-relaxed">
                   AI-powered pipeline insights
                 </p>
-                <p className="text-xs text-white/40 mt-2">
+                <p className="text-xs text-white/40 mt-3 pt-2 border-t border-white/[0.05]">
                   Ask me anything about your deals
                 </p>
               </div>
@@ -1136,11 +1142,11 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
           {/* Conversation Messages */}
           {conversationHistory.map((message, idx) => (
-            <div key={idx}>
+            <div key={idx} className="animate-[fadeIn_0.3s_ease-out]">
               {message.role === 'user' ? (
                 /* User Message */
                 <div className="flex justify-end">
-                  <div className="max-w-[85%] sm:max-w-[75%] p-3 bg-[#1ABC9C]/20 border border-[#1ABC9C]/30 rounded-xl rounded-tr-sm">
+                  <div className="max-w-[85%] sm:max-w-[75%] p-4 bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 rounded-2xl rounded-tr-md shadow-[0_4px_20px_rgba(12,227,177,0.08)] transition-all duration-300">
                     <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">
                       {message.content}
                     </p>
@@ -1171,16 +1177,16 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
               ) : (
                 /* AI Message */
                 <div className="flex justify-start">
-                  <div className="max-w-[85%] sm:max-w-[75%] p-4 bg-[#0D1419] border border-[#1ABC9C]/20 rounded-xl rounded-tl-sm">
-                    <div className="flex items-start gap-3">
-                      <div className="p-1.5 bg-[#1ABC9C]/20 rounded-lg flex-shrink-0">
-                        <Sparkles className="w-3.5 h-3.5 text-[#1ABC9C]" />
+                  <div className="max-w-[85%] sm:max-w-[75%] p-5 bg-white/[0.03] backdrop-blur-md border border-white/[0.07] rounded-2xl rounded-tl-md shadow-[0_4px_24px_rgba(0,0,0,0.12)] transition-all duration-300">
+                    <div className="flex items-start gap-3.5">
+                      <div className="p-2 bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 rounded-xl flex-shrink-0 shadow-[0_2px_8px_rgba(12,227,177,0.1)]">
+                        <Sparkles className="w-4 h-4 text-[#0CE3B1]" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <p className="text-xs font-bold text-[#1ABC9C]">AI</p>
+                        <div className="flex items-center gap-2.5 mb-3 pb-2 border-b border-white/[0.05]">
+                          <p className="text-xs font-bold text-[#0CE3B1] tracking-wide">AI</p>
                           {message.provider && (
-                            <span className="px-2 py-0.5 bg-[#1ABC9C]/10 text-[#1ABC9C] text-[10px] font-bold rounded-full border border-[#1ABC9C]/20">
+                            <span className="px-2.5 py-0.5 bg-gradient-to-r from-[#0CE3B1]/15 to-[#0CE3B1]/5 text-[#0CE3B1] text-[10px] font-bold rounded-full border border-[#0CE3B1]/20">
                               {message.provider}
                             </span>
                           )}
@@ -1266,16 +1272,18 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
           {/* Loading State - Elegant Wave Animation */}
           {loading && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%] sm:max-w-[75%] p-4 bg-[#0D1419] border border-[#1ABC9C]/20 rounded-xl rounded-tl-sm">
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-4 h-4 text-[#1ABC9C]" />
-                  <div className="flex items-center gap-1">
-                    <p className="text-sm text-white/70">AI is thinking</p>
-                    <div className="flex gap-1">
-                      <span className="w-1 h-1 bg-[#1ABC9C] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                      <span className="w-1 h-1 bg-[#1ABC9C] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                      <span className="w-1 h-1 bg-[#1ABC9C] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+            <div className="flex justify-start animate-[fadeIn_0.3s_ease-out]">
+              <div className="max-w-[85%] sm:max-w-[75%] p-5 bg-white/[0.03] backdrop-blur-md border border-white/[0.07] rounded-2xl rounded-tl-md shadow-[0_4px_24px_rgba(0,0,0,0.12)]">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2 bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 rounded-xl shadow-[0_2px_8px_rgba(12,227,177,0.1)]">
+                    <Sparkles className="w-4 h-4 text-[#0CE3B1] animate-pulse" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-white/70 font-medium">AI is thinking</p>
+                    <div className="flex gap-1.5 ml-1">
+                      <span className="w-1.5 h-1.5 bg-[#0CE3B1] rounded-full animate-bounce shadow-[0_0_8px_rgba(12,227,177,0.5)]" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-1.5 h-1.5 bg-[#0CE3B1] rounded-full animate-bounce shadow-[0_0_8px_rgba(12,227,177,0.5)]" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-1.5 h-1.5 bg-[#0CE3B1] rounded-full animate-bounce shadow-[0_0_8px_rgba(12,227,177,0.5)]" style={{ animationDelay: '300ms' }}></span>
                     </div>
                   </div>
                 </div>
@@ -1288,7 +1296,7 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         </div>
 
         {/* Fixed Input Area at Bottom - MOBILE: Always visible and accessible */}
-        <div className="flex-shrink-0 p-4 bg-[#0D1419] border-t border-[#1ABC9C]/10 sticky bottom-0 z-10">
+        <div className="flex-shrink-0 p-5 bg-gradient-to-t from-[#0A0F14] via-[#0D1419] to-[#0D1419]/95 border-t border-white/[0.07] sticky bottom-0 z-10">
           {/* PHASE 5.1: New AI UX Surface - Hero Button + Insight Chips */}
           {/* OFFLINE: Hide quick actions when offline */}
           {hasProviders && isOnline && (
@@ -1344,17 +1352,17 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                     ? "Ask anything about your pipeline..."
                     : "Configure an AI provider to use this feature..."
               }
-              className="w-full p-3 pr-12 bg-[#0A0F14] border border-[#1ABC9C]/30 rounded-xl focus:ring-2 focus:ring-[#1ABC9C] focus:border-[#1ABC9C] text-white placeholder-white/40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full p-4 pr-14 bg-white/[0.03] border border-white/[0.1] rounded-2xl focus:ring-2 focus:ring-[#0CE3B1]/50 focus:border-[#0CE3B1]/40 text-white placeholder-white/40 resize-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)]"
               rows="2"
               disabled={loading || !hasProviders || !isOnline}
             />
             <button
               onClick={handleQueryStreaming}
               disabled={loading || isSubmitting || !query.trim() || !hasProviders || !isOnline}
-              className={`absolute bottom-2 right-2 p-2 rounded-lg transition-all ${
+              className={`absolute bottom-3 right-3 p-2.5 rounded-xl transition-all duration-300 ${
                 loading || isSubmitting || !query.trim() || !hasProviders || !isOnline
-                  ? 'bg-gray-700 cursor-not-allowed opacity-50'
-                  : 'bg-[#1ABC9C] hover:bg-[#16A085] hover:scale-105 shadow-lg shadow-[#1ABC9C]/20'
+                  ? 'bg-white/[0.05] cursor-not-allowed opacity-40'
+                  : 'bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] hover:scale-105 shadow-[0_4px_16px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_20px_rgba(12,227,177,0.4)]'
               }`}
             >
               {loading ? (

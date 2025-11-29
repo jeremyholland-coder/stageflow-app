@@ -29,7 +29,7 @@ const AIInsightsWidget = lazy(() => import('./AIInsightsWidget').then(m => ({ de
 
 const PowerUpWithAI = memo(() => {
   const { setActiveView } = useApp();
-  
+
   const handlePowerUp = useCallback(() => {
     // Set URL parameter before switching view
     const url = new URL(window.location);
@@ -37,40 +37,40 @@ const PowerUpWithAI = memo(() => {
     window.history.pushState({}, '', url);
     setActiveView('integrations');
   }, [setActiveView]);
-  
+
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl p-8">
+    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.2)] p-8">
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-4 mb-4">
             <div className="w-14 h-14 relative">
-              <div className="absolute inset-0 rounded-xl bg-teal-500/20 ring-2 ring-teal-500/10 flex items-center justify-center">
-                <Zap className="w-8 h-8 text-teal-400" strokeWidth={2.5} />
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/25 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_4px_20px_rgba(12,227,177,0.2)]">
+                <Zap className="w-7 h-7 text-[#0CE3B1]" strokeWidth={2.5} />
               </div>
             </div>
-            <h2 className="text-3xl font-bold text-white">Power Up with AI</h2>
+            <h2 className="text-3xl font-bold text-white tracking-tight">Power Up with AI</h2>
           </div>
-          <p className="text-gray-300 text-lg mb-4 max-w-2xl">
+          <p className="text-white/60 text-lg mb-5 max-w-2xl leading-relaxed">
             Unlock AI-powered insights, deal health analysis, stage predictions, and smart recommendations.
             Connect an AI provider in seconds.
           </p>
-          <ul className="space-y-2 mb-6">
-            <li className="flex items-center gap-2 text-gray-300">
-              <div className="w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
+          <ul className="space-y-3 mb-7">
+            <li className="flex items-center gap-3 text-white/70">
+              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
               <span>Real-time deal health scoring</span>
             </li>
-            <li className="flex items-center gap-2 text-gray-300">
-              <div className="w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
+            <li className="flex items-center gap-3 text-white/70">
+              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
               <span>Stage progression predictions</span>
             </li>
-            <li className="flex items-center gap-2 text-gray-300">
-              <div className="w-1.5 h-1.5 rounded-full bg-teal-400" aria-hidden="true" />
+            <li className="flex items-center gap-3 text-white/70">
+              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
               <span>Natural language queries about your pipeline</span>
             </li>
           </ul>
           <button
             onClick={handlePowerUp}
-            className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 min-h-touch rounded-xl font-semibold flex items-center gap-2 transition-all shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98]"
+            className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-7 py-3.5 min-h-touch rounded-2xl font-semibold flex items-center gap-2.5 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             aria-label="Connect AI Provider to unlock AI features"
           >
             <Zap className="w-5 h-5" aria-hidden="true" />
@@ -78,7 +78,7 @@ const PowerUpWithAI = memo(() => {
           </button>
         </div>
         <div className="hidden lg:block" aria-hidden="true">
-          <TrendingUp className="w-32 h-32 text-teal-500/10" />
+          <TrendingUp className="w-32 h-32 text-[#0CE3B1]/10" />
         </div>
       </div>
     </div>
@@ -103,9 +103,9 @@ const FILTER_BUTTONS = [
 const ModalFallback = () => null; // Modals render their own loading states
 
 const WidgetFallback = () => (
-  <div className="bg-white dark:bg-[#0D1F2D] rounded-2xl p-6 border border-[#E0E0E0] dark:border-gray-700 animate-pulse">
-    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-4" />
-    <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-2/3" />
+  <div className="bg-white/[0.03] dark:bg-white/[0.03] backdrop-blur-md rounded-2xl p-6 border border-white/[0.08] animate-pulse shadow-[0_4px_20px_rgba(0,0,0,0.1)]">
+    <div className="h-6 bg-white/[0.06] rounded-xl w-1/3 mb-4" />
+    <div className="h-4 bg-white/[0.04] rounded-lg w-2/3" />
   </div>
 );
 
@@ -652,23 +652,23 @@ export const Dashboard = () => {
           </Suspense>
         </ModalErrorBoundary>
         {/* SF-UI-001 FIX: Added flex-wrap and gap to prevent button overflow on mobile */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div className="min-w-0 flex-1">
-            <h1 className="text-large-title text-[#1A1A1A] dark:text-[#E0E0E0] mb-1">Pipeline</h1>
-            <p className="text-subheadline text-[#4B5563] dark:text-[#9CA3AF]">Manage your revenue pipeline</p>
+            <h1 className="text-large-title text-white tracking-tight mb-1">Pipeline</h1>
+            <p className="text-subheadline text-white/50">Manage your revenue pipeline</p>
           </div>
           {/* FIX #2.1: Touch target minimum 44px + FIX #3.2: ARIA label + FIX #6: Keyboard shortcut hint */}
           {/* SF-UI-001 FIX: Added flex-shrink-0 to prevent button from shrinking and overflow */}
           <button
             onClick={handleNewDealClick}
-            className="flex-shrink-0 bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 min-h-touch rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98] group"
+            className="flex-shrink-0 bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-5 py-2.5 min-h-touch rounded-2xl font-semibold flex items-center gap-2.5 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98] group"
             aria-label="Create new deal (Cmd+N)"
             title="Create new deal (⌘N)"
             data-tour="new-deal-button"
           >
             <Plus className="w-5 h-5" aria-hidden="true" />
             <span>New Deal</span>
-            <span className="hidden md:inline text-xs opacity-75 ml-1 group-hover:opacity-100 transition">⌘N</span>
+            <span className="hidden md:inline text-xs opacity-60 ml-1 group-hover:opacity-100 transition-opacity duration-300">⌘N</span>
           </button>
         </div>
 
@@ -677,21 +677,21 @@ export const Dashboard = () => {
 
             {/* FIX CRITICAL #2: Pipeline loading error banner with retry */}
             {pipelineError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-red-100 dark:bg-red-900/40 rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              <div className="bg-rose-500/10 backdrop-blur-md border border-rose-400/30 rounded-2xl p-5 mb-7 shadow-[0_4px_20px_rgba(244,63,94,0.1)]">
+                <div className="flex items-start gap-4">
+                  <div className="p-2.5 bg-rose-500/20 rounded-xl">
+                    <AlertCircle className="w-5 h-5 text-rose-400" />
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-red-900 dark:text-red-200 mb-1">
+                    <h4 className="font-semibold text-rose-300 mb-1.5 tracking-tight">
                       Pipeline Loading Error
                     </h4>
-                    <p className="text-sm text-red-800 dark:text-red-300 mb-3">
+                    <p className="text-sm text-rose-200/70 mb-4 leading-relaxed">
                       {pipelineError}. Using default pipeline as fallback.
                     </p>
                     <button
                       onClick={handleRetryPipeline}
-                      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all min-h-touch"
+                      className="bg-rose-500/80 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2.5 transition-all duration-300 min-h-touch shadow-[0_4px_16px_rgba(244,63,94,0.3)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)]"
                       aria-label="Retry loading pipeline"
                     >
                       <RefreshCw className="w-4 h-4" aria-hidden="true" />
@@ -712,10 +712,10 @@ export const Dashboard = () => {
                 />
               ) : (
                 /* Empty state placeholder to reserve space - Apple-like content stability */
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 opacity-50">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 opacity-40">
                   {[1, 2, 3, 4, 5].map(i => (
-                    <div key={i} className="bg-gradient-to-br from-gray-900/50 to-black/30 border border-gray-700/30 rounded-2xl p-6 h-[150px] flex items-center justify-center">
-                      <div className="text-center text-gray-500 text-sm">
+                    <div key={i} className="bg-white/[0.02] backdrop-blur-md border border-white/[0.06] rounded-2xl p-6 h-[150px] flex items-center justify-center shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
+                      <div className="text-center text-white/40 text-sm">
                         {i === 1 && 'Add deals to see stats'}
                       </div>
                     </div>
@@ -803,14 +803,14 @@ export const Dashboard = () => {
             {/* FIX UX: Apple-like layout with extended search + compact filters */}
             <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center w-full">
               {/* CRITICAL FIX: Extended search bar to align with cards above - height matched to filter buttons */}
-              <div className="relative flex-1 h-[46px]">
+              <div className="relative flex-1 h-[48px]">
                 <Search
-                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#9CA3AF]"
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40"
                   aria-hidden="true"
                 />
                 {isSearching && (
                   <Loader2
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#1ABC9C] animate-spin"
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#0CE3B1] animate-spin"
                     aria-hidden="true"
                   />
                 )}
@@ -819,7 +819,7 @@ export const Dashboard = () => {
                   placeholder="Search deals..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full h-full pl-10 pr-12 border border-[#D1D5DB] dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-[#1ABC9C] dark:bg-[#0D1F2D] dark:text-[#E0E0E0]"
+                  className="w-full h-full pl-11 pr-12 bg-white/[0.03] border border-white/[0.1] rounded-2xl focus:ring-2 focus:ring-[#0CE3B1]/50 focus:border-[#0CE3B1]/40 dark:bg-white/[0.03] text-white placeholder-white/40 transition-all duration-300 shadow-[inset_0_2px_4px_rgba(0,0,0,0.08)]"
                   style={{ fontSize: '16px' }}
                   aria-label="Search deals by client name, email, value, notes, or stage"
                   aria-busy={isSearching}
@@ -829,16 +829,16 @@ export const Dashboard = () => {
               {/* FIX REVOPS #1: Extended filters with revenue lifecycle stages - height matched to search */}
               {/* VISUAL FIX: Removed overflow-x-auto and flex-shrink-0 to eliminate gray rectangle spacer */}
               {/* PHASE 18 PERF: Using static FILTER_BUTTONS constant (no re-creation on render) */}
-              <div className="flex flex-wrap gap-2 bg-gray-50 dark:bg-[#0D1F2D] rounded-lg p-1 border border-[#D1D5DB] dark:border-gray-700 h-auto min-h-[46px]" role="group" aria-label="Filter deals by status and stage">
+              <div className="flex flex-wrap gap-2 bg-white/[0.02] backdrop-blur-md rounded-2xl p-1.5 border border-white/[0.08] h-auto min-h-[48px] shadow-[0_2px_12px_rgba(0,0,0,0.08)]" role="group" aria-label="Filter deals by status and stage">
                 {FILTER_BUTTONS.map(({ id, label, tooltip }) => (
                   <button
                     key={id}
                     onClick={() => handleFilterChange(id)}
                     title={tooltip}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap min-h-touch flex items-center ${
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap min-h-touch flex items-center ${
                       filterStatus === id
-                        ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98]'
-                        : 'text-gray-300 hover:text-white hover:bg-gray-800'
+                        ? 'bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white shadow-[0_4px_16px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_20px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]'
+                        : 'text-white/50 hover:text-white hover:bg-white/[0.06]'
                     }`}
                     aria-label={tooltip}
                     aria-pressed={filterStatus === id}
