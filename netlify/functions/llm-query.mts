@@ -3,8 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./lib/encryption";
 import { LLMQuerySchema, validate } from "./lib/validation";
 import { RATE_LIMITS } from "./lib/rate-limiter";
-import { shouldUseNewAuth } from './lib/feature-flags';
-import { requireAuth, validateUserIdMatch, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
 
 // Removed config export - Netlify will auto-route based on function name
 
@@ -152,23 +151,35 @@ export default async (req: Request, context: Context) => {
 
     const { prompt, deal_id, user_id, organization_id, test_key, test_provider } = validation.data;
 
-    // SECURITY: Feature-flagged authentication migration
-    // Phase 4 Batch 3: Prevent user impersonation + centralized auth
-    if (shouldUseNewAuth('llm-query', user_id)) {
-      try {
-        // NEW AUTH PATH: Validate session and prevent user impersonation
-        const user = await requireAuth(req);
-        await validateUserIdMatch(user, user_id);
+    // PHASE 12 FIX: Always require authentication, query team_members directly
+    // (requireOrgAccess was being called after body was already consumed)
+    try {
+      console.warn('[llm-query] Authenticating user...');
+      const user = await requireAuth(req);
+      await validateUserIdMatch(user, user_id);
+      console.warn('[llm-query] Auth succeeded, user:', user.id);
 
-        // Validate organization membership
-        await requireOrgAccess(req, organization_id);
+      // Verify membership directly
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('organization_id', organization_id)
+        .maybeSingle();
 
-        // User is authenticated and authorized
-      } catch (authError) {
-        return createAuthErrorResponse(authError);
+      if (memberError || !membership) {
+        console.error('[llm-query] User not in organization:', { userId: user.id, organizationId: organization_id });
+        return new Response(JSON.stringify({ error: 'Not authorized for this organization' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
+
+      console.warn('[llm-query] Membership verified');
+    } catch (authError: any) {
+      console.error('[llm-query] Auth error:', authError.message);
+      return createAuthErrorResponse(authError);
     }
-    // LEGACY AUTH PATH: No validation (VULNERABLE - will be removed after migration)
 
     // MOBILE FIX: Detect and reject image data in prompt
     // Some mobile browsers/apps try to include base64 image data

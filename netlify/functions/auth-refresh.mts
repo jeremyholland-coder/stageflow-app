@@ -35,14 +35,37 @@ import { RATE_LIMITS } from './lib/rate-limiter';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  // PHASE 12: Consistent CORS headers
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:5173',
+    'http://localhost:8888'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   // Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
+
+  console.warn('[auth-refresh] Processing token refresh request');
 
   try {
     // SECURITY FIX: Apply rate limiting to prevent refresh abuse
@@ -84,7 +107,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       console.error('❌ Missing Supabase configuration');
       return {
         statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Server configuration error',
           code: 'CONFIG_ERROR'
@@ -100,10 +123,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     if (!refreshToken) {
       return {
         statusCode: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Set-Cookie': clearSessionCookies().join(', ')
-        },
+        headers: corsHeaders,
+        // PHASE 9 FIX: Use multiValueHeaders for Set-Cookie (prevents cookie parsing issues)
+        multiValueHeaders: { 'Set-Cookie': clearSessionCookies() },
         body: JSON.stringify({
           error: 'No refresh token found',
           code: 'NO_REFRESH_TOKEN',
@@ -138,10 +160,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
       return {
         statusCode: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Set-Cookie': clearCookies.join(', ')
-        },
+        headers: corsHeaders,
+        // PHASE 9 FIX: Use multiValueHeaders for Set-Cookie (prevents cookie parsing issues)
+        multiValueHeaders: { 'Set-Cookie': clearCookies },
         body: JSON.stringify({
           error: 'Session expired',
           code: 'SESSION_EXPIRED',
@@ -170,10 +191,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': newCookies.join(', ')
-      },
+      headers: corsHeaders,
+      // PHASE 9 FIX: Use multiValueHeaders for Set-Cookie (prevents cookie parsing issues)
+      multiValueHeaders: { 'Set-Cookie': newCookies },
       body: JSON.stringify({
         success: true,
         user: {
@@ -197,10 +217,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     return {
       statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': clearCookies.join(', ')
-      },
+      headers: corsHeaders,
+      // PHASE 9 FIX: Use multiValueHeaders for Set-Cookie (prevents cookie parsing issues)
+      multiValueHeaders: { 'Set-Cookie': clearCookies },
       body: JSON.stringify({
         error: 'Session refresh failed',
         code: 'REFRESH_ERROR',

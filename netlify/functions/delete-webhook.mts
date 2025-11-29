@@ -18,9 +18,20 @@ import { createErrorResponse } from "./lib/error-sanitizer";
  */
 
 export default async (req: Request, context: Context) => {
-  // CORS headers
+  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = req.headers.get("origin") || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
   const corsHeaders = {
-    "Access-Control-Allow-Origin": req.headers.get("origin") || "*",
+    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -41,8 +52,9 @@ export default async (req: Request, context: Context) => {
 
   try {
     // STEP 1: Authenticate user via HttpOnly cookies
-    const authResult = await requireAuth(req);
-    const userId = authResult.user.id;
+    // PHASE 9 FIX: requireAuth returns User directly, not {user: User}
+    const user = await requireAuth(req);
+    const userId = user.id;
 
     console.warn("[delete-webhook] Authenticated user:", userId);
 

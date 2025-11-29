@@ -99,62 +99,35 @@ export const PipelineTemplateSelector = ({ onTemplateChange }) => {
     }, 10000);
 
     try {
+      // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
+      // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+      // RLS policies deny all client-side mutations. Use backend with service role.
+      setMigrationProgress({ current: 1, total: 2, step: 'Preparing migration...' });
 
-      // Step 1: Get all deals for this organization
-      setMigrationProgress({ current: 1, total: 4, step: 'Loading deals...' });
-      const { data: deals, error: dealsError } = await supabase
-        .from('deals')
-        .select('id, stage')
-        .eq('organization_id', organization.id);
-
-      if (dealsError) {
-        console.error('Error fetching deals:', dealsError);
-        throw dealsError;
-      }
-
-
-      // Step 2: Map each deal's stage to the new pipeline
-      setMigrationProgress({ current: 2, total: 4, step: `Mapping ${deals?.length || 0} deal stages...` });
-      const dealUpdates = (deals || []).map(deal => ({
-        id: deal.id,
-        stage: mapStage(deal.stage, templateId),
-        last_activity: new Date().toISOString()
-      }));
-
-      // Step 3: Update all deals in batch (if any exist)
-      if (dealUpdates.length > 0) {
-        setMigrationProgress({ current: 3, total: 4, step: `Migrating ${dealUpdates.length} deals...` });
-        const { error: updateError } = await supabase
-          .from('deals')
-          .upsert(dealUpdates, {
-            onConflict: 'id'
-          });
-
-        if (updateError) {
-          console.error('Error updating deals:', updateError);
-          throw updateError;
-        }
-      }
-
-      // Step 4: Update organization's pipeline template
-      setMigrationProgress({ current: 4, total: 4, step: 'Updating pipeline settings...' });
-      const { error: orgError } = await supabase
-        .from('organizations')
-        .update({
-          pipeline_template: templateId
+      const response = await fetch('/.netlify/functions/migrate-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include HttpOnly cookies
+        body: JSON.stringify({
+          organization_id: organization.id,
+          template_id: templateId
         })
-        .eq('id', organization.id);
+      });
 
-      if (orgError) {
-        console.error('Error updating organization:', orgError);
-        throw orgError;
+      setMigrationProgress({ current: 2, total: 2, step: 'Finalizing migration...' });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Migration failed: ${response.status}`);
       }
 
       clearTimeout(timeoutId);
       setSelectedTemplate(templateId);
 
+      const dealsCount = result.deals_migrated || 0;
       addNotification(
-        `Pipeline switched to ${PIPELINE_TEMPLATES[templateId].name}. ${dealUpdates.length} deal${dealUpdates.length !== 1 ? 's' : ''} migrated.`,
+        `Pipeline switched to ${PIPELINE_TEMPLATES[templateId].name}. ${dealsCount} deal${dealsCount !== 1 ? 's' : ''} migrated.`,
         'success'
       );
 

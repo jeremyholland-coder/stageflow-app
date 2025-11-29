@@ -1,16 +1,38 @@
 import type { Config, Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { getEmailTemplate } from './email-templates.mts';
-import { requireAuth, validateUserIdMatch, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export default async (req: Request, context: Context) => {
+  // PHASE 12: Consistent CORS headers
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:5173',
+    'http://localhost:8888'
+  ];
+  const origin = req.headers.get('origin') || '';
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
+
+  const headers = {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers });
+  }
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
   }
 
@@ -19,22 +41,43 @@ export default async (req: Request, context: Context) => {
   try {
     const { dealId, event, userId, organizationId } = await req.json() as any;
 
+    console.warn('[trigger-notification] Request received:', { dealId, event, userId, organizationId: organizationId?.substring(0, 8) });
+
     if (!dealId || !event || !userId || !organizationId) {
+      console.error('[trigger-notification] Missing required fields');
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
-    // SECURITY: Require authentication via HttpOnly cookies (v1.7.98)
-    // Phase 3 complete: Always require auth, no legacy path
+    // PHASE 12 FIX: Query team_members directly instead of requireOrgAccess
+    // requireOrgAccess would try to re-read body if org_id were falsy
     try {
+      console.warn('[trigger-notification] Authenticating user...');
       const user = await requireAuth(req);
       await validateUserIdMatch(user, userId);
-      await requireOrgAccess(req, organizationId);
+      console.warn('[trigger-notification] Auth succeeded, user:', user.id);
 
-      // User is authenticated and authorized
-    } catch (authError) {
+      // Verify membership directly
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+
+      if (memberError || !membership) {
+        console.error('[trigger-notification] User not in organization:', { userId: user.id, organizationId });
+        return new Response(JSON.stringify({ error: 'Not authorized for this organization' }), {
+          status: 403,
+          headers
+        });
+      }
+
+      console.warn('[trigger-notification] Membership verified, role:', membership.role);
+    } catch (authError: any) {
+      console.error('[trigger-notification] Auth error:', authError.message);
       return createAuthErrorResponse(authError);
     }
 
@@ -50,7 +93,7 @@ export default async (req: Request, context: Context) => {
       console.error('Error fetching preferences:', prefsError);
       return new Response(JSON.stringify({ error: 'Failed to fetch preferences' }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -58,7 +101,7 @@ export default async (req: Request, context: Context) => {
     if (!prefs || !prefs.all_notifications) {
       return new Response(JSON.stringify({ message: 'Notifications disabled' }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -73,7 +116,7 @@ export default async (req: Request, context: Context) => {
     if (!(notificationMap as any)[event]) {
       return new Response(JSON.stringify({ message: 'This notification type is disabled' }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -88,7 +131,7 @@ export default async (req: Request, context: Context) => {
       console.error('Error fetching deal:', dealError);
       return new Response(JSON.stringify({ error: 'Deal not found' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -99,7 +142,7 @@ export default async (req: Request, context: Context) => {
       console.error('Error fetching user:', userError);
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -151,7 +194,7 @@ export default async (req: Request, context: Context) => {
     // Send email
     const sendResponse = await fetch(`${baseUrl}/.netlify/functions/send-notification`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         to: userData.user.email,
         subject,
@@ -170,7 +213,7 @@ export default async (req: Request, context: Context) => {
       event 
     }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
 
   } catch (error: any) {
@@ -180,7 +223,7 @@ export default async (req: Request, context: Context) => {
       details: error.message 
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
   }
 };

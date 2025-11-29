@@ -7,18 +7,28 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { shouldUseNewAuth } from './lib/feature-flags';
-import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 
 export const handler = async (event: any) => {
+  // PHASE 12: Consistent CORS headers (no wildcard)
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:5173',
+    'http://localhost:8888'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json'
   };
 
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
+    return { statusCode: 204, headers, body: '' };
   }
 
   try {
@@ -48,37 +58,46 @@ export const handler = async (event: any) => {
         };
       }
 
-      // SECURITY: Feature-flagged authentication migration
-      // Phase 4 Batch 4: Prevent user impersonation + validate org access
-      if (shouldUseNewAuth('retention-reminders', organizationId)) {
-        try {
-          // NEW AUTH PATH: Validate session and organization membership
-          const authHeader = event.headers.authorization || event.headers.Authorization;
-          if (!authHeader) {
-            return {
-              statusCode: 401,
-              body: JSON.stringify({ error: 'Authentication required' })
-            };
-          }
+      // PHASE 12 FIX: Always require authentication, query team_members directly
+      try {
+        console.warn('[retention-reminders] get-reminders auth check for org:', organizationId);
 
-          const request = new Request('https://dummy.com', {
-            method: 'POST',
-            headers: { 'Authorization': authHeader }
-          });
+        // Create Request with full headers (includes cookies)
+        const request = new Request('https://dummy.com', {
+          method: event.httpMethod,
+          headers: new Headers(event.headers as Record<string, string>)
+        });
 
-          await requireAuth(request);
-          await requireOrgAccess(request, organizationId);
+        const user = await requireAuth(request);
+        console.warn('[retention-reminders] Auth succeeded, user:', user.id);
 
-          // User is authenticated and authorized
-        } catch (authError) {
-          const errorResponse = createAuthErrorResponse(authError);
+        // Verify membership directly
+        const { data: membership, error: memberError } = await supabase
+          .from('team_members')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+
+        if (memberError || !membership) {
+          console.error('[retention-reminders] User not in organization:', { userId: user.id, organizationId });
           return {
-            statusCode: errorResponse.status,
-            body: await errorResponse.text()
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Not authorized for this organization' })
           };
         }
+
+        console.warn('[retention-reminders] Membership verified, role:', membership.role);
+      } catch (authError: any) {
+        console.error('[retention-reminders] Auth error:', authError.message);
+        const errorResponse = createAuthErrorResponse(authError);
+        return {
+          statusCode: errorResponse.status,
+          headers,
+          body: await errorResponse.text()
+        };
       }
-      // LEGACY AUTH PATH: No validation (CRITICAL VULNERABILITY - will be removed after migration)
 
       const { data: reminders, error } = await supabase
         .from('retention_reminders')
@@ -139,25 +158,34 @@ export const handler = async (event: any) => {
         };
       }
 
-      // SECURITY: Feature-flagged authentication (same as get-reminders)
-      if (shouldUseNewAuth('retention-reminders', organizationId)) {
-        try {
-          const authHeader = event.headers.authorization || event.headers.Authorization;
-          if (!authHeader) {
-            return { statusCode: 401, body: JSON.stringify({ error: 'Authentication required' }) };
-          }
+      // PHASE 12 FIX: Always require authentication, query team_members directly
+      try {
+        console.warn('[retention-reminders] get-overdue auth check for org:', organizationId);
 
-          const request = new Request('https://dummy.com', {
-            method: 'POST',
-            headers: { 'Authorization': authHeader }
-          });
+        const request = new Request('https://dummy.com', {
+          method: event.httpMethod,
+          headers: new Headers(event.headers as Record<string, string>)
+        });
 
-          await requireAuth(request);
-          await requireOrgAccess(request, organizationId);
-        } catch (authError) {
-          const errorResponse = createAuthErrorResponse(authError);
-          return { statusCode: errorResponse.status, body: await errorResponse.text() };
+        const user = await requireAuth(request);
+        const { data: membership, error: memberError } = await supabase
+          .from('team_members')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+
+        if (memberError || !membership) {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Not authorized for this organization' })
+          };
         }
+      } catch (authError: any) {
+        console.error('[retention-reminders] get-overdue auth error:', authError.message);
+        const errorResponse = createAuthErrorResponse(authError);
+        return { statusCode: errorResponse.status, headers, body: await errorResponse.text() };
       }
 
       const { data: overdueItems, error } = await supabase
@@ -192,25 +220,34 @@ export const handler = async (event: any) => {
         };
       }
 
-      // SECURITY: Feature-flagged authentication (same as get-reminders)
-      if (shouldUseNewAuth('retention-reminders', organizationId)) {
-        try {
-          const authHeader = event.headers.authorization || event.headers.Authorization;
-          if (!authHeader) {
-            return { statusCode: 401, body: JSON.stringify({ error: 'Authentication required' }) };
-          }
+      // PHASE 12 FIX: Always require authentication, query team_members directly
+      try {
+        console.warn('[retention-reminders] get-by-rep auth check for org:', organizationId);
 
-          const request = new Request('https://dummy.com', {
-            method: 'POST',
-            headers: { 'Authorization': authHeader }
-          });
+        const request = new Request('https://dummy.com', {
+          method: event.httpMethod,
+          headers: new Headers(event.headers as Record<string, string>)
+        });
 
-          await requireAuth(request);
-          await requireOrgAccess(request, organizationId);
-        } catch (authError) {
-          const errorResponse = createAuthErrorResponse(authError);
-          return { statusCode: errorResponse.status, body: await errorResponse.text() };
+        const user = await requireAuth(request);
+        const { data: membership, error: memberError } = await supabase
+          .from('team_members')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+
+        if (memberError || !membership) {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Not authorized for this organization' })
+          };
         }
+      } catch (authError: any) {
+        console.error('[retention-reminders] get-by-rep auth error:', authError.message);
+        const errorResponse = createAuthErrorResponse(authError);
+        return { statusCode: errorResponse.status, headers, body: await errorResponse.text() };
       }
 
       const { data: reminders, error } = await supabase

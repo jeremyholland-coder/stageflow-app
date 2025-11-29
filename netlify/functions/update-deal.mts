@@ -18,9 +18,20 @@ import { createErrorResponse } from "./lib/error-sanitizer";
  */
 
 export default async (req: Request, context: Context) => {
-  // CORS headers
+  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = req.headers.get("origin") || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
   const corsHeaders = {
-    "Access-Control-Allow-Origin": req.headers.get("origin") || "*",
+    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -41,8 +52,9 @@ export default async (req: Request, context: Context) => {
 
   try {
     // STEP 1: Authenticate user via HttpOnly cookies
-    const authResult = await requireAuth(req);
-    const userId = authResult.user.id;
+    // PHASE 9 FIX: requireAuth returns User directly, not {user: User}
+    const user = await requireAuth(req);
+    const userId = user.id;
 
     console.warn("[update-deal] Authenticated user:", userId);
 
@@ -115,6 +127,44 @@ export default async (req: Request, context: Context) => {
         JSON.stringify({ error: "No valid fields to update" }),
         { status: 400, headers: corsHeaders }
       );
+    }
+
+    // PHASE 14 FIX: Validate stage value if provided
+    // Comprehensive list matching ALL pipeline templates
+    if (sanitizedUpdates.stage) {
+      const VALID_STAGES = new Set([
+        // Legacy default pipeline stages
+        "lead", "quote", "approval", "invoice", "onboarding", "delivery", "retention", "lost",
+        // Default (StageFlow) pipeline
+        "lead_captured", "lead_qualified", "contacted", "needs_identified", "proposal_sent",
+        "negotiation", "deal_won", "deal_lost", "invoice_sent", "payment_received", "customer_onboarded",
+        // Healthcare pipeline
+        "lead_generation", "lead_qualification", "discovery", "scope_defined", "contract_sent",
+        "client_onboarding", "renewal_upsell",
+        // VC/PE pipeline
+        "deal_sourced", "initial_screening", "due_diligence", "term_sheet_presented",
+        "investment_closed", "capital_call_sent", "capital_received", "portfolio_mgmt",
+        // Real Estate pipeline
+        "qualification", "property_showing", "contract_signed", "closing_statement_sent",
+        "escrow_completed", "client_followup",
+        // Professional Services pipeline
+        "lead_identified",
+        // SaaS pipeline
+        "prospecting", "contact", "proposal", "closed", "adoption", "renewal",
+        // Additional stages from pipelineConfig.js
+        "discovery_demo", "contract", "payment", "closed_won", "passed"
+      ]);
+
+      if (!VALID_STAGES.has(sanitizedUpdates.stage)) {
+        console.error("[update-deal] Invalid stage value:", sanitizedUpdates.stage);
+        return new Response(
+          JSON.stringify({
+            error: `Invalid stage value: ${sanitizedUpdates.stage}`,
+            hint: "Stage must be a valid pipeline stage"
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
     }
 
     // STEP 7: Track stage changes for history

@@ -167,43 +167,55 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
     }
   };
 
+  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
+  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+  // RLS policies deny all client-side mutations. Use backend with service role.
   const saveUserTargets = async () => {
     if (!isAdmin || !organization) return;
     setSaving(true);
     try {
-      // Save all user targets
-      const promises = userTargets.map(member => {
-        return supabase
-          .from('user_targets')
-          .upsert({
-            user_id: member.user_id,
-            organization_id: organization.id,
-            annual_target: member.annual_target,
-            quarterly_target: member.quarterly_target,
-            monthly_target: member.monthly_target,
-            show_on_dashboard: member.show_on_dashboard,
-            visible_to_team: member.visible_to_team,
-            is_active: member.is_active,
-            notes: member.notes,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'user_id,organization_id'
-          });
+      // Format targets for the backend
+      const targetsToSave = userTargets.map(member => ({
+        user_id: member.user_id,
+        annual_target: member.annual_target,
+        quarterly_target: member.quarterly_target,
+        monthly_target: member.monthly_target,
+        show_on_dashboard: member.show_on_dashboard,
+        visible_to_team: member.visible_to_team,
+        is_active: member.is_active,
+        notes: member.notes
+      }));
+
+      const response = await fetch('/.netlify/functions/user-targets-save', {
+        method: 'POST',
+        credentials: 'include', // Include HttpOnly cookies
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          organization_id: organization.id,
+          user_targets: targetsToSave
+        })
       });
 
-      const results = await Promise.all(promises);
-      const errors = results.filter(r => r.error);
+      const result = await response.json();
 
-      if (errors.length > 0) {
-        throw new Error(`Failed to save ${errors.length} user target(s)`);
+      if (!response.ok) {
+        throw new Error(result.error || result.details?.join(', ') || 'Failed to save targets');
       }
 
-      addNotification('Team targets saved', 'success');
+      // Show partial success warning if some failed
+      if (result.failed > 0) {
+        addNotification(`Saved ${result.saved} targets, ${result.failed} failed`, 'warning');
+      } else {
+        addNotification('Team targets saved', 'success');
+      }
+
       setEditMode(false);
       await loadTargets(); // Reload to get fresh data
     } catch (error) {
       console.error('Error saving user targets:', error);
-      addNotification('Failed to save team targets', 'error');
+      addNotification(`Failed to save team targets: ${error.message}`, 'error');
     } finally {
       setSaving(false);
     }

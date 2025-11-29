@@ -1,14 +1,37 @@
 import type { Handler } from "@netlify/functions";
 import { NotificationPayloadSchema, validate } from "./lib/validation";
-import { requireAuth, validateUserIdMatch, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
+import { createClient } from '@supabase/supabase-js';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = 'StageFlow Support <jeremy@startupstage.com>';
 
 const handler: Handler = async (event) => {
+  // PHASE 12: Consistent CORS headers
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:5173',
+    'http://localhost:8888'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+
+  const headers = {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers, body: '' };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
+      headers,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -16,29 +39,38 @@ const handler: Handler = async (event) => {
   if (!RESEND_API_KEY) {
     return {
       statusCode: 500,
+      headers,
       body: JSON.stringify({ error: 'Email service not configured' })
     };
   }
 
+  // Initialize Supabase client early for auth check
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   try {
     const body = JSON.parse(event.body || '{}');
-    
+
     // VALIDATE INPUT
     const validation = validate(NotificationPayloadSchema, body);
     if (!validation.success) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ 
-          error: 'Validation failed', 
-          details: validation.error 
+        headers,
+        body: JSON.stringify({
+          error: 'Validation failed',
+          details: validation.error
         })
       };
     }
 
     const payload = validation.data;
 
-    // SECURITY: Require authentication via HttpOnly cookies (v1.7.98)
-    // Phase 3 complete: Always require auth, no legacy path
+    console.warn('[send-notification] Request for user:', payload.user_id, 'org:', payload.organization_id?.substring(0, 8));
+
+    // PHASE 12 FIX: Query team_members directly instead of requireOrgAccess
     try {
       // Create Request object from event for auth middleware (includes cookies)
       const request = new Request('https://dummy.com', {
@@ -46,26 +78,40 @@ const handler: Handler = async (event) => {
         headers: new Headers(event.headers as Record<string, string>)
       });
 
+      console.warn('[send-notification] Authenticating user...');
       const user = await requireAuth(request);
       await validateUserIdMatch(user, payload.user_id);
-      await requireOrgAccess(request, payload.organization_id);
+      console.warn('[send-notification] Auth succeeded, user:', user.id);
 
-      // User is authenticated and authorized
-    } catch (authError) {
+      // Verify membership directly
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('organization_id', payload.organization_id)
+        .maybeSingle();
+
+      if (memberError || !membership) {
+        console.error('[send-notification] User not in organization:', { userId: user.id, organizationId: payload.organization_id });
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Not authorized for this organization' })
+        };
+      }
+
+      console.warn('[send-notification] Membership verified');
+    } catch (authError: any) {
+      console.error('[send-notification] Auth error:', authError.message);
       const errorResponse = createAuthErrorResponse(authError);
       return {
         statusCode: errorResponse.status,
+        headers,
         body: await errorResponse.text()
       };
     }
 
-    // Get notification preferences
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
+    // Get notification preferences - supabase already initialized above
     const { data: prefs } = await supabase
       .from('notification_preferences')
       .select('*')
@@ -76,6 +122,7 @@ const handler: Handler = async (event) => {
     if (!prefs?.all_notifications) {
       return {
         statusCode: 200,
+        headers,
         body: JSON.stringify({ message: 'Notifications disabled by user' })
       };
     }
@@ -90,6 +137,7 @@ const handler: Handler = async (event) => {
     if (!notifMap[payload.type]) {
       return {
         statusCode: 200,
+        headers,
         body: JSON.stringify({ message: 'This notification type disabled by user' })
       };
     }
@@ -116,20 +164,23 @@ const handler: Handler = async (event) => {
       throw new Error(`Resend API error: ${JSON.stringify(result)}`);
     }
 
+    console.warn('[send-notification] Email sent successfully:', result.id);
     return {
       statusCode: 200,
-      body: JSON.stringify({ 
-        success: true, 
+      headers,
+      body: JSON.stringify({
+        success: true,
         message: 'Notification sent',
-        emailId: result.id 
+        emailId: result.id
       })
     };
 
   } catch (error: any) {
-    console.error('Error sending notification:', error);
+    console.error('[send-notification] Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
+      headers,
+      body: JSON.stringify({
         error: 'Failed to send notification',
         details: error instanceof Error ? error.message : 'Unknown error'
       })

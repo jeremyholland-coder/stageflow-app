@@ -107,6 +107,15 @@ export default async (req: Request, context: Context) => {
     const fileBuffer = await file.arrayBuffer();
     const fileUint8Array = new Uint8Array(fileBuffer);
 
+    // PHASE 11 LOGGING: Log upload attempt details
+    console.warn('[upload-avatar] Attempting upload:', {
+      bucket: 'avatars',
+      filePath,
+      fileSize: file.size,
+      fileType: file.type,
+      userId: user.id
+    });
+
     // Upload to Supabase Storage with timeout protection
     const { error: uploadError } = await withTimeout(
       supabase.storage
@@ -121,21 +130,48 @@ export default async (req: Request, context: Context) => {
     );
 
     if (uploadError) {
-      console.error('❌ Storage upload failed:', uploadError);
+      // PHASE 11: Enhanced error logging
+      console.error('[upload-avatar] Storage upload FAILED:', {
+        message: uploadError.message,
+        name: uploadError.name,
+        // @ts-ignore - error might have additional properties
+        statusCode: uploadError.statusCode,
+        // @ts-ignore
+        error: uploadError.error,
+        bucket: 'avatars',
+        filePath
+      });
 
       // Handle specific storage errors
       if (uploadError.message?.includes('Bucket not found')) {
+        console.error('[upload-avatar] CRITICAL: avatars bucket does not exist in Supabase Storage');
         return new Response(
           JSON.stringify({
             error: 'Storage not configured. Please contact support.',
-            details: 'avatars bucket does not exist'
+            details: 'avatars bucket does not exist. Run the storage setup migration.',
+            action: 'Create "avatars" bucket in Supabase Storage dashboard'
           }),
           { status: 500, headers: { ...headers, 'Content-Type': 'application/json' } }
         );
       }
 
+      // Handle permission errors
+      if (uploadError.message?.includes('not allowed') || uploadError.message?.includes('policy')) {
+        console.error('[upload-avatar] Storage policy error - check bucket RLS policies');
+        return new Response(
+          JSON.stringify({
+            error: 'Storage permission denied.',
+            details: 'Storage policies may be blocking uploads.',
+            action: 'Check avatars bucket policies in Supabase'
+          }),
+          { status: 403, headers: { ...headers, 'Content-Type': 'application/json' } }
+        );
+      }
+
       throw uploadError;
     }
+
+    console.warn('[upload-avatar] Upload successful:', filePath);
 
     // Get public URL
     const { data: { publicUrl } } = supabase.storage

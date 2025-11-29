@@ -253,18 +253,30 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     }
   };
 
-  // Delete handler remains the same
+  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
+  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+  // RLS policies deny all client-side mutations. Use backend with service role.
   const handleDelete = async () => {
     if (!deal || !confirm('Are you sure you want to delete this deal? This action cannot be undone.')) return;
 
     try {
       setDeleting(true);
-      const { error } = await supabase
-        .from('deals')
-        .delete()
-        .eq('id', deal.id);
 
-      if (error) throw error;
+      const response = await fetch('/.netlify/functions/delete-deal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Send HttpOnly cookies for auth
+        body: JSON.stringify({
+          dealId: deal.id,
+          organizationId: organization.id
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Delete failed: ${response.status}`);
+      }
 
       onDealDeleted(deal.id);
       addNotification('Deal deleted successfully', 'success');

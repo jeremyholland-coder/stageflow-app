@@ -1247,19 +1247,31 @@ export default async (req: Request, context: any) => {
     let user: any;
     let organizationId: string;
 
+    // PHASE 11 LOGGING: Always use new auth for ai-assistant (feature flag hardcoded)
+    console.warn('[ai-assistant] Starting auth - using cookie-based auth path');
+
     if (shouldUseNewAuth('ai-assistant')) {
       try {
         // NEW AUTH PATH: Use centralized auth middleware
+        console.warn('[ai-assistant] Calling requireAuth...');
         user = await requireAuth(req);
+        console.warn('[ai-assistant] requireAuth succeeded, user:', user.id);
+
         // PHASE 8 CRITICAL FIX: Don't call requireOrgAccess(req) because body is already consumed
         // Instead, query team_members directly like the legacy path does
-        const { data: membership } = await supabase
+        console.warn('[ai-assistant] Querying team_members for org...');
+        const { data: membership, error: memberError } = await supabase
           .from('team_members')
           .select('organization_id')
           .eq('user_id', user.id)
           .single();
 
+        if (memberError) {
+          console.error('[ai-assistant] team_members query error:', memberError);
+        }
+
         if (!membership) {
+          console.error('[ai-assistant] No membership found for user:', user.id);
           return new Response(JSON.stringify({ error: 'No organization found' }), {
             status: 404,
             headers: { 'Content-Type': 'application/json' }
@@ -1267,7 +1279,14 @@ export default async (req: Request, context: any) => {
         }
 
         organizationId = membership.organization_id;
-      } catch (authError) {
+        console.warn('[ai-assistant] Auth complete - userId:', user.id, 'orgId:', organizationId);
+      } catch (authError: any) {
+        console.error('[ai-assistant] Auth error:', {
+          message: authError.message,
+          code: authError.code,
+          statusCode: authError.statusCode,
+          name: authError.name
+        });
         return createAuthErrorResponse(authError);
       }
     } else {

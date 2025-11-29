@@ -3,7 +3,7 @@ import { createClient, User } from '@supabase/supabase-js';
 import { encrypt } from './lib/encryption';
 import { createErrorResponse } from './lib/error-sanitizer';
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
-import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { requirePermission, PERMISSIONS } from './lib/rbac';
 
 export default async (req: Request, context: Context) => {
@@ -87,16 +87,58 @@ export default async (req: Request, context: Context) => {
     // IDOR FIX: Never trust client-provided user_id - get from authenticated session
     let authenticatedUser: User;
     try {
+      console.warn('[save-ai-provider] Starting auth for org:', organization_id);
       authenticatedUser = await requireAuth(req);
+      console.warn('[save-ai-provider] requireAuth succeeded, user:', authenticatedUser.id);
 
-      // Validate organization membership and role
-      const { member } = await requireOrgAccess(req, organization_id);
+      // PHASE 11 FIX: Query team_members directly instead of requireOrgAccess
+      // requireOrgAccess would try to re-read body if org_id is falsy, causing "Organization ID required"
+      if (!organization_id) {
+        console.error('[save-ai-provider] No organization_id in request body');
+        return new Response(
+          JSON.stringify({ error: 'Organization ID is required' }),
+          { status: 400, headers }
+        );
+      }
+
+      // Verify membership directly
+      const membershipCheck = await withTimeout(
+        supabase
+          .from('team_members')
+          .select('role')
+          .eq('user_id', authenticatedUser.id)
+          .eq('organization_id', organization_id)
+          .maybeSingle(),
+        TIMEOUTS.DATABASE_QUERY,
+        'Membership check timed out'
+      );
+
+      if (membershipCheck.error || !membershipCheck.data) {
+        console.error('[save-ai-provider] User not in organization:', {
+          userId: authenticatedUser.id,
+          organizationId: organization_id,
+          error: membershipCheck.error
+        });
+        return new Response(
+          JSON.stringify({ error: 'Not authorized for this organization' }),
+          { status: 403, headers }
+        );
+      }
+
+      const member = membershipCheck.data;
+      console.warn('[save-ai-provider] Membership verified, role:', member.role);
 
       // Require MANAGE_INTEGRATIONS permission (owner/admin only)
       requirePermission(member.role, PERMISSIONS.MANAGE_INTEGRATIONS);
+      console.warn('[save-ai-provider] Permission check passed');
 
       // User is authenticated and authorized
-    } catch (authError) {
+    } catch (authError: any) {
+      console.error('[save-ai-provider] Auth error:', {
+        message: authError.message,
+        code: authError.code,
+        name: authError.name
+      });
       return createAuthErrorResponse(authError);
     }
 

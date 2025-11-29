@@ -115,6 +115,9 @@ export const IndustrySelector = ({ organizationId, onComplete, onSkip, darkMode 
     }
   };
 
+  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
+  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+  // RLS policies deny all client-side mutations. Use backend with service role.
   const handleSelectIndustry = async () => {
     if (!selectedIndustry || !organizationId) return;
 
@@ -122,16 +125,25 @@ export const IndustrySelector = ({ organizationId, onComplete, onSkip, darkMode 
     setError(null);
 
     try {
-      // Update organization with selected industry
-      const { error: updateError } = await supabase
-        .from('organizations')
-        .update({ 
-          selected_industry: selectedIndustry,
-          pipeline_template_id: templates[selectedIndustry]?.id
+      // Update organization with selected industry via backend
+      const response = await fetch('/.netlify/functions/update-organization', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include HttpOnly cookies
+        body: JSON.stringify({
+          organization_id: organizationId,
+          updates: {
+            selected_industry: selectedIndustry,
+            pipeline_template_id: templates[selectedIndustry]?.id
+          }
         })
-        .eq('id', organizationId);
+      });
 
-      if (updateError) throw updateError;
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Update failed: ${response.status}`);
+      }
 
       // Store in localStorage for client-side access
       localStorage.setItem('stageflow_industry', selectedIndustry);
@@ -139,7 +151,7 @@ export const IndustrySelector = ({ organizationId, onComplete, onSkip, darkMode 
       onComplete(selectedIndustry);
     } catch (err) {
       console.error('Error saving industry:', err);
-      setError('Failed to save industry selection. Please try again.');
+      setError(err.message || 'Failed to save industry selection. Please try again.');
     } finally {
       setLoading(false);
     }

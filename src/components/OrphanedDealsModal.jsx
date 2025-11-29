@@ -49,22 +49,37 @@ export const OrphanedDealsModal = ({
     }));
   };
 
+  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
+  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+  // RLS policies deny all client-side mutations. Use backend with service role.
   const handleRecoverAll = async () => {
     setRecovering(true);
     try {
-      // CRITICAL FIX: Update both stage AND status to ensure deals show up in correct filter
-      const updates = orphanedDeals.map(deal => {
+      // Update each deal via the backend endpoint
+      const updates = orphanedDeals.map(async (deal) => {
         const newStage = selectedStages[deal.id];
         const newStatus = getStatusForStage(newStage);
 
-        return supabase
-          .from('deals')
-          .update({
-            stage: newStage,
-            status: newStatus, // Set correct status based on stage
-            last_activity: new Date().toISOString()
+        const response = await fetch('/.netlify/functions/update-deal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Include HttpOnly cookies
+          body: JSON.stringify({
+            dealId: deal.id,
+            organizationId: organization.id,
+            updates: {
+              stage: newStage,
+              status: newStatus // Set correct status based on stage
+            }
           })
-          .eq('id', deal.id);
+        });
+
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || `Failed to update deal ${deal.id}`);
+        }
+
+        return response.json();
       });
 
       await Promise.all(updates);
@@ -78,7 +93,7 @@ export const OrphanedDealsModal = ({
       }, 1500);
     } catch (error) {
       console.error('Error recovering deals:', error);
-      alert('Failed to recover some deals. Please try again.');
+      alert(`Failed to recover some deals: ${error.message}`);
     } finally {
       setRecovering(false);
     }
