@@ -162,7 +162,13 @@ export const handler: Handler = async (event) => {
     // We MUST sign in again with the new password to get proper access/refresh tokens
     const userEmail = validatedUser.email || updateData.user.email || '';
     console.warn('[Password Reset] 🔑 Signing in with new password to verify it was saved...');
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+
+    // CRITICAL FIX v1.7.97: Create a FRESH Supabase client for sign-in
+    // The previous client's session state may be corrupted after updateUser()
+    // Using a fresh client ensures clean authentication
+    const freshSupabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const { data: signInData, error: signInError } = await freshSupabase.auth.signInWithPassword({
       email: userEmail,
       password: newPassword,
     });

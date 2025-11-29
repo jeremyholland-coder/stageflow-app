@@ -11,12 +11,25 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { shouldUseNewAuth } from './lib/feature-flags';
-import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
+import { notifyUser } from './lib/notifications-service';
 
 export const handler = async (event: any) => {
-  // Enable CORS
+  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json'
@@ -41,25 +54,59 @@ export const handler = async (event: any) => {
     const action = body.action || 'assign-deal';
     const { organizationId } = body;
 
-    // SECURITY: Feature-flagged authentication migration
-    // Phase 4 Batch 2: Add authentication to assign-deals (currently NONE!)
-    if (shouldUseNewAuth('assign-deals')) {
-      try {
-        // NEW AUTH PATH: Validate session and org membership
-        const request = new Request('https://dummy.com', {
-          method: event.httpMethod,
-          headers: event.headers
-        });
-
-        await requireAuth(request);
-        await requireOrgAccess(request, organizationId);
-
-        // User is authenticated and member of organization
-      } catch (authError) {
-        return createAuthErrorResponse(authError);
-      }
+    // PHASE 11 CRITICAL FIX: Validate organizationId before auth check
+    // requireOrgAccess would fail if org_id is missing and it tries to read body from dummy request
+    if (!organizationId) {
+      console.error('[assign-deals] Missing organizationId in request');
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Organization ID is required' })
+      };
     }
-    // LEGACY AUTH PATH: NO AUTHENTICATION (CRITICAL VULNERABILITY!)
+
+    // PHASE 9 CRITICAL FIX: ALWAYS require authentication
+    // This was a CRITICAL VULNERABILITY - anyone could assign deals without auth!
+    try {
+      const request = new Request('https://dummy.com', {
+        method: event.httpMethod,
+        headers: event.headers
+      });
+
+      console.warn('[assign-deals] Authenticating user for org:', organizationId);
+      const user = await requireAuth(request);
+      console.warn('[assign-deals] Auth succeeded, user:', user.id);
+
+      // PHASE 11 FIX: Verify membership directly instead of requireOrgAccess
+      // The dummy Request has no body, so requireOrgAccess would fail trying to read org_id
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+
+      if (memberError || !membership) {
+        console.error('[assign-deals] User not in organization:', {
+          userId: user.id,
+          organizationId,
+          error: memberError
+        });
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Not authorized for this organization' })
+        };
+      }
+
+      console.warn('[assign-deals] Membership verified, role:', membership.role);
+    } catch (authError: any) {
+      console.error('[assign-deals] Auth error:', {
+        message: authError.message,
+        code: authError.code
+      });
+      return createAuthErrorResponse(authError);
+    }
 
     // =================================================================
     // ACTION: Assign Single Deal
@@ -111,6 +158,41 @@ export const handler = async (event: any) => {
 
       if (assignError) {
         throw assignError;
+      }
+
+      // Send notification to the assignee (non-blocking)
+      // Only notify if assigning to someone else (not self-assignment)
+      if (deal && assignedTo !== assignedBy) {
+        try {
+          // Get assigner's name for the notification
+          const { data: assignerProfile } = await supabase
+            .from('user_profiles')
+            .select('full_name')
+            .eq('id', assignedBy || assignedTo)
+            .single();
+
+          const assignerName = assignerProfile?.full_name || 'A team member';
+
+          console.warn('[assign-deals] Sending notification to assignee:', assignedTo);
+
+          // Fire and forget - don't block the response
+          notifyUser({
+            userId: assignedTo,
+            categoryCode: 'DEAL_ASSIGNED',
+            data: {
+              dealId: deal.id,
+              dealName: deal.client || deal.company || 'Untitled Deal',
+              amount: deal.value,
+              assignedBy: assignedBy || assignedTo,
+              assignedByName: assignerName
+            }
+          }).catch(err => {
+            console.error('[assign-deals] Notification failed (non-fatal):', err.message);
+          });
+        } catch (notifyError: any) {
+          // Non-fatal - log but don't fail the request
+          console.warn('[assign-deals] Could not send notification:', notifyError.message);
+        }
       }
 
       return {

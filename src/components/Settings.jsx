@@ -14,6 +14,8 @@ import { parseSupabaseError } from '../lib/error-handler';
 const BillingSettings = lazy(() => import('./BillingSettings'));
 // CRITICAL FIX: GeneralSettings uses named export, need to unwrap it
 const GeneralSettings = lazy(() => import('./GeneralSettings').then(module => ({ default: module.GeneralSettings })));
+// Notification preferences component (v1 notification system)
+const NotificationSettings = lazy(() => import('./NotificationSettings').then(module => ({ default: module.NotificationSettings })));
 import { RevenueTargets } from './RevenueTargets';
 import { HiddenStages } from './HiddenStages';
 // FIX PHASE 10: Import centralized plan limits
@@ -1028,70 +1030,28 @@ export const Settings = () => {
       )}
 
       {activeTab === 'notifications' && (
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto space-y-6" data-tour="notifications-settings">
+          {/* New Notification Preferences System */}
+          <Suspense fallback={<TabFallback />}>
+            <NotificationSettings addNotification={addNotification} />
+          </Suspense>
+
+          {/* Legacy Weekly Digest Settings */}
           <SettingCard>
-            <SectionTitle icon={Bell}>Notifications</SectionTitle>
-            <div className="space-y-4" data-tour="notifications-settings">
-              <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-gray-300" />
-                  <span className="font-medium text-white">All Notifications</span>
+            <SectionTitle icon={TrendingUp}>Weekly Digest Schedule</SectionTitle>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-white">Enable Weekly Digest</span>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Get a weekly summary of your team's pipeline activity and wins
+                  </p>
                 </div>
                 <Toggle
-                  checked={notifPrefs.all_notifications}
-                  onChange={handleMasterToggle}
+                  checked={notifPrefs.weekly_digest}
+                  onChange={handleWeeklyDigestToggle}
                 />
               </div>
-
-              {notifPrefs.all_notifications && (
-                <div className="pl-6 space-y-3 border-l-2 border-teal-500/20">
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-sm text-gray-300">Deal Created</span>
-                    <Toggle
-                      checked={notifPrefs.notify_deal_created}
-                      onChange={(checked) => handleIndividualToggle('notify_deal_created', checked)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-sm text-gray-300">Stage Changed</span>
-                    <Toggle
-                      checked={notifPrefs.notify_stage_changed}
-                      onChange={(checked) => handleIndividualToggle('notify_stage_changed', checked)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-sm text-gray-300">Deal Won</span>
-                    <Toggle
-                      checked={notifPrefs.notify_deal_won}
-                      onChange={(checked) => handleIndividualToggle('notify_deal_won', checked)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-sm text-gray-300">Deal Lost</span>
-                    <Toggle
-                      checked={notifPrefs.notify_deal_lost}
-                      onChange={(checked) => handleIndividualToggle('notify_deal_lost', checked)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="py-2 pt-4 border-t border-gray-700">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-gray-300" />
-                    <div>
-                      <span className="text-sm font-medium text-white">Weekly Digest</span>
-                      <p className="text-xs text-gray-300 mt-0.5">
-                        Get a weekly summary of your team's pipeline activity and wins
-                      </p>
-                    </div>
-                  </div>
-                  <Toggle
-                    checked={notifPrefs.weekly_digest}
-                    onChange={handleWeeklyDigestToggle}
-                  />
-                </div>
 
                 {/* Scheduling Options - Only show when weekly digest is enabled */}
                 {notifPrefs.weekly_digest && (
@@ -1381,7 +1341,6 @@ export const Settings = () => {
                     </div>
                   </div>
                 )}
-              </div>
             </div>
           </SettingCard>
         </div>
