@@ -1,6 +1,7 @@
 import React, { memo, useMemo } from 'react';
 import { DollarSign, Target, TrendingUp as TrendingUpIcon, TrendingDown as TrendingDownIcon, XCircle, Minus, Zap } from 'lucide-react';
 import { buildUserPerformanceProfiles, calculateDealConfidence } from '../utils/aiConfidence';
+import { LEAD_STAGES } from '../config/pipelineConfig';
 
 const kpiCardClass = 'bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl hover:shadow-teal-500/20 p-6 transition-all duration-300 cursor-pointer transform hover:scale-[1.02]';
 
@@ -85,15 +86,9 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
       d.stage !== 'lost'
     );
 
-    // Leads = stage is 'lead', 'lead_qualification', or 'lead_qualified'
-    // CRITICAL FIX: Combine "Leads + Qualified Leads" for accurate pipeline tracking
-    const leads = deals.filter(d =>
-      d.stage === 'lead' ||
-      d.stage === 'lead_qualification' ||
-      d.stage === 'lead_qualified' ||
-      d.stage === 'lead_captured' ||
-      d.stage === 'lead_identified'
-    );
+    // Leads = all lead-type stages from centralized config
+    // CRITICAL FIX: Use LEAD_STAGES constant for single source of truth
+    const leads = deals.filter(d => LEAD_STAGES.includes(d.stage));
 
     // Won = status 'won' or stage 'retention'
     const wonDeals = deals.filter(d => d.status === 'won' || d.stage === 'retention');

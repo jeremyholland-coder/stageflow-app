@@ -12,6 +12,35 @@
  */
 
 // ============================================================================
+// STAGE CATEGORIES - Single Source of Truth for stage groupings
+// ============================================================================
+// Use these arrays when filtering deals by category (dashboard stats, reports, etc.)
+// Adding a new lead-type stage? Add it here and all components update automatically.
+
+export const LEAD_STAGES = [
+  'lead',
+  'lead_captured',
+  'lead_generation',
+  'lead_identified',
+  'lead_qualification',
+  'lead_qualified'
+];
+
+export const WON_STAGES = [
+  'deal_won',
+  'closed',
+  'closed_won',
+  'investment_closed',
+  'retention'
+];
+
+export const LOST_STAGES = [
+  'lost',
+  'deal_lost',
+  'passed'
+];
+
+// ============================================================================
 // STAGNATION THRESHOLDS (in days)
 // ============================================================================
 // Industry-standard benchmarks for how long deals should stay in each stage

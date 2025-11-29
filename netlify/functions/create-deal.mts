@@ -147,13 +147,28 @@ export default async (req: Request, context: Context) => {
     });
 
   } catch (error: any) {
-    console.error("[create-deal] Error:", error);
+    // Enhanced error logging for debugging
+    console.error("[create-deal] Error:", {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n') // First 3 lines of stack
+    });
 
     // Handle auth errors specifically
-    if (error.message?.includes("auth") || error.message?.includes("unauthorized")) {
+    if (error.message?.includes("auth") || error.message?.includes("unauthorized") || error.message?.includes("token")) {
       return new Response(
         JSON.stringify({ error: "Authentication required", code: "AUTH_REQUIRED" }),
         { status: 401, headers: corsHeaders }
+      );
+    }
+
+    // Handle RLS/permission errors
+    if (error.code === "42501" || error.message?.includes("permission denied")) {
+      console.error("[create-deal] RLS policy violation - check team_members/deals RLS");
+      return new Response(
+        JSON.stringify({ error: "Permission denied", code: "PERMISSION_DENIED" }),
+        { status: 403, headers: corsHeaders }
       );
     }
 
