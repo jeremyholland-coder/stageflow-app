@@ -160,8 +160,7 @@ export const Dashboard = () => {
   }, [showNewDeal, selectedDeal]); // FIXED: Removed searchTerm from deps
 
   // ONBOARDING: First-time user detection - show simple welcome modal (per user)
-  // ARCHITECTURAL FIX: Welcome modal now checks onboarding_progress.dismissed
-  // If user has completed onboarding tour, welcome will never show
+  // Onboarding may only appear for brand-new or incomplete users; once dismissed or completed, never show again without manual DB reset.
   useEffect(() => {
     // MOBILE BYPASS: Skip onboarding for phones (< 768px)
     const isMobileDevice = window.innerWidth < 768;
@@ -174,41 +173,56 @@ export const Dashboard = () => {
 
     const checkWelcomeStatus = async () => {
       try {
-        // NUCLEAR OPTION: Check BOTH database AND localStorage
-        // If EITHER says dismissed, skip welcome modal entirely
+        // PHASE 19B FIX: Check BOTH database AND localStorage for BOTH dismissed AND completed flags
+        // Onboarding may only appear for brand-new or incomplete users; once dismissed or completed, never show again without manual DB reset.
 
         // 1. Check database first (works in private tabs)
+        // CRITICAL: Fetch BOTH dismissed AND completed_steps to detect completed onboarding
         const { data: onboardingProgress, error } = await supabase
           .from('onboarding_progress')
-          .select('dismissed')
+          .select('dismissed, completed_steps')
           .eq('user_id', user.id)
           .maybeSingle();
 
         if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (acceptable)
           logger.error('[Welcome] Database check failed:', error);
-          // Fall back to localStorage check
+          // On error, default to NOT showing onboarding (safe default)
+          return;
         }
 
-        const dbDismissed = onboardingProgress?.dismissed || false;
+        // PHASE 19B: Check BOTH dismissed AND completed status from database
+        const dbDismissed = onboardingProgress?.dismissed === true;
+        // Consider onboarding "completed" if user has completed any steps (array is not empty)
+        // OR if they explicitly have all 4 steps completed
+        const dbCompleted = Array.isArray(onboardingProgress?.completed_steps) &&
+                           onboardingProgress.completed_steps.length > 0;
 
-        // 2. Check localStorage
+        // 2. Check localStorage for dismissed/completed state
         const localState = onboardingStorage.getState(user.id);
-        const localDismissed = localState?.dismissed || localState?.welcomeShown || false;
+        const localDismissed = localState?.dismissed === true;
+        const localCompleted = localState?.tourFullyCompleted === true ||
+                              localState?.welcomeShown === true ||
+                              (Array.isArray(localState?.completed) && localState.completed.length > 0);
 
         logger.debug('[Welcome] Check:', {
           userId: user.id,
           dbDismissed,
+          dbCompleted,
           localDismissed,
-          willSkip: dbDismissed || localDismissed
+          localCompleted,
+          hasDbRow: !!onboardingProgress
         });
 
-        // EMERGENCY FIX: If EITHER database OR localStorage says dismissed, skip welcome
-        if (dbDismissed || localDismissed) {
-          logger.debug('[Welcome] User completed onboarding (db=' + dbDismissed + ', local=' + localDismissed + '), skipping welcome');
+        // PHASE 19B CRITICAL: Never show onboarding if ANY completion/dismissal flag is true
+        // This prevents the bug where onboarding reappeared for existing users
+        if (dbDismissed || dbCompleted || localDismissed || localCompleted) {
+          logger.debug('[Welcome] User already completed onboarding, skipping welcome', {
+            reason: dbDismissed ? 'db_dismissed' : dbCompleted ? 'db_completed' : localDismissed ? 'local_dismissed' : 'local_completed'
+          });
           return;
         }
 
-        // Only show if BOTH checks say user is new
+        // Only show welcome for truly NEW users (no DB row AND no local state indicating completion)
         logger.debug('[Welcome] New user detected, will show in 800ms');
 
         // Small delay to let dashboard render first
@@ -221,7 +235,7 @@ export const Dashboard = () => {
         return () => clearTimeout(timer);
       } catch (error) {
         logger.error('[Welcome] Unexpected error checking welcome status:', error);
-        // On error, DON'T show welcome (fail safe)
+        // PHASE 19B: On error, DON'T show welcome (fail safe - never show to possibly existing users)
       }
     };
 

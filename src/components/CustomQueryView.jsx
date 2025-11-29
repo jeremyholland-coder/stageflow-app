@@ -15,6 +15,8 @@ import { InsightChip } from './InsightChip';
 import { ActionMicroButtonGroup } from './ActionMicroButton';
 // PHASE 17: Plan My Day Checklist with persistence
 import { PlanMyDayChecklist } from './PlanMyDayChecklist';
+// PHASE 19B: Compact summary strip for Plan My Day
+import { PlanMyDaySummary } from './PlanMyDaySummary';
 
 // Metrics Summary Strip Component - Shows key performance stats
 const MetricsSummaryStrip = ({ metrics }) => {
@@ -147,6 +149,10 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
   // Signals are collected locally and sent with the next AI request
   const pendingSignalsRef = useRef([]);
 
+  // CONCURRENCY FIX: Synchronous lock to prevent double-clicks/rapid submissions
+  // React state updates are async, so we need a ref for immediate lock checking
+  const submissionLockRef = useRef(false);
+
   // PHASE 5.3: Helper to add a signal
   const addAISignal = (type, sectionId = null, actionId = null) => {
     // Don't collect signals when offline
@@ -220,7 +226,11 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
     // Accept optional queryText parameter for one-click execution
     const currentQuery = queryText || query.trim();
 
-    if (!currentQuery || isSubmitting) return;
+    // CONCURRENCY FIX: Check synchronous lock first (prevents double-click race condition)
+    if (!currentQuery || isSubmitting || submissionLockRef.current) return;
+
+    // Acquire lock immediately (synchronous - before any state updates)
+    submissionLockRef.current = true;
 
     // AIDASH-EDGE-01 FIX: Reset lastQuickActionRef only for manual queries
     // This ensures Plan My Day micro-buttons stay visible after quick action completes
@@ -484,17 +494,24 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
     } finally {
       setLoading(false);
       setIsSubmitting(false);
+      // CONCURRENCY FIX: Release synchronous lock
+      submissionLockRef.current = false;
     }
   };
 
   // Fallback non-streaming handler (for providers that don't support streaming)
   const handleQuery = async () => {
-    if (!query.trim() || isSubmitting) return;
+    // CONCURRENCY FIX: Check synchronous lock first
+    if (!query.trim() || isSubmitting || submissionLockRef.current) return;
+
+    // Acquire lock immediately
+    submissionLockRef.current = true;
 
     // MOBILE FIX: Validate deals array before sending
     if (!Array.isArray(deals)) {
       console.error('[CustomQueryView] Deals is not an array:', typeof deals, deals);
       addNotification('Unable to load pipeline data. Please refresh the page.', 'error');
+      submissionLockRef.current = false; // Release lock on early return
       return;
     }
 
@@ -623,6 +640,8 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
     } finally {
       setLoading(false);
       setIsSubmitting(false);
+      // CONCURRENCY FIX: Release synchronous lock
+      submissionLockRef.current = false;
     }
   };
 
@@ -637,7 +656,8 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
   // PHASE 5.2: Execution Action Handlers
   // These handlers execute contextual AI actions from micro-buttons in Plan My Day responses
   const handleExecutionAction = async (actionType, context) => {
-    if (isSubmitting || loading || !hasProviders || !isOnline || executionLoading) return;
+    // CONCURRENCY FIX: Check synchronous lock first
+    if (isSubmitting || loading || !hasProviders || !isOnline || executionLoading || submissionLockRef.current) return;
 
     // PHASE 5.3: Track micro-action usage for adaptive personalization
     // Map execution action types to signal action IDs
@@ -737,7 +757,11 @@ Guidelines:
 
   // Quick action handler - ONE-CLICK execution (no second click required)
   const handleQuickAction = async (actionType) => {
-    if (isSubmitting || loading || !hasProviders) return;
+    // CONCURRENCY FIX: Check synchronous lock first (prevents double-click race condition)
+    if (isSubmitting || loading || !hasProviders || submissionLockRef.current) return;
+
+    // Acquire lock immediately (synchronous - before any state updates)
+    submissionLockRef.current = true;
 
     // OFFLINE PHASE 4B: Track the quick action type for caching
     lastQuickActionRef.current = actionType;
@@ -942,6 +966,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
     } finally {
       setLoading(false);
       setIsSubmitting(false);
+      // CONCURRENCY FIX: Release synchronous lock
+      submissionLockRef.current = false;
     }
   };
 
@@ -1159,6 +1185,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                           )}
                         </div>
                         <div className="text-sm text-white/90 leading-relaxed">
+                          {/* PHASE 19B: Show summary strip for Plan My Day responses */}
+                          {!message.streaming && message.structuredResponse?.response_type === 'plan_my_day' && (
+                            <PlanMyDaySummary
+                              structuredResponse={message.structuredResponse}
+                              content={message.content}
+                            />
+                          )}
                           {renderMarkdown(message.content)}
                           {message.streaming && (
                             <span className="inline-block w-1.5 h-4 ml-1 bg-[#1ABC9C] animate-pulse" />
