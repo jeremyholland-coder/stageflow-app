@@ -1,0 +1,9 @@
+{
+    "chatgpt.openOnStartup": false,
+    "keyboard.touchbar.enabled": false,
+    "telemetry.editStats.enabled": false,
+    "telemetry.feedback.enabled": false,
+    "claudeCode.disableLoginPrompt": true,
+    "claudeCode.respectGitIgnore": false,
+    "debug.javascript.autoAttachFilter": "smart"
+}

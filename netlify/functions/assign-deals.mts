@@ -1,0 +1,415 @@
+/**
+ * Team Deal Assignment Function
+ *
+ * Endpoints:
+ * - POST /assign-deal - Assign a single deal to a team member
+ * - POST /assign-deals-bulk - Assign multiple deals at once
+ * - POST /assign-auto - Auto-assign using round-robin
+ * - GET /team-performance - Get team performance metrics
+ * - GET /team-leaderboard - Get team rankings
+ */
+
+import { createClient } from '@supabase/supabase-js';
+import { shouldUseNewAuth } from './lib/feature-flags';
+import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+
+export const handler = async (event: any) => {
+  // Enable CORS
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Missing Supabase credentials');
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Parse request
+    const body = event.body ? JSON.parse(event.body) : {};
+    const action = body.action || 'assign-deal';
+    const { organizationId } = body;
+
+    // SECURITY: Feature-flagged authentication migration
+    // Phase 4 Batch 2: Add authentication to assign-deals (currently NONE!)
+    if (shouldUseNewAuth('assign-deals')) {
+      try {
+        // NEW AUTH PATH: Validate session and org membership
+        const request = new Request('https://dummy.com', {
+          method: event.httpMethod,
+          headers: event.headers
+        });
+
+        await requireAuth(request);
+        await requireOrgAccess(request, organizationId);
+
+        // User is authenticated and member of organization
+      } catch (authError) {
+        return createAuthErrorResponse(authError);
+      }
+    }
+    // LEGACY AUTH PATH: NO AUTHENTICATION (CRITICAL VULNERABILITY!)
+
+    // =================================================================
+    // ACTION: Assign Single Deal
+    // =================================================================
+    if (action === 'assign-deal') {
+      const { dealId, assignedTo, assignedBy, organizationId, notes } = body;
+
+      if (!dealId || !assignedTo || !organizationId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required fields: dealId, assignedTo, organizationId'
+          })
+        };
+      }
+
+      // Verify team member exists in organization
+      // MIGRATION FIX: Changed from user_workspaces to team_members (v1.7.22)
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('team_members')
+        .select('user_id, role')
+        .eq('organization_id', organizationId)
+        .eq('user_id', assignedTo)
+        .single();
+
+      if (workspaceError || !workspace) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'Team member not found in organization'
+          })
+        };
+      }
+
+      // Assign the deal
+      const { data: deal, error: assignError } = await supabase
+        .from('deals')
+        .update({
+          assigned_to: assignedTo,
+          assigned_by: assignedBy || assignedTo,
+          assigned_at: new Date().toISOString()
+        })
+        .eq('id', dealId)
+        .eq('organization_id', organizationId)
+        .select()
+        .single();
+
+      if (assignError) {
+        throw assignError;
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: 'Deal assigned successfully',
+          deal
+        })
+      };
+    }
+
+    // =================================================================
+    // ACTION: Bulk Assign Deals
+    // =================================================================
+    if (action === 'assign-deals-bulk') {
+      const { dealIds, assignedTo, assignedBy, organizationId } = body;
+
+      if (!dealIds || !Array.isArray(dealIds) || !assignedTo || !organizationId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required fields: dealIds (array), assignedTo, organizationId'
+          })
+        };
+      }
+
+      // Verify team member
+      // MIGRATION FIX: Changed from user_workspaces to team_members (v1.7.22)
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('team_members')
+        .select('user_id')
+        .eq('organization_id', organizationId)
+        .eq('user_id', assignedTo)
+        .single();
+
+      if (workspaceError || !workspace) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'Team member not found in organization'
+          })
+        };
+      }
+
+      // Bulk assign
+      const { data: deals, error: assignError } = await supabase
+        .from('deals')
+        .update({
+          assigned_to: assignedTo,
+          assigned_by: assignedBy || assignedTo,
+          assigned_at: new Date().toISOString()
+        })
+        .in('id', dealIds)
+        .eq('organization_id', organizationId)
+        .select();
+
+      if (assignError) {
+        throw assignError;
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: `${deals?.length || 0} deals assigned successfully`,
+          count: deals?.length || 0,
+          deals
+        })
+      };
+    }
+
+    // =================================================================
+    // ACTION: Auto-Assign (Round Robin)
+    // =================================================================
+    if (action === 'assign-auto') {
+      const { dealId, organizationId } = body;
+
+      if (!dealId || !organizationId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required fields: dealId, organizationId'
+          })
+        };
+      }
+
+      // Use the round-robin function
+      const { data, error } = await supabase.rpc('assign_deal_round_robin', {
+        p_deal_id: dealId,
+        p_organization_id: organizationId
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // Get the updated deal
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('*')
+        .eq('id', dealId)
+        .single();
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: 'Deal auto-assigned successfully',
+          assignedTo: data,
+          deal
+        })
+      };
+    }
+
+    // =================================================================
+    // ACTION: Get Team Performance
+    // =================================================================
+    if (action === 'team-performance') {
+      const { organizationId } = body;
+
+      if (!organizationId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required field: organizationId'
+          })
+        };
+      }
+
+      const { data: performance, error: perfError } = await supabase
+        .from('team_performance')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .order('won_value', { ascending: false });
+
+      if (perfError) {
+        throw perfError;
+      }
+
+      // Get user details from user_profiles (much faster than listUsers!)
+      const teamMemberIds = performance?.map(p => p.team_member_id).filter(Boolean) || [];
+      let userDetails = [];
+
+      if (teamMemberIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, email, full_name, created_at')
+          .in('id', teamMemberIds);
+
+        userDetails = profiles || [];
+      }
+
+      // Merge performance with user details
+      const enrichedPerformance = performance?.map(perf => {
+        const user = userDetails.find(u => u.id === perf.team_member_id);
+        return {
+          ...perf,
+          user: user || null
+        };
+      });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          performance: enrichedPerformance || []
+        })
+      };
+    }
+
+    // =================================================================
+    // ACTION: Get Team Leaderboard
+    // =================================================================
+    if (action === 'team-leaderboard') {
+      const { organizationId } = body;
+
+      if (!organizationId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required field: organizationId'
+          })
+        };
+      }
+
+      const { data: leaderboard, error: leaderError } = await supabase
+        .from('team_leaderboard')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .order('revenue_this_month', { ascending: false });
+
+      if (leaderError) {
+        throw leaderError;
+      }
+
+      // Get user details from user_profiles (much faster than listUsers!)
+      const teamMemberIds = leaderboard?.map(l => l.team_member_id).filter(Boolean) || [];
+      let userDetails = [];
+
+      if (teamMemberIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, email, full_name, created_at')
+          .in('id', teamMemberIds);
+
+        userDetails = profiles || [];
+      }
+
+      // Merge leaderboard with user details
+      const enrichedLeaderboard = leaderboard?.map(entry => {
+        const user = userDetails.find(u => u.id === entry.team_member_id);
+        return {
+          ...entry,
+          user: user || null
+        };
+      });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          leaderboard: enrichedLeaderboard || []
+        })
+      };
+    }
+
+    // =================================================================
+    // ACTION: Get Assignment History
+    // =================================================================
+    if (action === 'assignment-history') {
+      const { dealId } = body;
+
+      if (!dealId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: 'Missing required field: dealId'
+          })
+        };
+      }
+
+      const { data: history, error: historyError } = await supabase
+        .from('deal_assignment_history')
+        .select('*')
+        .eq('deal_id', dealId)
+        .order('assigned_at', { ascending: false });
+
+      if (historyError) {
+        throw historyError;
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          history: history || []
+        })
+      };
+    }
+
+    // Unknown action
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({
+        error: `Unknown action: ${action}`,
+        validActions: [
+          'assign-deal',
+          'assign-deals-bulk',
+          'assign-auto',
+          'team-performance',
+          'team-leaderboard',
+          'assignment-history'
+        ]
+      })
+    };
+
+  } catch (error: any) {
+    console.error('[AssignDeals] Error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({
+        error: 'Internal server error',
+        details: error.message
+      })
+    };
+  }
+};

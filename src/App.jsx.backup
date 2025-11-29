@@ -1,0 +1,105 @@
+import React, { useEffect, Suspense } from 'react';
+import { Loader2 } from './components/icons';
+import { AppProvider, useApp, AuthScreen, AppShell } from './components/AppShell';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Dashboard } from './components/Dashboard'; // Keep Dashboard in main bundle
+import { VIEWS } from './lib/supabase';
+import validator from './lib/config-validator';
+import { csrfProtection } from './lib/csrf-protection';
+
+// PERFORMANCE: Lazy load all heavy components for faster initial load
+// Settings, Integrations, and Team are ~250KB combined - only load when needed
+const Settings = React.lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const Integrations = React.lazy(() => import('./components/Integrations').then(m => ({ default: m.Integrations })));
+const TeamDashboard = React.lazy(() => import('./components/TeamDashboard').then(m => ({ default: m.TeamDashboard })));
+
+const MainApp = () => {
+  const { user, loading, activeView, organization } = useApp();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F9FAFB] dark:bg-[#121212] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-[#1ABC9C]" />
+      </div>
+    );
+  }
+
+  if (!user) return <AuthScreen />;
+
+  // CRITICAL FIX: Don't render Settings/Integrations/Team until organization is loaded
+  // This prevents lazy-loaded components from accessing undefined organization data
+  if (!organization && (activeView === VIEWS.SETTINGS || activeView === VIEWS.INTEGRATIONS || activeView === VIEWS.TEAM)) {
+    return (
+      <div className="min-h-screen bg-[#F9FAFB] dark:bg-[#121212] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-[#1ABC9C]" />
+      </div>
+    );
+  }
+
+  // CRITICAL: Don't render ANYTHING until organization is loaded
+  if (!organization) {
+    return (
+      <div className="min-h-screen bg-[#F9FAFB] dark:bg-[#121212] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-[#1ABC9C]" />
+      </div>
+    );
+  }
+
+  // FIX #3: Loading fallback for lazy-loaded components
+  const LoadingFallback = () => (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="w-8 h-8 animate-spin text-[#1ABC9C]" />
+    </div>
+  );
+
+  // PERFORMANCE FIX: Keep all views mounted but hidden with CSS
+  // This prevents expensive re-mounting and data fetching when switching views
+  // User reported 5-6 second delay when switching - this makes it instant
+  return (
+    <AppShell>
+      <div style={{ display: activeView === VIEWS.DASHBOARD ? 'block' : 'none' }}>
+        <Dashboard />
+      </div>
+      <div style={{ display: activeView === VIEWS.INTEGRATIONS ? 'block' : 'none' }}>
+        <Suspense fallback={<LoadingFallback />}>
+          <Integrations />
+        </Suspense>
+      </div>
+      <div style={{ display: activeView === VIEWS.SETTINGS ? 'block' : 'none' }}>
+        <Suspense fallback={<LoadingFallback />}>
+          <Settings />
+        </Suspense>
+      </div>
+      <div style={{ display: activeView === VIEWS.TEAM ? 'block' : 'none' }}>
+        <Suspense fallback={<LoadingFallback />}>
+          <TeamDashboard />
+        </Suspense>
+      </div>
+    </AppShell>
+  );
+};
+
+export default function App() {
+  useEffect(() => {
+    // Initialize security features
+    try {
+      const report = validator.getValidationReport();
+      if (report.status === 'error') {
+        console.error('[Security] Config validation failed');
+      }
+      
+      // Initialize CSRF protection
+      csrfProtection.getToken();
+    } catch (error) {
+      console.error('[Security] Initialization failed:', error);
+    }
+  }, []);
+
+  return (
+    <ErrorBoundary>
+      <AppProvider>
+        <MainApp />
+      </AppProvider>
+    </ErrorBoundary>
+  );
+}

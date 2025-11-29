@@ -1,0 +1,1553 @@
+import { createClient } from '@supabase/supabase-js';
+import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
+import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
+import { shouldUseNewAuth } from './lib/feature-flags';
+import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+// CENTRALIZED CONFIG: Import thresholds from single source of truth
+import { STAGNATION_THRESHOLDS } from '../../src/config/pipelineConfig';
+// PHASE 3: Task-aware model selection
+import { determineTaskType, TaskType } from './lib/ai-analytics';
+// PHASE 5.3: Adaptive AI User Profile
+import {
+  AISignal,
+  AIUserProfile,
+  getAIUserProfile,
+  updateUserProfileFromSignals,
+  buildAdaptationPromptSnippet,
+} from './lib/aiUserProfile';
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// PERFORMANCE: Global cache for pipeline analysis (persists between function invocations)
+const pipelineAnalysisCache = new Map<string, {
+  analysis: any;
+  dealsHash: string;
+  timestamp: number;
+}>();
+
+// LEARNING ENGINE: Cache for performance metrics (refreshed every 5 minutes)
+const performanceMetricsCache = new Map<string, {
+  metrics: any;
+  timestamp: number;
+}>();
+
+// Fetch performance metrics for AI context (Learning Engine v1)
+async function getPerformanceContext(organizationId: string, userId: string): Promise<any> {
+  const cacheKey = `${organizationId}:${userId}`;
+  const cached = performanceMetricsCache.get(cacheKey);
+
+  // Return cached if fresh (< 5 minutes)
+  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+    return cached.metrics;
+  }
+
+  try {
+    // Fetch org-wide metrics
+    const { data: orgMetrics } = await supabase
+      .from('performance_metrics')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .is('user_id', null)
+      .is('stage', null)
+      .eq('period', 'last_90_days')
+      .maybeSingle();
+
+    // Fetch user-specific metrics
+    const { data: userMetrics } = await supabase
+      .from('performance_metrics')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('user_id', userId)
+      .is('stage', null)
+      .eq('period', 'last_90_days')
+      .maybeSingle();
+
+    // Fetch per-stage metrics
+    const { data: stageMetrics } = await supabase
+      .from('performance_metrics')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .is('user_id', null)
+      .not('stage', 'is', null)
+      .eq('period', 'last_90_days');
+
+    // Build performance context
+    const performanceContext = {
+      orgWinRate: orgMetrics?.win_rate ? (orgMetrics.win_rate * 100).toFixed(1) : null,
+      orgAvgDaysToClose: orgMetrics?.avg_days_to_close || null,
+      userWinRate: userMetrics?.win_rate ? (userMetrics.win_rate * 100).toFixed(1) : null,
+      userAvgDaysToClose: userMetrics?.avg_days_to_close || null,
+      stageStats: {} as { [stage: string]: { winRate: string | null; avgDays: number | null } }
+    };
+
+    // Add stage-specific stats
+    if (stageMetrics && stageMetrics.length > 0) {
+      stageMetrics.forEach(s => {
+        performanceContext.stageStats[s.stage] = {
+          winRate: s.win_rate ? (s.win_rate * 100).toFixed(1) : null,
+          avgDays: s.avg_days_in_stage || null
+        };
+      });
+    }
+
+    // Cache the results
+    performanceMetricsCache.set(cacheKey, {
+      metrics: performanceContext,
+      timestamp: Date.now()
+    });
+
+    return performanceContext;
+  } catch (error) {
+    console.error('Error fetching performance metrics:', error);
+    return null;
+  }
+}
+
+// Hash deals array to detect changes
+function hashDeals(deals: any[]): string {
+  // Create signature from deal IDs, stages, values, and last_activity timestamps
+  const dealSignature = deals
+    .map(d => `${d.id}:${d.stage}:${d.value || 0}:${d.last_activity || d.updated_at || ''}`)
+    .sort() // Sort for consistent hashing
+    .join('|');
+
+  // Use Buffer to create a simple hash
+  return Buffer.from(dealSignature).toString('base64').slice(0, 32);
+}
+
+// Get cached pipeline analysis if valid
+function getCachedPipelineAnalysis(organizationId: string, deals: any[]): any | null {
+  const cached = pipelineAnalysisCache.get(organizationId);
+
+  if (!cached) return null;
+
+  // Cache expires after 5 minutes
+  if (Date.now() - cached.timestamp > 5 * 60 * 1000) {
+    pipelineAnalysisCache.delete(organizationId);
+    return null;
+  }
+
+  // Check if deals have changed
+  const currentHash = hashDeals(deals);
+  if (cached.dealsHash !== currentHash) {
+    return null;
+  }
+
+  return cached.analysis;
+}
+
+// Cache pipeline analysis for future requests
+function setCachedPipelineAnalysis(organizationId: string, deals: any[], analysis: any): void {
+  pipelineAnalysisCache.set(organizationId, {
+    analysis,
+    dealsHash: hashDeals(deals),
+    timestamp: Date.now()
+  });
+
+  // Limit cache size to 100 organizations (prevent memory leak)
+  if (pipelineAnalysisCache.size > 100) {
+    const firstKey = pipelineAnalysisCache.keys().next().value;
+    pipelineAnalysisCache.delete(firstKey);
+  }
+}
+
+// Get all active AI providers for organization
+async function getActiveProviders(organizationId: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('ai_providers')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('active', true)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching providers:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+// Analyze deals and create RICH context for AI
+function analyzeDealsPipeline(deals: any[]): any {
+  const now = new Date();
+  const totalDeals = deals.length;
+  const totalValue = deals.reduce((sum: number, d: any) => sum + Number(d.value || 0), 0);
+
+  // Categorize deals by stage (with null safety)
+  const byStage = deals.reduce((acc: any, deal: any) => {
+    if (!deal || !deal.stage) return acc; // Skip malformed deals
+    acc[deal.stage] = acc[deal.stage] || { count: 0, value: 0, deals: [] };
+    acc[deal.stage].count++;
+    acc[deal.stage].value += Number(deal.value || 0);
+    acc[deal.stage].deals.push(deal);
+    return acc;
+  }, {});
+
+  // Categorize by status
+  const byStatus = deals.reduce((acc: any, deal: any) => {
+    acc[deal.status] = acc[deal.status] || { count: 0, value: 0 };
+    acc[deal.status].count++;
+    acc[deal.status].value += Number(deal.value || 0);
+    return acc;
+  }, {});
+
+  const avgDealValue = totalDeals > 0 ? totalValue / totalDeals : 0;
+
+  // STAGNATION DETECTION - Using centralized thresholds from pipelineConfig
+  const stagnantDeals = deals.filter((d: any) => {
+    if (!d || d.status !== 'active' || !d.created && !d.created_at) return false;
+    const created = new Date(d.created || d.created_at);
+    if (isNaN(created.getTime())) return false; // Invalid date
+    const daysSinceCreated = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+    const threshold = STAGNATION_THRESHOLDS[d.stage as keyof typeof STAGNATION_THRESHOLDS] || STAGNATION_THRESHOLDS.default;
+    return daysSinceCreated > threshold;
+  });
+
+  // HIGH VALUE deals at risk
+  const highValueAtRisk = stagnantDeals.filter(d => d.value > 10000);
+
+  // Calculate stage durations
+  const stageDurations = Object.entries(byStage).map(([stage, data]: [string, any]) => {
+    const avgAge = data.deals.reduce((sum: number, d: any) => {
+      const created = new Date(d.created || d.created_at);
+      return sum + Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+    }, 0) / data.count;
+
+    return { stage, avgAge: Math.round(avgAge), count: data.count };
+  });
+
+  // Win rate calculation
+  const wonDeals = deals.filter(d => d.status === 'won');
+  const lostDeals = deals.filter(d => d.status === 'lost');
+  const winRate = (wonDeals.length + lostDeals.length) > 0
+    ? wonDeals.length / (wonDeals.length + lostDeals.length)
+    : 0;
+
+  return {
+    totalDeals,
+    totalValue,
+    byStage,
+    byStatus,
+    avgDealValue,
+    stagnantDeals: stagnantDeals.length,
+    stagnantDealsList: stagnantDeals.map(d => ({ client: d.client, stage: d.stage, value: d.value || 0, age: Math.floor((now.getTime() - new Date(d.created || d.created_at).getTime()) / (1000 * 60 * 60 * 24)) })),
+    highValueAtRisk: highValueAtRisk.length,
+    highValueAtRiskList: highValueAtRisk.map(d => ({ client: d.client, stage: d.stage, value: d.value || 0 })),
+    stageDurations,
+    winRate: (winRate * 100).toFixed(1),
+    conversionOpportunity: stagnantDeals.length > 0 ? `${stagnantDeals.length} deals are stagnant and losing momentum` : 'Pipeline velocity is healthy'
+  };
+}
+
+// ANALYTICS: Calculate revenue forecast
+function calculateRevenueForecast(deals: any[]): any[] {
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysPassed = now.getDate();
+  const daysRemaining = daysInMonth - daysPassed;
+
+  // Calculate current month revenue (won deals)
+  const currentRevenue = deals
+    .filter(d => {
+      if (d.status !== 'won') return false;
+      const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+      return wonDate >= monthStart && wonDate <= now;
+    })
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+  // Calculate pipeline value (active deals weighted by confidence)
+  const pipelineValue = deals
+    .filter(d => d.status === 'active')
+    .reduce((sum, d) => {
+      const value = Number(d.value || 0);
+      const confidence = d.confidence || 30; // Default to 30% if no confidence
+      return sum + (value * (confidence / 100));
+    }, 0);
+
+  // Calculate run rate
+  const dailyRunRate = daysPassed > 0 ? currentRevenue / daysPassed : 0;
+  const projectedFromRunRate = currentRevenue + (dailyRunRate * daysRemaining);
+
+  // Conservative forecast (weighted average)
+  const conservativeForecast = currentRevenue + (pipelineValue * 0.3);
+
+  // Aggressive forecast
+  const aggressiveForecast = currentRevenue + (pipelineValue * 0.7);
+
+  // Best estimate (balanced)
+  const bestEstimate = currentRevenue + (pipelineValue * 0.5);
+
+  return [
+    { category: 'Closed', value: Math.round(currentRevenue), color: '#10B981' },
+    { category: 'Conservative', value: Math.round(conservativeForecast - currentRevenue), color: '#F59E0B' },
+    { category: 'Best Case', value: Math.round(bestEstimate - currentRevenue), color: '#3B82F6' },
+    { category: 'Aggressive', value: Math.round(aggressiveForecast - currentRevenue), color: '#8B5CF6' }
+  ];
+}
+
+// ANALYTICS: Calculate ICP analysis
+function calculateICPAnalysis(deals: any[]): any[] {
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const wonDeals = deals.filter(d => d.status === 'won');
+  if (wonDeals.length === 0) {
+    return [];
+  }
+
+  // Analyze deal sizes
+  const dealSizes = wonDeals.map(d => Number(d.value || 0)).filter(v => v > 0);
+  const avgDealSize = dealSizes.reduce((a, b) => a + b, 0) / dealSizes.length;
+
+  // Group by deal size ranges
+  const small = wonDeals.filter(d => Number(d.value || 0) < avgDealSize * 0.5).length;
+  const medium = wonDeals.filter(d => {
+    const val = Number(d.value || 0);
+    return val >= avgDealSize * 0.5 && val <= avgDealSize * 1.5;
+  }).length;
+  const large = wonDeals.filter(d => Number(d.value || 0) > avgDealSize * 1.5).length;
+
+  return [
+    { segment: 'Small Deals', count: small, percentage: Math.round((small / wonDeals.length) * 100) },
+    { segment: 'Medium Deals', count: medium, percentage: Math.round((medium / wonDeals.length) * 100) },
+    { segment: 'Large Deals', count: large, percentage: Math.round((large / wonDeals.length) * 100) }
+  ];
+}
+
+// ANALYTICS: Calculate velocity analysis
+function calculateVelocityAnalysis(deals: any[]): any[] {
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const now = new Date();
+
+  // Calculate average age by stage for active deals
+  const stageVelocity: { [key: string]: { totalDays: number; count: number } } = {};
+
+  deals.filter(d => d.status === 'active').forEach(deal => {
+    const created = new Date(deal.created || deal.created_at);
+    const age = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (!stageVelocity[deal.stage]) {
+      stageVelocity[deal.stage] = { totalDays: 0, count: 0 };
+    }
+    stageVelocity[deal.stage].totalDays += age;
+    stageVelocity[deal.stage].count++;
+  });
+
+  // Calculate average and format for chart
+  return Object.keys(stageVelocity).map(stage => ({
+    stage: stage.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    avgDays: Math.round(stageVelocity[stage].totalDays / stageVelocity[stage].count),
+    count: stageVelocity[stage].count
+  })).sort((a, b) => b.avgDays - a.avgDays).slice(0, 6); // Top 6 slowest stages
+}
+
+// ANALYTICS: Calculate weekly trends for chart visualization
+function calculateWeeklyTrends(deals: any[]): any[] {
+  // CRITICAL FIX: Handle empty deals array (new users with 0 deals)
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const now = new Date();
+  const weeks = [];
+
+  // Generate last 4 weeks
+  for (let i = 3; i >= 0; i--) {
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - (i * 7 + 7));
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const weekLabel = `Week ${4 - i}`;
+
+    // Count deals added, closed, lost in this week
+    const added = deals.filter(d => {
+      const created = new Date(d.created || d.created_at);
+      return created >= weekStart && created < weekEnd;
+    }).length;
+
+    const closed = deals.filter(d => {
+      if (d.status !== 'won') return false;
+      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      return lastActivity >= weekStart && lastActivity < weekEnd;
+    }).length;
+
+    const lost = deals.filter(d => {
+      if (d.status !== 'lost') return false;
+      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      return lastActivity >= weekStart && lastActivity < weekEnd;
+    }).length;
+
+    weeks.push({
+      week: weekLabel,
+      added,
+      closed,
+      lost
+    });
+  }
+
+  return weeks;
+}
+
+// ANALYTICS: Calculate pipeline flow by stage
+function calculatePipelineFlow(deals: any[]): any[] {
+  // CRITICAL FIX: Handle empty deals array (new users with 0 deals)
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const stageOrder = [
+    'lead',
+    'lead_captured',
+    'contacted',
+    'discovery',
+    'proposal_sent',
+    'negotiation',
+    'verbal_commit',
+    'contract_sent'
+  ];
+
+  const stageNames: { [key: string]: string } = {
+    'lead': 'Lead',
+    'lead_captured': 'Captured',
+    'contacted': 'Contacted',
+    'discovery': 'Discovery',
+    'proposal_sent': 'Proposal',
+    'negotiation': 'Negotiation',
+    'verbal_commit': 'Verbal Commit',
+    'contract_sent': 'Contract Sent'
+  };
+
+  // Count active deals and value by stage
+  const activeDeals = deals.filter(d => d.status === 'active');
+
+  const byStage = activeDeals.reduce((acc: any, deal: any) => {
+    const stage = deal.stage || 'lead';
+    if (!acc[stage]) {
+      acc[stage] = { count: 0, value: 0 };
+    }
+    acc[stage].count++;
+    acc[stage].value += Number(deal.value || 0);
+    return acc;
+  }, {});
+
+  // Build flow data in stage order
+  return stageOrder
+    .filter(stage => byStage[stage]) // Only include stages with deals
+    .map(stage => ({
+      stage: stageNames[stage] || stage,
+      count: byStage[stage].count,
+      value: byStage[stage].value
+    }));
+}
+
+// ANALYTICS: Calculate goal progress
+async function calculateGoalProgress(deals: any[], organizationId: string, supabase: any): Promise<any[]> {
+  // CRITICAL FIX: Handle empty deals array (new users with 0 deals)
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  try {
+    // Get ALL revenue targets from user_targets
+    const now = new Date();
+    const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
+
+    const { data: targets, error: targetError } = await supabase
+      .from('user_targets')
+      .select('monthly_revenue_target, quarterly_revenue_target, annual_revenue_target')
+      .eq('organization_id', organizationId)
+      .limit(1)
+      .maybeSingle(); // Use maybeSingle() to handle cases where no targets exist
+
+    // If there's an error or no targets, return empty array
+    if (targetError || !targets) {
+      console.log('No user targets found for organization:', organizationId);
+      return [];
+    }
+
+    const monthlyTarget = targets?.monthly_revenue_target || 0;
+    const quarterlyTarget = targets?.quarterly_revenue_target || 0;
+    const annualTarget = targets?.annual_revenue_target || 0;
+
+    // Calculate current month revenue (won deals this month)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthRevenue = deals
+      .filter(d => {
+        if (d.status !== 'won') return false;
+        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        return wonDate >= monthStart;
+      })
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+    // Calculate current quarter revenue (Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec)
+    const currentQuarter = Math.floor(now.getMonth() / 3);
+    const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
+    const quarterRevenue = deals
+      .filter(d => {
+        if (d.status !== 'won') return false;
+        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        return wonDate >= quarterStart;
+      })
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+    // Calculate year-to-date revenue
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const yearRevenue = deals
+      .filter(d => {
+        if (d.status !== 'won') return false;
+        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        return wonDate >= yearStart;
+      })
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+    const results = [];
+
+    // Only include goals that are set (non-zero)
+    if (monthlyTarget > 0) {
+      results.push({
+        period: 'Monthly',
+        current: monthRevenue,
+        target: monthlyTarget,
+        percentage: Math.round((monthRevenue / monthlyTarget) * 100)
+      });
+    }
+
+    if (quarterlyTarget > 0) {
+      results.push({
+        period: 'Quarterly',
+        current: quarterRevenue,
+        target: quarterlyTarget,
+        percentage: Math.round((quarterRevenue / quarterlyTarget) * 100)
+      });
+    }
+
+    if (annualTarget > 0) {
+      results.push({
+        period: 'Annual',
+        current: yearRevenue,
+        target: annualTarget,
+        percentage: Math.round((yearRevenue / annualTarget) * 100)
+      });
+    }
+
+    // If no targets are set, return empty array (user needs to set targets)
+    return results;
+  } catch (error) {
+    console.error('Error calculating goal progress:', error);
+    // Return empty array on error
+    return [];
+  }
+}
+
+// ANALYTICS: Calculate at-risk deals by severity
+function calculateAtRiskDeals(deals: any[]): any[] {
+  // CRITICAL FIX: Handle empty deals array (new users with 0 deals)
+  if (!deals || deals.length === 0) {
+    return [];
+  }
+
+  const now = new Date();
+
+  // Using centralized thresholds from pipelineConfig
+  const activeDeals = deals.filter(d => d.status === 'active');
+
+  const atRisk = activeDeals.map(d => {
+    const created = new Date(d.created || d.created_at);
+    const daysSinceCreated = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+    const threshold = STAGNATION_THRESHOLDS[d.stage as keyof typeof STAGNATION_THRESHOLDS] || STAGNATION_THRESHOLDS.default;
+    const daysOverdue = daysSinceCreated - threshold;
+
+    return {
+      ...d,
+      daysSinceCreated,
+      daysOverdue
+    };
+  }).filter(d => d.daysOverdue > 0);
+
+  // Categorize by severity
+  const critical = atRisk.filter(d => d.daysOverdue > 14); // Over 2 weeks overdue
+  const warning = atRisk.filter(d => d.daysOverdue > 7 && d.daysOverdue <= 14); // 1-2 weeks overdue
+  const attention = atRisk.filter(d => d.daysOverdue <= 7); // Up to 1 week overdue
+
+  return [
+    {
+      category: 'Critical',
+      count: critical.length,
+      value: critical.reduce((sum, d) => sum + Number(d.value || 0), 0)
+    },
+    {
+      category: 'Warning',
+      count: warning.length,
+      value: warning.reduce((sum, d) => sum + Number(d.value || 0), 0)
+    },
+    {
+      category: 'Attention',
+      count: attention.length,
+      value: attention.reduce((sum, d) => sum + Number(d.value || 0), 0)
+    }
+  ];
+}
+
+// Call OpenAI/GPT
+async function callOpenAI(apiKey: string, message: string, context: any, modelName?: string, conversationHistory: any[] = []): Promise<any> {
+  // Build messages array with system prompt, conversation history, then current message
+  // PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. You provide clear, supportive guidance focused on building relationships and maintaining healthy deal momentum.
+
+**YOUR CORE VALUES:**
+- Partnership over transaction
+- Professionalism over pressure
+- Momentum over manipulation
+- Relationship development over pure follow-up
+- Ethical long-term success over short-term extraction
+- Confidence, clarity, and craft
+
+**FORBIDDEN LANGUAGE (NEVER USE):**
+- Money-hungry phrases ("immediate money", "quick cash", "easy revenue")
+- Hard-selling verbs ("push", "close now", "hammer", "pressure", "force")
+- Shaming or guilt tactics
+- Overly remedial "training wheel" language
+- Salesy framing or manipulation tactics
+
+**Current Pipeline Context:**
+${JSON.stringify(context, null, 2)}
+
+**Your Expertise:**
+- Momentum Detection: Deals naturally have rhythms - help maintain healthy progression
+- Relationship Prioritization: High-value partnerships deserve thoughtful attention
+- Pattern Recognition: Win rate is ${context.winRate}% - identify what's working well
+- Stage Awareness: Understand natural timelines for each stage
+
+**LEARNING ENGINE - Historical Performance:**
+${context.historicalPerformance ? `
+- Organization Win Rate (90d): ${context.historicalPerformance.orgWinRate || 'Not yet calculated'}%
+- Your Win Rate (90d): ${context.historicalPerformance.userWinRate || 'Not yet calculated'}%
+- Avg Days to Close: ${context.historicalPerformance.avgDaysToClose || 'N/A'}
+- This data helps personalize your guidance without being mentioned explicitly.
+` : '- Historical metrics building. Using industry benchmarks.'}
+
+**RESPONSE FORMAT:**
+1. Clean, readable text - NO markdown syntax (##, ***, ---, etc.)
+2. Use plain text emphasis (CAPS for key items)
+3. Simple bullet points (•) or numbered lists
+4. Professional, supportive tone
+5. Brief responses - max 3-4 sentences when charts are shown
+6. Reference charts instead of listing data
+
+**RESPONSE GUIDELINES:**
+1. Be SPECIFIC - name deals, stages, and values
+2. Be SUPPORTIVE - offer constructive guidance, not pressure
+3. BE CONCISE - charts show data, you provide insights
+4. BE ENCOURAGING - celebrate progress and momentum
+5. SUGGEST, don't demand - "Consider..." not "You must..."
+
+**Momentum Awareness:**
+${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from attention:\n${context.stagnantDealsList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} in ${d.stage} (${d.age} days)`).join('\n')}` : '✓ Pipeline momentum looks healthy'}
+
+${context.highValueAtRisk > 0 ? `\nHigh-value opportunities to nurture:\n${context.highValueAtRiskList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} in ${d.stage}`).join('\n')}` : ''}
+${context.visualInstructions || ''}
+${context.adaptationSnippet || ''}
+Focus on sustainable momentum and genuine relationship development.`
+    }
+  ];
+
+  // Add conversation history (exclude provider metadata, only role and content)
+  conversationHistory.forEach((msg: any) => {
+    if (msg.role && msg.content) {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    }
+  });
+
+  // Add current user message
+  messages.push({
+    role: 'user',
+    content: message
+  });
+
+  const response = await withTimeout(
+    fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: modelName || 'gpt-4o', // Use database model, fallback to gpt-4o
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    }),
+    TIMEOUTS.AI_PROVIDER,
+    'OpenAI API call'
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+
+  // NULL CHECK: Validate response structure
+  if (!data?.choices?.[0]?.message?.content) {
+    throw new Error('OpenAI returned invalid response structure');
+  }
+
+  return {
+    response: data.choices[0].message.content,
+    provider: 'ChatGPT'
+  };
+}
+
+// Call Anthropic/Claude
+// PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
+async function callAnthropic(apiKey: string, message: string, context: any, modelName?: string, conversationHistory: any[] = []): Promise<any> {
+  const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. You provide clear, supportive guidance focused on building relationships and maintaining healthy deal momentum.
+
+**YOUR CORE VALUES:**
+- Partnership over transaction
+- Professionalism over pressure
+- Momentum over manipulation
+- Relationship development over pure follow-up
+- Ethical long-term success over short-term extraction
+- Confidence, clarity, and craft
+
+**FORBIDDEN LANGUAGE (NEVER USE):**
+- Money-hungry phrases ("immediate money", "quick cash", "easy revenue")
+- Hard-selling verbs ("push", "close now", "hammer", "pressure", "force")
+- Shaming or guilt tactics
+- Overly remedial "training wheel" language
+- Salesy framing or manipulation tactics
+
+**Current Pipeline Context:**
+${JSON.stringify(context, null, 2)}
+
+**Your Expertise:**
+- Momentum Detection: Deals naturally have rhythms - help maintain healthy progression
+- Relationship Prioritization: High-value partnerships deserve thoughtful attention
+- Pattern Recognition: Win rate is ${context.winRate}% - identify what's working well
+- Stage Awareness: Understand natural timelines for each stage
+
+**LEARNING ENGINE - Historical Performance:**
+${context.historicalPerformance ? `
+- Organization Win Rate (90d): ${context.historicalPerformance.orgWinRate || 'Not yet calculated'}%
+- Your Win Rate (90d): ${context.historicalPerformance.userWinRate || 'Not yet calculated'}%
+- Avg Days to Close: ${context.historicalPerformance.avgDaysToClose || 'N/A'}
+- This data helps personalize your guidance without being mentioned explicitly.
+` : '- Historical metrics building. Using industry benchmarks.'}
+
+**RESPONSE FORMAT:**
+1. Clean, readable text - NO markdown syntax (##, ***, ---, etc.)
+2. Use plain text emphasis (CAPS for key items)
+3. Simple bullet points (•) or numbered lists
+4. Professional, supportive tone
+5. Brief responses - max 3-4 sentences when charts are shown
+6. Reference charts instead of listing data
+
+**RESPONSE GUIDELINES:**
+1. Be SPECIFIC - name deals, stages, and values
+2. Be SUPPORTIVE - offer constructive guidance, not pressure
+3. BE CONCISE - charts show data, you provide insights
+4. BE ENCOURAGING - celebrate progress and momentum
+5. SUGGEST, don't demand - "Consider..." not "You must..."
+
+**Momentum Awareness:**
+${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from attention:\n${context.stagnantDealsList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} in ${d.stage} (${d.age} days)`).join('\n')}` : '✓ Pipeline momentum looks healthy'}
+
+${context.highValueAtRisk > 0 ? `\nHigh-value opportunities to nurture:\n${context.highValueAtRiskList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} in ${d.stage}`).join('\n')}` : ''}
+${context.visualInstructions || ''}
+${context.adaptationSnippet || ''}
+Focus on sustainable momentum and genuine relationship development.`;
+
+  // Build messages array with conversation history
+  const messages: any[] = [];
+
+  // If no conversation history, start with user message that includes context
+  if (conversationHistory.length === 0) {
+    messages.push({
+      role: 'user',
+      content: message
+    });
+  } else {
+    // Add conversation history
+    conversationHistory.forEach((msg: any) => {
+      if (msg.role && msg.content) {
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
+    });
+
+    // Add current user message
+    messages.push({
+      role: 'user',
+      content: message
+    });
+  }
+
+  const response = await withTimeout(
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: modelName || 'claude-3-5-sonnet-20241022', // Use database model, fallback to sonnet
+        max_tokens: 500,
+        system: systemPrompt,
+        messages: messages
+      })
+    }),
+    TIMEOUTS.AI_PROVIDER,
+    'Anthropic API call'
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+
+  // NULL CHECK: Validate response structure
+  if (!data?.content?.[0]?.text) {
+    throw new Error('Anthropic returned invalid response structure');
+  }
+
+  return {
+    response: data.content[0].text,
+    provider: 'Claude'
+  };
+}
+
+// Call Google Gemini
+// PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
+async function callGemini(apiKey: string, message: string, context: any, modelName?: string, conversationHistory: any[] = []): Promise<any> {
+  const model = modelName || 'gemini-1.5-pro'; // Use database model, fallback to gemini-1.5-pro
+
+  const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform.
+
+**YOUR CORE VALUES:**
+- Partnership over transaction
+- Professionalism over pressure
+- Momentum over manipulation
+- Relationship development over pure follow-up
+
+**FORBIDDEN LANGUAGE:** Never use money-hungry phrases, hard-selling verbs (push, hammer, pressure), shaming tactics, or salesy framing.
+
+**Pipeline Context:** ${JSON.stringify(context, null, 2)}
+
+**Stage Benchmarks (Natural Rhythms):**
+- Early stages: 7-10 days typical
+- Discovery: 14 days typical
+- Negotiation: 21 days typical
+
+**RESPONSE FORMAT:**
+- Clean text - NO markdown syntax (##, ***, ---)
+- Plain text emphasis (CAPS for key items)
+- Simple bullet points (•) or numbered lists
+- Brief responses - max 3-4 sentences when charts shown
+- Professional, supportive tone
+
+**Momentum Awareness:**
+${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from attention:\n${context.stagnantDealsList.map((d: any) => `${d.client}: $${(d.value || 0).toLocaleString()} (${d.age}d in ${d.stage})`).join('\n')}` : '✓ Healthy momentum'}
+${context.visualInstructions || ''}
+${context.adaptationSnippet || ''}
+**Your Role:** Provide supportive, specific guidance. Name deals and values. Keep it brief - charts show data. Suggest constructive next steps.`;
+
+  // Build contents array for Gemini API
+  const contents: any[] = [];
+
+  // If no conversation history, combine system prompt with user message
+  if (conversationHistory.length === 0) {
+    contents.push({
+      parts: [{
+        text: `${systemPrompt}\n\nUser asks: ${message}`
+      }]
+    });
+  } else {
+    // Add system prompt as first user message
+    contents.push({
+      role: 'user',
+      parts: [{ text: systemPrompt }]
+    });
+
+    // Add conversation history (convert role format)
+    conversationHistory.forEach((msg: any) => {
+      if (msg.role && msg.content) {
+        contents.push({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        });
+      }
+    });
+
+    // Add current user message
+    contents.push({
+      role: 'user',
+      parts: [{ text: message }]
+    });
+  }
+
+  const response = await withTimeout(
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: contents
+      })
+    }),
+    TIMEOUTS.AI_PROVIDER,
+    'Gemini API call'
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+
+  // NULL CHECK: Validate response structure
+  if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+    throw new Error('Gemini returned invalid response structure');
+  }
+
+  return {
+    response: data.candidates[0].content.parts[0].text,
+    provider: 'Gemini'
+  };
+}
+
+// Call Grok
+// PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
+async function callGrok(apiKey: string, message: string, context: any, modelName?: string, conversationHistory: any[] = []): Promise<any> {
+  // Build messages array with system prompt, conversation history, then current message
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform.
+
+**YOUR CORE VALUES:**
+- Partnership over transaction
+- Professionalism over pressure
+- Momentum over manipulation
+- Relationship development over pure follow-up
+
+**FORBIDDEN LANGUAGE:** Never use money-hungry phrases, hard-selling verbs (push, hammer, pressure), shaming tactics, or salesy framing.
+
+**Pipeline Context:** ${JSON.stringify(context, null, 2)}
+
+**RESPONSE FORMAT:**
+- Clean text - NO markdown syntax (##, ***, ---)
+- Plain text emphasis (CAPS for key items)
+- Simple bullet points (•) or numbered lists
+- Brief responses - max 3-4 sentences when charts shown
+- Professional, supportive tone
+
+**Momentum Awareness:**
+${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from attention:\n${context.stagnantDealsList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} (${d.age}d in ${d.stage})`).join('\n')}` : '✓ Pipeline momentum healthy'}
+
+**High-Value Opportunities:**
+${context.highValueAtRisk > 0 ? `${context.highValueAtRisk} high-value deals to nurture` : '✓ High-value deals progressing well'}
+${context.visualInstructions || ''}
+${context.adaptationSnippet || ''}
+**Your Role:** Be SPECIFIC and SUPPORTIVE. Name deals and values. Suggest 2-3 constructive next steps. Keep it brief - charts show data. Win rate: ${context.winRate}%.`
+    }
+  ];
+
+  // Add conversation history (exclude provider metadata, only role and content)
+  conversationHistory.forEach((msg: any) => {
+    if (msg.role && msg.content) {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    }
+  });
+
+  // Add current user message
+  messages.push({
+    role: 'user',
+    content: message
+  });
+
+  const response = await withTimeout(
+    fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: modelName || 'grok-beta', // Use database model, fallback to grok-beta
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    }),
+    TIMEOUTS.AI_PROVIDER,
+    'Grok API call'
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Grok API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+
+  // NULL CHECK: Validate response structure
+  if (!data?.choices?.[0]?.message?.content) {
+    throw new Error('Grok returned invalid response structure');
+  }
+
+  return {
+    response: data.choices[0].message.content,
+    provider: 'Grok'
+  };
+}
+
+// Model tier definitions (premium = 3, standard = 2, economy = 1)
+const MODEL_TIERS: { [key: string]: number } = {
+  // OpenAI Premium
+  'gpt-5': 3,
+  'gpt-5-mini': 2,
+  'gpt-4.1': 2,
+  'gpt-4.1-mini': 1,
+  'gpt-4o-mini': 1,
+  'gpt-4o': 1,
+
+  // Anthropic Premium
+  'claude-sonnet-4-5-20250929': 3,
+  'claude-opus-4-1-20250805': 3,
+  'claude-sonnet-3-7-20250219': 2,
+  'claude-haiku-4-5-20251001': 1,
+  'claude-3-5-sonnet-20241022': 2,
+
+  // Google Premium
+  'gemini-2.5-pro': 3,
+  'gemini-2.5-flash': 2,
+  'gemini-2.5-flash-lite': 1,
+  'gemini-1.5-pro': 2,
+
+  // xAI Premium
+  'grok-4': 3,
+  'grok-4-fast': 2,
+  'grok-3-mini': 1,
+  'grok-beta': 1
+};
+
+// PHASE 3: Task-specific model preferences
+// Higher score = better fit for the task type
+const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
+  // Chart insights need strong numeric reasoning
+  'chart_insight': {
+    'openai': 3,      // GPT excels at structured data analysis
+    'anthropic': 3,   // Claude is great with numbers
+    'google': 2,      // Gemini is capable
+    'xai': 1          // Grok is newer, less tested
+  },
+  // Coaching needs long-form reasoning and empathy
+  'coaching': {
+    'anthropic': 3,   // Claude excels at nuanced, helpful responses
+    'openai': 2,      // GPT is good but more clinical
+    'google': 2,      // Gemini is capable
+    'xai': 2          // Grok has personality
+  },
+  // Text analysis - any premium model works well
+  'text_analysis': {
+    'openai': 2,
+    'anthropic': 2,
+    'google': 2,
+    'xai': 2
+  },
+  // Image suitable - for now, still text models (future: route to image APIs)
+  'image_suitable': {
+    'openai': 2,      // Can describe visuals well
+    'anthropic': 2,
+    'google': 2,
+    'xai': 1
+  }
+};
+
+// Determine the tier of a model (3=premium, 2=standard, 1=economy, 0=unknown)
+function getModelTier(modelName: string | null): number {
+  if (!modelName) return 0;
+  return MODEL_TIERS[modelName] || 0;
+}
+
+// PHASE 3: Select the best provider based on model tier AND task type
+function selectBestProvider(providers: any[], taskType: TaskType = 'text_analysis'): any {
+  if (providers.length === 0) return null;
+  if (providers.length === 1) return providers[0];
+
+  const taskAffinity = TASK_MODEL_AFFINITY[taskType] || TASK_MODEL_AFFINITY['text_analysis'];
+
+  // Score each provider: (model_tier * 10) + task_affinity
+  // This ensures tier is primary factor, affinity is tie-breaker
+  let bestProvider = providers[0];
+  let bestScore = (getModelTier(providers[0].model) * 10) + (taskAffinity[providers[0].provider_type] || 0);
+
+  for (const provider of providers) {
+    const tier = getModelTier(provider.model);
+    const affinity = taskAffinity[provider.provider_type] || 0;
+    const score = (tier * 10) + affinity;
+
+    if (score > bestScore) {
+      bestProvider = provider;
+      bestScore = score;
+    }
+  }
+
+  return bestProvider;
+}
+
+// PHASE 3: Build visual spec instructions for image-suitable or chart tasks
+function buildVisualSpecInstructions(taskType: TaskType): string {
+  if (taskType === 'image_suitable') {
+    return `
+
+**VISUAL OUTPUT GUIDANCE:**
+When recommending visuals or presentation-ready content, structure your response to include:
+VISUAL_SPEC: { "layout": "single_slide|multi_panel|infographic", "elements": ["headline", "key_metric", "chart_reference"], "headline": "...", "subtext": "..." }
+This helps the frontend render visual summaries. The user can then use this spec to create slides or graphics.`;
+  }
+
+  if (taskType === 'chart_insight') {
+    return `
+
+**CHART CONTEXT:**
+A chart visualization will be displayed alongside your response. Keep your text brief and reference the chart for data details. Focus on insights and recommended actions rather than listing numbers.`;
+  }
+
+  return '';
+}
+
+// Route to appropriate AI provider
+async function callAIProvider(provider: any, message: string, context: any, conversationHistory: any[] = [], taskType: TaskType = 'text_analysis'): Promise<any> {
+  // Support both GCM (new) and CBC (legacy) encryption formats
+  let apiKey: string;
+  try {
+    if (isLegacyEncryption(provider.api_key_encrypted)) {
+      apiKey = decryptLegacy(provider.api_key_encrypted);
+    } else {
+      apiKey = decrypt(provider.api_key_encrypted);
+    }
+  } catch (error: any) {
+    console.error('Failed to decrypt API key:', error);
+    throw new Error('Invalid API key encryption. Please re-save your AI provider configuration.');
+  }
+
+  const modelName = provider.model; // Get model from database
+
+  // PHASE 3: Enrich context with visual spec instructions based on task type
+  const visualInstructions = buildVisualSpecInstructions(taskType);
+  const enrichedContext = {
+    ...context,
+    visualInstructions // Added to context for prompt building
+  };
+
+  switch (provider.provider_type) {
+    case 'openai':
+      return await callOpenAI(apiKey, message, enrichedContext, modelName, conversationHistory);
+
+    case 'anthropic':
+      return await callAnthropic(apiKey, message, enrichedContext, modelName, conversationHistory);
+
+    case 'google':
+      return await callGemini(apiKey, message, enrichedContext, modelName, conversationHistory);
+
+    case 'xai':
+      return await callGrok(apiKey, message, enrichedContext, modelName, conversationHistory);
+
+    default:
+      throw new Error('Unsupported AI provider');
+  }
+}
+
+export default async (req: Request, context: any) => {
+  // Only allow POST
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const body = await req.json() as any;
+    const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [] } = body;
+
+    if (!message) {
+      return new Response(JSON.stringify({ error: 'Message is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // MOBILE FIX: Detect and reject image data in message
+    // Some mobile browsers/apps try to include base64 image data
+    if (typeof message === 'string' && (
+      message.includes('data:image/') ||
+      message.includes('base64,') && message.length > 10000
+    )) {
+      return new Response(JSON.stringify({
+        error: 'Image uploads not supported',
+        response: 'Sorry, I cannot process images yet. Please describe your question in text.',
+        suggestions: []
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate deals array
+    if (!Array.isArray(deals)) {
+      return new Response(JSON.stringify({
+        error: 'Invalid deals data format',
+        response: 'Unable to process your request due to invalid data. Please try again.'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // SECURITY: Feature-flagged authentication migration
+    // Phase 4 Batch 2: Centralized auth for AI assistant
+    const authHeader = req.headers.get('authorization');
+    let user: any;
+    let organizationId: string;
+
+    if (shouldUseNewAuth('ai-assistant')) {
+      try {
+        // NEW AUTH PATH: Use centralized auth middleware
+        user = await requireAuth(req);
+        const { member } = await requireOrgAccess(req);
+        organizationId = member.organization_id;
+      } catch (authError) {
+        return createAuthErrorResponse(authError);
+      }
+    } else {
+      // LEGACY AUTH PATH: Inline auth check
+      const token = authHeader?.replace('Bearer ', '');
+
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+
+      if (authError || !authUser) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      user = authUser;
+
+      // Get user's organization
+      // MIGRATION FIX: Changed from user_workspaces to team_members (v1.7.22)
+      const { data: membership } = await supabase
+        .from('team_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!membership) {
+        return new Response(JSON.stringify({ error: 'No organization found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      organizationId = membership.organization_id;
+    }
+
+    // CRITICAL: Check AI usage limits (revenue protection!)
+    // FIX: Use 'plan' column (matches stripe-webhook.mts:156)
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .select('ai_requests_used_this_month, plan')
+      .eq('id', organizationId)
+      .single();
+
+    if (orgError) {
+      console.error('Failed to fetch organization data:', orgError);
+    } else if (orgData) {
+      // Define limits per plan (must match Stripe pricing structure)
+      const AI_LIMITS: { [key: string]: number } = {
+        'free': 100,
+        'startup': 1000,
+        'growth': 5000,
+        'pro': -1  // Unlimited for Pro plan
+      };
+
+      const planTier = orgData.plan || 'free';  // FIX: Changed from plan_tier to plan
+      const limit = AI_LIMITS[planTier] || AI_LIMITS['free'];
+      const used = orgData.ai_requests_used_this_month || 0;
+
+      // Block request if limit reached (not unlimited)
+      if (limit > 0 && used >= limit) {
+        return new Response(JSON.stringify({
+          error: 'AI_LIMIT_REACHED',
+          limitReached: true,
+          used,
+          limit,
+          response: `You've reached your monthly limit of ${limit} AI requests. Upgrade your plan to continue using AI features.`,
+          suggestions: []
+        }), {
+          status: 429, // Too Many Requests
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // PHASE 5.3: Fetch and update AI user profile from signals
+    // This enables adaptive personalization based on user behavior
+    let userProfile: AIUserProfile | null = null;
+    try {
+      // If signals are present, update profile; otherwise just fetch
+      if (aiSignals && aiSignals.length > 0) {
+        userProfile = await updateUserProfileFromSignals(
+          supabase,
+          user.id,
+          organizationId,
+          aiSignals as AISignal[]
+        );
+      } else {
+        userProfile = await getAIUserProfile(supabase, user.id, organizationId);
+      }
+    } catch (profileError) {
+      // Profile errors are non-fatal - continue with default behavior
+      console.error('AI profile fetch/update error (non-fatal):', profileError);
+    }
+
+    // Get all active providers
+    const providers = await getActiveProviders(organizationId);
+
+    if (providers.length === 0) {
+      return new Response(JSON.stringify({
+        error: 'No AI provider configured',
+        response: "I'm not connected to any AI providers yet. Please configure an AI provider in Integrations → AI Settings.",
+        suggestions: []
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // PHASE 3: Determine task type for smart provider selection
+    const taskType = determineTaskType(message);
+
+    // Select provider: prefer specified, fallback to best available (highest tier + task affinity)
+    let selectedProvider;
+    if (preferredProvider) {
+      const preferred = providers.find(p => p.provider_type === preferredProvider);
+      selectedProvider = preferred || selectBestProvider(providers, taskType);
+    } else {
+      // Auto-select best provider based on model tier AND task type affinity
+      selectedProvider = selectBestProvider(providers, taskType);
+    }
+
+    // Analyze pipeline with caching for performance (2-3x faster for repeat queries)
+    const cachedAnalysis = getCachedPipelineAnalysis(organizationId, deals);
+    const pipelineAnalysis = cachedAnalysis || analyzeDealsPipeline(deals);
+    if (!cachedAnalysis) {
+      setCachedPipelineAnalysis(organizationId, deals, pipelineAnalysis);
+    }
+
+    // LEARNING ENGINE: Fetch performance metrics to enhance AI context
+    // This provides real historical data instead of hardcoded benchmarks
+    const performanceContext = await getPerformanceContext(organizationId, user.id);
+
+    // Merge performance context into pipeline analysis for richer AI insights
+    const enrichedAnalysis = {
+      ...pipelineAnalysis,
+      // Add historical performance data if available
+      historicalPerformance: performanceContext ? {
+        orgWinRate: performanceContext.orgWinRate,
+        userWinRate: performanceContext.userWinRate,
+        avgDaysToClose: performanceContext.orgAvgDaysToClose,
+        userAvgDaysToClose: performanceContext.userAvgDaysToClose,
+        stageStats: performanceContext.stageStats,
+        note: 'Real historical data from last 90 days'
+      } : null,
+      // PHASE 5.3: Add adaptation snippet if user profile exists
+      adaptationSnippet: userProfile ? buildAdaptationPromptSnippet(userProfile) : ''
+    };
+
+    // Call AI provider with retry logic
+    let aiResponse;
+    let lastError;
+
+    for (const provider of [selectedProvider, ...providers.filter(p => p.id !== selectedProvider.id)]) {
+      try {
+        // LEARNING ENGINE: Pass enriched analysis with historical performance data
+        // PHASE 3: Pass taskType for visual spec instructions
+        aiResponse = await callAIProvider(provider, message, enrichedAnalysis, conversationHistory, taskType);
+        break; // Success - exit loop
+      } catch (error: any) {
+        console.error(`Provider ${provider.provider_type} failed:`, error);
+        lastError = error;
+        // Continue to next provider
+      }
+    }
+
+    if (!aiResponse) {
+      throw lastError || new Error('All AI providers failed');
+    }
+
+    // CRITICAL: Increment AI usage counter for organization (revenue tracking!)
+    try {
+      const { error: incrementError } = await supabase.rpc('increment_ai_usage', {
+        org_id: organizationId
+      });
+
+      if (incrementError) {
+        console.error('Failed to increment AI usage:', incrementError);
+        // Don't throw - still return AI response, but log the error
+      }
+    } catch (error: any) {
+      console.error('Error tracking AI usage:', error);
+      // Continue - don't fail the request if usage tracking fails
+    }
+
+    // ANALYTICS: Detect if user is requesting chart visualization
+    let chartData = null;
+    let chartType = null;
+    let chartTitle = null;
+
+    const messageLower = message.toLowerCase();
+
+    // Detect analytics queries and calculate chart data
+    // ENHANCED: More comprehensive detection for visual analytics
+    if (messageLower.includes('weekly trend') || messageLower.includes('week') && (messageLower.includes('trend') || messageLower.includes('deal'))) {
+      chartType = 'weekly_trends';
+      chartTitle = 'Weekly Deal Activity';
+      chartData = calculateWeeklyTrends(deals);
+    } else if (messageLower.includes('pipeline flow') || messageLower.includes('pipeline movement') || messageLower.includes('pipeline distribution') || messageLower.includes('stage') && messageLower.includes('value')) {
+      chartType = 'pipeline_flow';
+      chartTitle = 'Pipeline by Stage';
+      chartData = calculatePipelineFlow(deals);
+    } else if (
+      // ENHANCED: Detect goal/progress queries with more keywords
+      (messageLower.includes('goal') && (messageLower.includes('progress') || messageLower.includes('track') || messageLower.includes('target') || messageLower.includes('achieve'))) ||
+      (messageLower.includes('progress') && (messageLower.includes('toward') || messageLower.includes('to') || messageLower.includes('goal') || messageLower.includes('target'))) ||
+      (messageLower.includes('revenue') && (messageLower.includes('goal') || messageLower.includes('target') || messageLower.includes('quota'))) ||
+      (messageLower.includes('monthly') && messageLower.includes('target')) ||
+      (messageLower.includes('quarterly') && messageLower.includes('target')) ||
+      (messageLower.includes('annual') && messageLower.includes('target'))
+    ) {
+      chartType = 'goal_progress';
+      chartTitle = 'Revenue Goal Progress';
+      chartData = await calculateGoalProgress(deals, organizationId, supabase);
+    } else if (
+      // ENHANCED: Detect probability/chance queries
+      messageLower.includes('probability') ||
+      messageLower.includes('chance') ||
+      messageLower.includes('likelihood') ||
+      (messageLower.includes('hit') && (messageLower.includes('goal') || messageLower.includes('target'))) ||
+      (messageLower.includes('achieve') && (messageLower.includes('goal') || messageLower.includes('target'))) ||
+      (messageLower.includes('reach') && (messageLower.includes('goal') || messageLower.includes('target')))
+    ) {
+      // For probability queries, show goal progress which includes probability calculations
+      chartType = 'goal_progress';
+      chartTitle = 'Goal Achievement Probability';
+      chartData = await calculateGoalProgress(deals, organizationId, supabase);
+    } else if (messageLower.includes('at risk') || messageLower.includes('stagnant') || messageLower.includes('stuck')) {
+      chartType = 'at_risk_deals';
+      chartTitle = 'At-Risk Deals';
+      chartData = calculateAtRiskDeals(deals);
+    } else if (messageLower.includes('forecast') && messageLower.includes('revenue')) {
+      chartType = 'revenue_forecast';
+      chartTitle = 'Revenue Forecast';
+      chartData = calculateRevenueForecast(deals);
+    } else if (messageLower.includes('ideal customer') || messageLower.includes('icp') || messageLower.includes('customer profile')) {
+      chartType = 'icp_analysis';
+      chartTitle = 'Ideal Customer Profile';
+      chartData = calculateICPAnalysis(deals);
+    } else if (messageLower.includes('velocity') || (messageLower.includes('faster') && messageLower.includes('pipeline'))) {
+      chartType = 'velocity_analysis';
+      chartTitle = 'Pipeline Velocity';
+      chartData = calculateVelocityAnalysis(deals);
+    }
+
+    // Generate follow-up suggestions
+    const suggestions = [];
+    if (message.toLowerCase().includes('pipeline') || message.toLowerCase().includes('analyze')) {
+      suggestions.push('What deals should I focus on this week?');
+      suggestions.push('How can I improve my conversion rates?');
+    } else if (message.toLowerCase().includes('deal') || message.toLowerCase().includes('focus')) {
+      suggestions.push('Show me my stale deals');
+      suggestions.push('What are my biggest opportunities?');
+    }
+
+    // Build response with optional chart data
+    const responseData: any = {
+      response: aiResponse.response,
+      provider: aiResponse.provider,
+      suggestions,
+      timestamp: new Date().toISOString()
+    };
+
+    // Include chart data if analytics query detected
+    if (chartData && chartType) {
+      responseData.chartData = chartData;
+      responseData.chartType = chartType;
+      responseData.chartTitle = chartTitle;
+    }
+
+    // PHASE 3: Include performance context for frontend metrics strip
+    if (performanceContext) {
+      responseData.performanceContext = {
+        orgWinRate: performanceContext.orgWinRate,
+        userWinRate: performanceContext.userWinRate,
+        avgDaysToClose: performanceContext.orgAvgDaysToClose,
+        highValueAtRisk: enrichedAnalysis.highValueAtRisk || 0
+      };
+    }
+
+    return new Response(JSON.stringify(responseData), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error: any) {
+    console.error('AI Assistant error:', error);
+
+    return new Response(JSON.stringify({
+      error: error?.message || 'Internal server error',
+      response: "I encountered an error processing your request. Please check your AI provider configuration in Integrations → AI Settings.",
+      suggestions: []
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+};

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Viewport: App Store & Play Store Compliant -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, minimum-scale=1.0, viewport-fit=cover, user-scalable=yes" />
+
+    <!-- NEXT-LEVEL: Resource Hints for Critical External Services -->
+    <!-- Eliminates DNS lookup + SSL handshake latency (~100-300ms per domain) -->
+    <link rel="preconnect" href="https://wogloqkryhasahoiajvt.supabase.co" crossorigin />
+    <link rel="preconnect" href="https://js.stripe.com" crossorigin />
+    <link rel="dns-prefetch" href="https://js.stripe.com" />
+    <link rel="dns-prefetch" href="https://api.stripe.com" />
+    <link rel="dns-prefetch" href="https://wogloqkryhasahoiajvt.supabase.co" />
+
+    <!-- PWA Display Mode -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Primary Meta Tags -->
+    <title>StageFlow - Revenue Operations Platform</title>
+    <meta name="title" content="StageFlow - Revenue Operations Platform" />
+    <meta name="description" content="StageFlow helps sales teams close more deals with AI-powered pipeline management, real-time deal tracking, automated workflows, and intelligent revenue forecasting." />
+
+    <!-- Canonical URL - Prevents duplicate content issues -->
+    <link rel="canonical" href="https://stageflow.startupstage.com" />
+
+    <!-- Favicon - Browser Tabs (correct flowing S with arrows logo) -->
+    <link rel="icon" type="image/png" href="/favicon.png?v=7" />
+    <link rel="alternate icon" href="/favicon.png?v=7" />
+    <link rel="shortcut icon" href="/favicon.png?v=7" />
+
+    <!-- Apple Touch Icons (iOS Home Screen & Messaging Apps) - No Background -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="60x60" href="/apple-touch-icon.png?v=12" />
+    <link rel="apple-touch-icon" sizes="57x57" href="/apple-touch-icon.png?v=12" />
+
+    <!-- Apple Mobile Web App Settings -->
+    <meta name="apple-mobile-web-app-title" content="StageFlow" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Android/Chrome Mobile -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1ABC9C" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0A0F14" />
+
+    <!-- Open Graph / Facebook / LinkedIn / iMessage -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://stageflow.startupstage.com" />
+    <meta property="og:title" content="StageFlow - Revenue Operations Platform" />
+    <meta property="og:description" content="StageFlow helps sales teams close more deals with AI-powered pipeline management, real-time deal tracking, automated workflows, and intelligent revenue forecasting." />
+    <meta property="og:image" content="https://stageflow.startupstage.com/og-image.png" />
+    <meta property="og:image:alt" content="StageFlow - Revenue Operations Platform" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="StageFlow" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://stageflow.startupstage.com" />
+    <meta property="twitter:title" content="StageFlow - Revenue Operations Platform" />
+    <meta property="twitter:description" content="StageFlow helps sales teams close more deals with AI-powered pipeline management, real-time deal tracking, automated workflows, and intelligent revenue forecasting." />
+    <meta property="twitter:image" content="https://stageflow.startupstage.com/og-image.png" />
+    <meta property="twitter:image:alt" content="StageFlow - Revenue Operations Platform" />
+
+    <!-- Windows Tiles -->
+    <meta name="msapplication-TileColor" content="#1ABC9C" />
+    <meta name="msapplication-TileImage" content="/apple-touch-icon.png?v=12" />
+    <meta name="msapplication-config" content="/browserconfig.xml" />
+
+    <!-- Auto Service Worker Cleanup for Development -->
+    <!-- Prevents "Limited connectivity" warning from old cached Service Workers -->
+    <script>
+      (function() {
+        // Only run in development (localhost)
+        const isDev = window.location.hostname === 'localhost' ||
+                      window.location.hostname === '127.0.0.1';
+
+        if (!isDev) return;
+
+        // Check if we already cleaned up this session
+        const sessionKey = 'sw_cleanup_done';
+        if (sessionStorage.getItem(sessionKey)) return;
+
+        // Clean up Service Workers
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            if (registrations.length > 0) {
+              console.log('[StageFlow] Cleaning up', registrations.length, 'old Service Worker(s)...');
+
+              // Unregister all
+              Promise.all(registrations.map(function(reg) {
+                return reg.unregister();
+              })).then(function() {
+                console.log('[StageFlow] ✓ Service Workers cleared');
+
+                // Mark as done for this session
+                sessionStorage.setItem(sessionKey, 'true');
+
+                // Reload page once to apply changes
+                if (!sessionStorage.getItem('sw_cleanup_reloaded')) {
+                  sessionStorage.setItem('sw_cleanup_reloaded', 'true');
+                  window.location.reload();
+                }
+              }).catch(function(error) {
+                console.warn('[StageFlow] Service Worker cleanup failed:', error);
+              });
+            } else {
+              // No Service Workers found - mark as done
+              sessionStorage.setItem(sessionKey, 'true');
+            }
+          });
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

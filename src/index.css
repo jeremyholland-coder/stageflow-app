@@ -1,0 +1,962 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   APPLE LIGHT MODE SYSTEM
+   Pure white backgrounds, subtle shadows
+   ======================================== */
+/* ========================================
+   CROSS-PLATFORM MOBILE OPTIMIZATION
+   Apple HIG + Android Material Design Compliant
+   App Store & Play Store Ready
+   ======================================== */
+
+html {
+  /* iOS Safari address bar fix */
+  height: 100%;
+  height: -webkit-fill-available;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background-color: #FFFFFF;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+  /* CRITICAL FIX: Disable pull-to-refresh globally */
+  overscroll-behavior-y: contain;
+  /* CRITICAL: No padding on body - let content extend edge-to-edge */
+  /* Safe areas applied to specific UI elements instead */
+}
+
+.dark body {
+  background-color: #0A0F14;
+}
+
+/* Root container - fills entire viewport edge-to-edge */
+#root {
+  min-height: 100vh;
+  min-height: -webkit-fill-available; /* iOS Safari */
+  min-height: stretch; /* Android */
+  width: 100%;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Apple-style card shadows - very subtle */
+.bg-white {
+  background-color: #FFFFFF;
+  box-shadow: 0 2px 12px 0 rgba(142, 142, 147, 0.3);
+}
+
+.dark .bg-white {
+  background-color: #0D1F2D;
+  box-shadow: none;
+}
+
+/* Improved borders for light mode */
+.border-\[\#E0E0E0\] {
+  border-color: #D1D5DB;
+}
+
+.dark .border-\[\#E0E0E0\] {
+  border-color: rgba(75, 85, 99, 0.3);
+}
+
+/* ========================================
+   APPLE HIG FIX #9: Touch Target Sizes
+   Minimum 44x44pt (Apple HIG Standard)
+   ======================================== */
+.min-h-touch {
+  min-height: 44px;
+}
+
+.min-w-touch {
+  min-width: 44px;
+}
+
+/* Touch-friendly padding for interactive elements */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ========================================
+   APPLE HIG FIX #10: Typography Hierarchy
+   Based on Apple HIG Typography Scale
+   ======================================== */
+
+/* Large Title - Main page headings */
+.text-large-title {
+  font-size: 34px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+/* Title 1 - Section headings */
+.text-title-1 {
+  font-size: 28px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+/* Title 2 - Subsection headings */
+.text-title-2 {
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+/* Title 3 - Component headings */
+.text-title-3 {
+  font-size: 20px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* Headline - Emphasized body text */
+.text-headline {
+  font-size: 17px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+/* Body - Standard text */
+.text-body {
+  font-size: 17px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+/* Callout - Secondary emphasis */
+.text-callout {
+  font-size: 16px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+/* Subheadline - Tertiary text */
+.text-subheadline {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+/* Footnote - Small supporting text */
+.text-footnote {
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+
+/* Caption 1 - Smallest text */
+.text-caption-1 {
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 400;
+}
+
+/* Caption 2 - Micro text */
+.text-caption-2 {
+  font-size: 11px;
+  line-height: 1.25;
+  font-weight: 400;
+}
+
+/* Legacy compatibility - map to new system */
+.text-h1 {
+  @apply text-large-title;
+}
+
+.text-h2 {
+  @apply text-title-1;
+}
+
+.text-h3 {
+  @apply text-title-2;
+}
+
+.text-body-sm {
+  @apply text-footnote;
+}
+
+/* ========================================
+   APPLE HIG FIX #2.2: Global Focus States
+   ======================================== */
+*:focus-visible {
+  outline: 2.5px solid #118d6d;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Screen reader only class for skip links */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.focus\:not-sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 1rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Remove default outline for mouse users */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ========================================
+   APPLE HIG FIX #3.5: Reduced Motion Support
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Apple-like Scrollbar Styling */
+.apple-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+}
+
+.apple-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.apple-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.apple-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.apple-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.5);
+}
+
+.dark .apple-scrollbar {
+  scrollbar-color: rgba(107, 114, 128, 0.4) transparent;
+}
+
+.dark .apple-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(107, 114, 128, 0.4);
+}
+
+.dark .apple-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(107, 114, 128, 0.6);
+}
+
+/* ========================================
+   APPLE HIG FIX: Safe Area Insets
+   Support for iPhone notch/Dynamic Island
+   ======================================== */
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-inset-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-inset-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-area-inset-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* AI Assistant animations */
+@keyframes slide-up {
+  from {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* ========================================
+   SAFE AREA INSETS (Apple HIG Compliant)
+   Respect notches, Dynamic Island, home indicator
+   iPhone X: Top 44pt (132px), Bottom 34pt (102px)
+   ======================================== */
+
+/* Apply safe areas to navigation and interactive elements */
+@supports (padding: max(0px)) {
+  /* Top navigation should respect notch/Dynamic Island */
+  nav, header {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+
+  /* Bottom navigation should respect home indicator */
+  footer, .bottom-nav, [class*="bottom"], [class*="fixed-bottom"] {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  /* Side margins for landscape orientation */
+  .safe-horizontal {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+}
+
+/* ========================================
+   RESPONSIVE BREAKPOINTS
+   Webflow Standard + Extended Coverage
+   ======================================== */
+
+/* Mobile Portrait: 320px - 479px (iPhone SE, older Android) */
+@media (max-width: 479px) {
+  #root {
+    font-size: 14px; /* Smaller base for tiny screens */
+  }
+
+  * {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .max-w-7xl {
+    max-width: 100%;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Mobile Landscape: 480px - 767px (Most phones landscape) */
+@media (min-width: 480px) and (max-width: 767px) {
+  #root {
+    font-size: 15px;
+  }
+
+  .max-w-7xl {
+    max-width: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Tablet Portrait: 768px - 991px (iPad, Android tablets) */
+@media (min-width: 768px) and (max-width: 991px) {
+  #root {
+    font-size: 16px;
+  }
+
+  .max-w-7xl {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Desktop: 992px+ (Laptop, Desktop) */
+@media (min-width: 992px) {
+  #root {
+    font-size: 16px;
+  }
+}
+
+/* Large Desktop: 1280px+ (MacBook Pro 16", most laptops)
+   UPDATED: Remove narrow max-width, allow content to breathe */
+@media (min-width: 1280px) {
+  .max-w-7xl {
+    max-width: 95%; /* Use 95% of viewport for better space utilization */
+  }
+
+  /* Full-width components (Kanban, Dashboard) */
+  .dashboard-full-width, .kanban-full-width {
+    max-width: 100%;
+  }
+}
+
+/* Ultra-wide: 1920px+ (4K monitors, ultrawide displays) */
+@media (min-width: 1920px) {
+  .max-w-7xl {
+    max-width: 1800px; /* Cap at 1800px for readability on super-wide screens */
+  }
+
+  /* Full-width components can use even more space */
+  .dashboard-full-width, .kanban-full-width {
+    max-width: 100%;
+  }
+}
+
+/* 4K and beyond: 2560px+ */
+@media (min-width: 2560px) {
+  .max-w-7xl {
+    max-width: 2200px; /* Reasonable cap for 4K displays */
+  }
+}
+
+/* ========================================
+   MOBILE-SPECIFIC OPTIMIZATIONS
+   All mobile devices (portrait + landscape)
+   ======================================== */
+@media (max-width: 991px) {
+  /* Prevent text overflow on all mobile devices */
+  * {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Cards respect viewport width */
+  .bg-white, .dark .bg-white {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Touch-friendly spacing */
+  button, a, [role="button"] {
+    min-height: 44px; /* Apple HIG minimum */
+    min-width: 44px;
+  }
+
+  /* Disable hover effects on touch devices */
+  @media (hover: none) {
+    *:hover {
+      /* Hover states disabled for touch devices */
+    }
+  }
+}
+
+/* ========================================
+   DEVICE-SPECIFIC FIXES
+   ======================================== */
+
+/* iPhone 15 Pro Max, 14 Pro Max: 430px width */
+@media (max-width: 430px) and (min-height: 800px) {
+  body {
+    -webkit-text-size-adjust: 100%; /* Prevent auto-zoom */
+  }
+}
+
+/* iPad Pro 12.9": 1024px portrait */
+@media (min-width: 1024px) and (max-width: 1366px) and (orientation: portrait) {
+  .max-w-7xl {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Android tablets: Common widths */
+@media (min-width: 600px) and (max-width: 800px) {
+  .max-w-7xl {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Phase 3: Micro-interactions & Polish - ENHANCED */
+
+/* Fade In Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Slide In Animation for Progress Bars */
+@keyframes slideIn {
+  from {
+    width: 0%;
+  }
+  to {
+    width: var(--target-width);
+  }
+}
+
+/* Shimmer Effect for Skeleton Loaders */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+/* Pulse Animation for Active Elements */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Slow Pulse Animation for Orphaned Deals */
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 24px rgba(251, 146, 60, 0.4);
+  }
+  50% {
+    opacity: 0.9;
+    box-shadow: 0 0 32px rgba(251, 146, 60, 0.6);
+  }
+}
+
+/* Bounce Animation for Success States */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Shake Animation for Error States */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+/* Slide Up Animation for Toasts */
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Slide Down Animation for Connection Status */
+@keyframes slide-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out;
+}
+
+/* NEXT-LEVEL: Slide In From Right for Onboarding */
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* NEXT-LEVEL: Fade in and zoom in for completion checkmarks */
+@keyframes fadeInZoom {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-in {
+  animation-fill-mode: backwards;
+}
+
+.fade-in {
+  animation-name: fadeIn;
+}
+
+.zoom-in {
+  animation-name: fadeInZoom;
+}
+
+.duration-300 {
+  animation-duration: 300ms;
+}
+
+/* Pulse Subtle Animation for Drop Zones */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(17, 141, 109, 0.4);
+  }
+  50% {
+    opacity: 0.9;
+    box-shadow: 0 0 0 8px rgba(17, 141, 109, 0.1);
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Glow Pulse Animation */
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(17, 141, 109, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(17, 141, 109, 0.6);
+  }
+}
+
+/* Gradient Animation for Text */
+@keyframes gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Apply Animations */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.5s ease-out;
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 0%,
+    #e0e0e0 20%,
+    #f0f0f0 40%,
+    #f0f0f0 100%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+}
+
+.dark .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    #1a1a1a 0%,
+    #2a2a2a 20%,
+    #1a1a1a 40%,
+    #1a1a1a 100%
+  );
+  background-size: 1000px 100%;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce {
+  animation: bounce 0.5s ease-in-out infinite;
+}
+
+.animate-shake {
+  animation: shake 0.3s ease-in-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.4s ease-out;
+}
+
+.animate-glowPulse {
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 4s ease-in-out infinite;
+}
+
+/* Apple HIG-compliant transitions - 150ms standard, cubic-bezier(0.4, 0, 0.2, 1) */
+.glass-card {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  transform: scale(1.02);
+}
+
+/* Button Micro-interactions - 150ms fast */
+button {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+/* Input Focus Glow - 250ms normal */
+input:focus,
+textarea:focus {
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Smooth color transitions - 150ms standard */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Override for explicit animations - prevents conflicts */
+.animate-fadeIn,
+.animate-slideIn,
+.animate-shimmer,
+.animate-pulse,
+.animate-bounce,
+.animate-shake,
+.animate-slideUp,
+.animate-glowPulse,
+.animate-gradient,
+.animate-slide-up {
+  transition: none;
+}
+
+/* ========================================
+   APPLE HIG FIX #8: Gradient Contrast RESOLVED
+   New gradient colors (#118d6d → #108465) pass WCAG AA (4.15:1)
+   No text-shadow needed anymore
+   ======================================== */
+
+/* ========================================
+   MODAL ANIMATIONS (Apple-Quality Polish)
+   ======================================== */
+
+/* Modal Backdrop Fade In */
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal Content Slide Up & Scale */
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Apply to modal containers */
+.modal-backdrop {
+  animation: backdropFadeIn 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-content {
+  animation: modalEnter 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ========================================
+   PRODUCT TOUR - APPLE QUALITY ANIMATIONS
+   v1.7.54: Smooth, gentle onboarding experience
+   ======================================== */
+
+/* Tour tooltip entrance - gentle fade + zoom */
+.tour-tooltip {
+  animation: fadeInZoom 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Highlighted element - pulsing glow effect */
+.tour-highlight {
+  animation: highlightPulse 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 0 4px rgba(17, 141, 109, 0.4),
+              0 0 20px rgba(17, 141, 109, 0.3);
+  z-index: 9999;
+  position: relative;
+}
+
+/* Force visibility for tour targets */
+.tour-visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Bounce animation for attention-grabbing elements */
+.tour-bounce {
+  animation: tourBounce 1s cubic-bezier(0.4, 0, 0.2, 1) 2;
+}
+
+@keyframes highlightPulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(17, 141, 109, 0),
+                0 0 0 rgba(17, 141, 109, 0);
+  }
+  to {
+    box-shadow: 0 0 0 4px rgba(17, 141, 109, 0.4),
+                0 0 20px rgba(17, 141, 109, 0.3);
+  }
+}
+
+@keyframes tourBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-8px);
+  }
+  75% {
+    transform: translateY(-4px);
+  }
+}
+
+/* Apple-Quality Modal Backdrop */
+.modal-backdrop-apple {
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: backdropFadeIn 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Standardized Button Hover States */
+.btn-small:hover {
+  transform: scale(1.02);
+}
+
+.btn-large:hover {
+  transform: scale(1.01);
+}
+
+.btn-icon:hover {
+  transform: scale(1.1);
+}
+
+/* ========================================
+   MOBILE OVERFLOW FIX - November 12, 2025
+   Prevents horizontal scrolling on mobile
+   ======================================== */
+
+/* Prevent bounce scroll and horizontal overflow on iOS */
+body {
+  overscroll-behavior-x: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Snap back to position on iOS Safari */
+@supports (-webkit-overflow-scrolling: touch) {
+  body {
+    position: relative;
+    overflow-x: hidden;
+  }
+}
+
+/* Mobile-specific overflow protection */
+@media (max-width: 767px) {
+  /* Force all elements to respect viewport width */
+  * {
+    max-width: 100vw;
+  }
+
+  /* Ensure main containers don't overflow */
+  #root,
+  main,
+  .kanban-full-width {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+  }
+
+  /* Force Kanban columns to full width on mobile */
+  .kanban-full-width > div {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Prevent flex items from creating horizontal scroll */
+  .flex {
+    flex-wrap: wrap;
+  }
+
+  /* Fix any tables or wide content */
+  table, pre, code {
+    max-width: 100%;
+    overflow-x: auto;
+    display: block;
+  }
+
+  /* Prevent long text from breaking layout */
+  .prose, .content, p, div {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+
+  /* Ensure images don't overflow */
+  img, iframe, video {
+    max-width: 100% !important;
+    height: auto;
+  }
+}
