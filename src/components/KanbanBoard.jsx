@@ -261,6 +261,17 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
           touchDataRef.current.offsetX = touchDataRef.current.startX - rect.left;
           touchDataRef.current.offsetY = touchDataRef.current.startY - rect.top;
 
+          // PHASE C FIX (B-RACE-01): Clean up any existing clone before creating new one
+          // This prevents DOM orphans from rapid drag attempts
+          if (touchCloneRef.current) {
+            try {
+              touchCloneRef.current.remove();
+            } catch (e) {
+              // Ignore if already removed
+            }
+            touchCloneRef.current = null;
+          }
+
           const clone = cardRef.current.cloneNode(true);
           clone.style.position = 'fixed';
           clone.style.top = `${rect.top}px`;
@@ -996,6 +1007,12 @@ export const KanbanBoard = memo(({
   // These handlers are passed as props to KanbanColumn → KanbanCard (3-level deep)
   // Without useCallback, they recreate on every render, breaking child memo optimizations
   const handleLostReasonRequired = useCallback((dealId, dealName, targetStage, currentStatus = null, modalType = 'lost-reason') => {
+    // PHASE C FIX (B-RACE-02): Prevent opening multiple modals simultaneously
+    // Check if any modal is already open to avoid race conditions
+    if (showLostModal || showStatusChangeModal) {
+      return; // Already showing a modal, ignore rapid clicks
+    }
+
     if (modalType === 'status-change') {
       setPendingStatusChange({ dealId, dealName, targetStage, currentStatus });
       setShowStatusChangeModal(true);
@@ -1003,7 +1020,7 @@ export const KanbanBoard = memo(({
       setPendingLostDeal({ dealId, dealName, targetStage });
       setShowLostModal(true);
     }
-  }, []); // No dependencies - only updates state
+  }, [showLostModal, showStatusChangeModal]); // PHASE C: Added modal state as dependencies
 
   const handleLostReasonConfirm = useCallback(async (reason) => {
     if (!pendingLostDeal) return;

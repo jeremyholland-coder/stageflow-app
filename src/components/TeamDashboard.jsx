@@ -92,11 +92,13 @@ export const TeamDashboard = () => {
       );
 
       // Get all deals for the organization
+      // PHASE C FIX (B-DATA-01): Added soft delete filter - was counting deleted deals in metrics
       const { data: allDeals } = await Promise.race([
         supabase
           .from('deals')
           .select('*')
-          .eq('organization_id', orgId),
+          .eq('organization_id', orgId)
+          .is('deleted_at', null),
         timeoutPromise
       ]);
 

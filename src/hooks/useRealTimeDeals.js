@@ -67,10 +67,17 @@ export const useRealTimeDeals = (organizationId, callback) => {
 
     // Create or update channel if needed
     if (!subscriptionState.channel || subscriptionState.organizationId !== organizationId) {
-      // Clean up old channel if organization changed
+      // PHASE C FIX (B-SEC-06): Clean up old channel AND callbacks if organization changed
+      // This prevents data from old org being broadcast to new org's listeners
       if (subscriptionState.channel) {
-        logger.log('[RealTime] Organization changed, recreating channel');
+        logger.log('[RealTime] Organization changed, recreating channel and clearing stale callbacks');
         supabase.removeChannel(subscriptionState.channel);
+
+        // PHASE C FIX: Clear reconnect timeout to prevent stale reconnection
+        if (subscriptionState.reconnectTimeoutId) {
+          clearTimeout(subscriptionState.reconnectTimeoutId);
+          subscriptionState.reconnectTimeoutId = null;
+        }
       }
 
       logger.log(`[RealTime] Creating shared deals subscription for org: ${organizationId}`);
@@ -87,6 +94,14 @@ export const useRealTimeDeals = (organizationId, callback) => {
             filter: `organization_id=eq.${organizationId}`
           },
           (payload) => {
+            // PHASE C FIX (B-SEC-06): Validate payload belongs to current org
+            // This prevents cross-org data leakage if subscription races with org change
+            const payloadOrgId = payload.new?.organization_id || payload.old?.organization_id;
+            if (payloadOrgId && payloadOrgId !== subscriptionState.organizationId) {
+              logger.warn('[RealTime] Ignoring payload from different org:', payloadOrgId);
+              return;
+            }
+
             logger.log(`[RealTime] Broadcasting ${payload.eventType} to ${subscriptionState.callbacks.size} listeners`);
 
             // Broadcast to all registered callbacks

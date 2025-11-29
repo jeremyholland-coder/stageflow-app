@@ -24,11 +24,13 @@ export const StageAlertsView = () => {
 
       setLoading(true);
       try {
+        // PHASE C FIX (B-DATA-01): Added soft delete filter - was including deleted deals in alerts
         const { data, error } = await supabase
           .from('deals')
           .select('*')
           .eq('organization_id', organization.id)
-          .eq('status', 'active');
+          .eq('status', 'active')
+          .is('deleted_at', null);
 
         if (error) throw error;
 

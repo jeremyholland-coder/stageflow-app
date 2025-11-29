@@ -65,12 +65,14 @@ export const RevenueTargetsWidget = ({ organization, userId }) => {
       setOrgTargets(orgTarget);
 
       // Load won deals for this user (for progress calculation)
+      // PHASE C FIX (B-DATA-01): Added soft delete filter - was counting deleted deals
       const { data: deals, error: dealsError } = await supabase
         .from('deals')
         .select('*')
         .eq('organization_id', organization.id)
         .eq('user_id', userId)
-        .eq('status', 'won');
+        .eq('status', 'won')
+        .is('deleted_at', null);
 
       if (dealsError) throw dealsError;
       setWonDeals(deals || []);

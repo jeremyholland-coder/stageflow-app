@@ -99,9 +99,11 @@ export function shouldUseNewAuth(endpoint: string, userId?: string): boolean {
   // AI ENDPOINTS: Always use new cookie-based auth
   // Frontend uses credentials: 'include' (cookies only, no Authorization header)
   // These endpoints MUST use the new auth middleware to work correctly
+  // PHASE C FIX: Added 'ai-insights' - was allowing unauthenticated access (B-SEC-01)
   const cookieOnlyEndpoints = [
     'ai-assistant',
-    'ai-assistant-stream'
+    'ai-assistant-stream',
+    'ai-insights'
   ];
 
   if (cookieOnlyEndpoints.includes(endpoint)) {

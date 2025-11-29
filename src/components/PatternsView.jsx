@@ -18,10 +18,12 @@ export const PatternsView = () => {
       setLoading(true);
       try {
         // Fetch all deals for pattern analysis
+        // PHASE C FIX (B-DATA-01): Added soft delete filter - was including deleted deals in patterns
         const { data: deals, error } = await supabase
           .from('deals')
           .select('*')
-          .eq('organization_id', organization.id);
+          .eq('organization_id', organization.id)
+          .is('deleted_at', null);
 
         if (error) throw error;
 

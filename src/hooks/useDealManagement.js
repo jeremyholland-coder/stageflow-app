@@ -328,6 +328,10 @@ export const useDealManagement = (user, organization, addNotification) => {
             syncOfflineCommands();
           }
         }
+      }).catch(error => {
+        // PHASE C FIX (B-RACE-03): Handle rejected promise to prevent unhandled rejection
+        console.warn('[Offline] Failed to check pending commands:', error);
+        // Don't block the app - offline sync will retry when conditions are right
       });
     }
 
@@ -363,6 +367,12 @@ export const useDealManagement = (user, organization, addNotification) => {
         return;
       }
 
+      // PHASE C FIX (B-DATA-01): Skip soft-deleted deals in real-time
+      if (payload.new.deleted_at) {
+        logger.log('[RealTime] Skipping soft-deleted deal INSERT:', payload.new.id);
+        return;
+      }
+
       // New deal created by team member
       setDeals(prevDeals => {
         // ROOT CAUSE FIX: Filter out null deals AND check safely
@@ -381,6 +391,17 @@ export const useDealManagement = (user, organization, addNotification) => {
       // ROOT CAUSE FIX: Validate updated deal
       if (!payload.new || !payload.new.id) {
         console.error('[RealTime] UPDATE payload missing deal data:', payload);
+        return;
+      }
+
+      // PHASE C FIX (B-DATA-01): Handle soft delete via UPDATE (remove from list)
+      if (payload.new.deleted_at) {
+        logger.log('[RealTime] Removing soft-deleted deal from list:', payload.new.id);
+        setDeals(prevDeals => {
+          const updated = prevDeals.filter(d => d != null && d.id !== payload.new.id);
+          if (organization?.id) dealsCache.set(organization.id, updated);
+          return updated;
+        });
         return;
       }
 

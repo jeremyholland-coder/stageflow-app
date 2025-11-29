@@ -240,9 +240,11 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
     }
 
     // MOBILE FIX: Validate deals array before sending to prevent "Invalid deals data format" error
+    // PHASE C FIX (B-RACE-05): Release lock on early return to prevent deadlock
     if (!Array.isArray(deals)) {
       console.error('[CustomQueryView] Deals is not an array:', typeof deals, deals);
       addNotification('Unable to load pipeline data. Please refresh the page.', 'error');
+      submissionLockRef.current = false; // Release lock
       return;
     }
 
@@ -768,9 +770,11 @@ Guidelines:
     lastQuickActionRef.current = actionType;
 
     // MOBILE FIX: Validate deals array before sending
+    // PHASE C FIX (B-RACE-05): Release lock on early return to prevent deadlock
     if (!Array.isArray(deals)) {
       console.error('[CustomQueryView] Deals is not an array:', typeof deals, deals);
       addNotification('Unable to load pipeline data. Please refresh the page.', 'error');
+      submissionLockRef.current = false; // Release lock
       return;
     }
 
@@ -851,9 +855,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
     try {
       // SURGICAL FIX: Removed redundant auth check - user already verified by AppShell
+      // PHASE C FIX (B-RACE-05): Release lock on early return
       if (!user) {
         console.warn('[CustomQueryView] No user - skipping AI query');
         addNotification('Please sign in to use AI features', 'error');
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
         return;
       }
 

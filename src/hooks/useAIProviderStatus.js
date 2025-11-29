@@ -210,8 +210,13 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // SF-AI-001 FIX: Delay verification query to ensure DB transaction commits
       // The backend save may not be visible to subsequent queries for 500-1000ms
       // Without this delay, checkAIProviders() might return stale data and reset hasProvider to false
+      // PHASE C FIX (B-RACE-04): Create AbortController for delayed verification to prevent
+      // execution after unmount or org change
+      const verifyAbort = new AbortController();
       setTimeout(() => {
-        checkAIProviders();
+        if (!verifyAbort.signal.aborted) {
+          checkAIProviders(verifyAbort.signal);
+        }
       }, 1500); // 1.5s delay ensures DB commit is visible
     };
 
@@ -235,8 +240,12 @@ export function useAIProviderStatus(user, organization, options = {}) {
       console.warn('[useAIProviderStatus] AI provider removed - optimistic update applied');
 
       // SF-AI-001 FIX: Delay verification query to ensure DB transaction commits
+      // PHASE C FIX (B-RACE-04): Create AbortController for delayed verification
+      const verifyAbort = new AbortController();
       setTimeout(() => {
-        checkAIProviders();
+        if (!verifyAbort.signal.aborted) {
+          checkAIProviders(verifyAbort.signal);
+        }
       }, 1500);
     };
 
@@ -257,6 +266,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
     if (!user?.id || !organization?.id) return;
 
     const cacheKey = `ai_provider_${organization.id}`;
+    // PHASE C FIX (B-RACE-04): AbortController for visibility-triggered checks
+    let visibilityAbort = null;
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -278,7 +289,12 @@ export function useAIProviderStatus(user, organization, options = {}) {
           }
         }
         // Cache miss or stale - do fresh check
-        checkAIProviders();
+        // PHASE C FIX (B-RACE-04): Abort previous visibility check if still in-flight
+        if (visibilityAbort) {
+          visibilityAbort.abort();
+        }
+        visibilityAbort = new AbortController();
+        checkAIProviders(visibilityAbort.signal);
       }
     };
 
@@ -286,6 +302,10 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // PHASE C FIX (B-RACE-04): Abort any pending visibility check on cleanup
+      if (visibilityAbort) {
+        visibilityAbort.abort();
+      }
     };
   }, [user?.id, organization?.id, cacheTTL, checkAIProviders]);
 

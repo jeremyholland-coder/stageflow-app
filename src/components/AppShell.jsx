@@ -1018,6 +1018,9 @@ export const AppProvider = ({ children }) => {
   }, [user?.id]);
 
   const logout = useCallback(async () => {
+    // PHASE C FIX (B-SEC-02): Capture user ID before clearing state for cache cleanup
+    const userId = user?.id;
+
     try {
       // SECURITY: Backend-only logout clears HttpOnly cookies
       const response = await fetch('/.netlify/functions/auth-logout', {
@@ -1029,7 +1032,41 @@ export const AppProvider = ({ children }) => {
       setUser(null);
       setOrganization(null);
       setUserRole(null);
+      setAvatarUrl(null);
+      setProfileFirstName('');
+      setProfileLastName('');
       setupOrganizationPromise.current = null;
+
+      // PHASE C FIX (B-SEC-02): Clear ALL organization-specific caches on logout
+      // This prevents data bleeding between users on shared devices
+      if (userId) {
+        try {
+          // Clear org caches (localStorage + sessionStorage)
+          localStorage.removeItem(`stageflow_org_${userId}`);
+          sessionStorage.removeItem(`stageflow_org_session_${userId}`);
+
+          // Clear AI provider status cache
+          localStorage.removeItem(`ai_provider_status_${userId}`);
+
+          // Clear onboarding state for this user
+          localStorage.removeItem(`stageflow_onboarding_${userId}`);
+
+          // Clear any other user-specific keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.includes(userId) || key.startsWith('stageflow_deals_'))) {
+              keysToRemove.push(key);
+            }
+          }
+          keysToRemove.forEach(key => localStorage.removeItem(key));
+
+          logger.log('[Auth] Cleared all user-specific caches on logout');
+        } catch (cacheError) {
+          // Don't block logout if cache clearing fails (e.g., private browsing)
+          logger.warn('[Auth] Failed to clear some caches:', cacheError);
+        }
+      }
 
       if (!response.ok) {
         console.error('[Auth] Server logout failed, but client state cleared');
@@ -1049,7 +1086,7 @@ export const AppProvider = ({ children }) => {
         window.location.href = '/login';
       }, 500);
     }
-  }, [addNotification]);
+  }, [user?.id, addNotification]);
 
   // Compute display name: prefer first/last name over email
   const displayName = React.useMemo(() => {
