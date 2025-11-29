@@ -215,10 +215,10 @@ export const AISettings = () => {
 
   // FIX v1.7.80 (#2): Use useCallback to properly memoize fetchProviders
   // REASON: Prevents recreation on every render, fixes "Can't find variable" error
+  // PHASE 8 CRITICAL FIX: Use backend endpoint instead of direct Supabase query
+  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+  // RLS policies block direct client queries. Backend uses service role.
   const fetchProviders = useCallback(async () => {
-    // FIX v1.7.60 (#4): Always fetch from database - no instant update bypass
-    // This ensures UI shows actual server data (server timestamps, confirmed save)
-
     if (!user || !organization) {
       setLoading(false);
       return;
@@ -227,44 +227,42 @@ export const AISettings = () => {
     console.warn('[AISettings] fetchProviders starting for org:', organization.id);
 
     try {
-      // CRITICAL FIX: Force fresh data by using limit (helps bust Supabase client cache)
-      const { data, error } = await supabase
-        .from('ai_providers')
-        .select('*')
-        .eq('organization_id', organization.id)
-        .eq('active', true)
-        .order('created_at', { ascending: false })
-        .limit(100); // Adding limit helps force fresh query
+      // CRITICAL FIX: Use backend endpoint to bypass RLS issues
+      const response = await fetch('/.netlify/functions/get-ai-providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Send HttpOnly cookies for auth
+        body: JSON.stringify({
+          organization_id: organization.id
+        })
+      });
 
-      if (error) {
-        console.error('[AI Providers] Supabase error:', {
-          error,
-          errorMessage: error.message,
-          errorCode: error.code,
-          errorDetails: error.details,
-          organizationId: organization.id
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('[AI Providers] Backend error:', {
+          status: response.status,
+          error: result.error,
+          details: result.details
         });
-        throw error;
+        throw new Error(result.error || `Failed to fetch providers: ${response.status}`);
       }
 
       console.warn('[AISettings] fetchProviders got data:', {
-        count: data?.length || 0,
-        providers: data?.map(p => ({ id: p.id, type: p.provider_type, active: p.active })) || []
+        count: result.providers?.length || 0,
+        providers: result.providers?.map(p => ({ id: p.id, type: p.provider_type, active: p.active })) || []
       });
 
-      setProviders(data || []);
+      setProviders(result.providers || []);
     } catch (error) {
       console.error('[AI Providers] Failed to fetch AI providers:', {
         error,
         errorMessage: error.message,
-        errorCode: error.code,
-        errorDetails: error.details,
-        errorHint: error.hint,
         organizationId: organization?.id
       });
       // Show actual error message for debugging
-      const errorMsg = error.code === 'PGRST301'
-        ? 'AI Providers table access denied. Please contact support.'
+      const errorMsg = error.message?.includes('AUTH_REQUIRED')
+        ? 'Please log in to view AI providers.'
         : error.message
         ? `Failed to load AI providers: ${error.message}`
         : 'Failed to load AI providers';

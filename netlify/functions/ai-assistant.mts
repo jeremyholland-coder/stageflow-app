@@ -1251,8 +1251,22 @@ export default async (req: Request, context: any) => {
       try {
         // NEW AUTH PATH: Use centralized auth middleware
         user = await requireAuth(req);
-        const { member } = await requireOrgAccess(req);
-        organizationId = member.organization_id;
+        // PHASE 8 CRITICAL FIX: Don't call requireOrgAccess(req) because body is already consumed
+        // Instead, query team_members directly like the legacy path does
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('organization_id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!membership) {
+          return new Response(JSON.stringify({ error: 'No organization found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        organizationId = membership.organization_id;
       } catch (authError) {
         return createAuthErrorResponse(authError);
       }

@@ -69,51 +69,61 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // NEXT-LEVEL: Check abort signal before DB query
       if (abortSignal?.aborted) return;
 
-      // FIX v1.7.60: Remove created_by filter - all org members should see org's AI providers
-      // PROBLEM: Team members who didn't create provider see "no provider" status
-      // SOLUTION: Filter by organization_id only, matching AISettings.jsx behavior
-      const { data, error } = await supabase
-        .from('ai_providers')
-        .select('id')
-        .eq('organization_id', organization.id)
-        .eq('active', true)
-        .limit(1);
+      // PHASE 8 CRITICAL FIX: Use backend endpoint instead of direct Supabase query
+      // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
+      // RLS policies block direct client queries. Backend uses service role.
+      const response = await fetch('/.netlify/functions/get-ai-providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Send HttpOnly cookies for auth
+        body: JSON.stringify({
+          organization_id: organization.id
+        })
+      });
 
-      // NEXT-LEVEL: Check abort signal after DB query
+      // NEXT-LEVEL: Check abort signal after query
       if (abortSignal?.aborted) return;
 
-      if (error) {
-        // GRACEFUL DEGRADATION: Handle missing table (backwards compatibility)
-        if (error.code === '42P01' || error.message?.includes('relation "ai_providers" does not exist')) {
-          console.debug('[useAIProviderStatus] AI providers table not found - backwards compatibility mode');
-          setHasProvider(false);
-          localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: false, timestamp: Date.now() }));
-        } else {
-          // CRITICAL FIX: RLS failure due to auth.uid() = NULL (Phase 3 Cookie-Only Auth)
-          // Don't update cache on RLS errors - preserve previous state
-          console.debug('[useAIProviderStatus] Supabase query failed (likely RLS), preserving cache:', error);
-          // Try to read from cache without updating timestamp
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
+      if (!response.ok) {
+        // Handle auth errors - preserve cache
+        if (response.status === 401 || response.status === 403) {
+          console.debug('[useAIProviderStatus] Auth error, preserving cache');
+          const cachedData = localStorage.getItem(cacheKey);
+          if (cachedData) {
             try {
-              const { hasProvider: cachedValue } = JSON.parse(cached);
+              const { hasProvider: cachedValue } = JSON.parse(cachedData);
               setHasProvider(cachedValue);
             } catch (e) {
               // Can't recover, keep current state
             }
           }
+          return;
         }
-      } else {
-        const hasProviderValue = data && data.length > 0;
-        setHasProvider(hasProviderValue);
-        localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: hasProviderValue, timestamp: Date.now() }));
+        throw new Error(`Failed to fetch providers: ${response.status}`);
       }
+
+      const result = await response.json();
+      const hasProviderValue = result.providers && result.providers.length > 0;
+      setHasProvider(hasProviderValue);
+      localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: hasProviderValue, timestamp: Date.now() }));
+
     } catch (err) {
-      // GRACEFUL DEGRADATION: Silent fail, no error UI
+      // GRACEFUL DEGRADATION: On error, preserve cache instead of setting false
       if (!abortSignal?.aborted) {
         console.debug('[useAIProviderStatus] AI provider check failed (non-fatal):', err);
-        setHasProvider(false);
-        localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: false, timestamp: Date.now() }));
+        // CRITICAL FIX: Don't overwrite cache with false on errors
+        // Try to use cached value instead
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+          try {
+            const { hasProvider: cachedValue } = JSON.parse(cachedData);
+            setHasProvider(cachedValue);
+          } catch (e) {
+            setHasProvider(false);
+          }
+        } else {
+          setHasProvider(false);
+        }
       }
     } finally {
       if (!abortSignal?.aborted) {
