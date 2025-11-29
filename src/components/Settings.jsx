@@ -372,7 +372,8 @@ export const Settings = () => {
 
   // FIX HIGH #2: Remove duplicate plan limits definition - use centralized config
   // CRITICAL: Must use useMemo to prevent execution during guard evaluation
-  const currentPlanTier = React.useMemo(() => organization?.plan_tier || 'free', [organization]);
+  // PHASE 19 FIX: Use 'plan' field (not 'plan_tier') - matches database schema
+  const currentPlanTier = React.useMemo(() => organization?.plan || 'free', [organization]);
   const limits = React.useMemo(() => getPlanLimits(currentPlanTier), [currentPlanTier]);
 
   // Fetch AI providers and usage

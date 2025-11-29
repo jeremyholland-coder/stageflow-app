@@ -151,6 +151,18 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    return createErrorResponse(error, 500, "remove-ai-provider", "REMOVE_AI_PROVIDER_ERROR");
+    // PHASE 19 FIX: Return error with CORS headers to prevent browser blocking
+    // createErrorResponse doesn't include CORS headers, causing client-side failures
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while removing the AI provider';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "REMOVE_AI_PROVIDER_ERROR"
+      }),
+      { status: 500, headers: corsHeaders }
+    );
   }
 };

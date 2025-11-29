@@ -572,7 +572,8 @@ export const Dashboard = () => {
   return (
     <DashboardErrorBoundary>
       {/* FIX B2: Explicit z-0 ensures content stays below navbar (z-150) when scrolling */}
-      <div className="space-y-6 dashboard-full-width relative z-0">
+      {/* PHASE 19 FIX: Added will-change-transform and contain for layout stability on scroll */}
+      <div className="space-y-6 dashboard-full-width relative z-0" style={{ contain: 'layout style', willChange: 'transform' }}>
         {/* SEO & A11y: Main heading for search engines and screen readers */}
         <h1 className="sr-only">StageFlow Sales Pipeline Dashboard</h1>
 
@@ -702,14 +703,26 @@ export const Dashboard = () => {
             )}
 
             {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
-            {deals && deals.length > 0 && (
-              <div data-tour="dashboard-stats" className="mb-6">
+            {/* PHASE 19 FIX: Always render container to prevent CLS (Cumulative Layout Shift) */}
+            <div data-tour="dashboard-stats" className="mb-6 min-h-[180px]" style={{ contain: 'layout' }}>
+              {deals && deals.length > 0 ? (
                 <DashboardStats
                   deals={deals}
                   currentUser={user}
                 />
-              </div>
-            )}
+              ) : (
+                /* Empty state placeholder to reserve space - Apple-like content stability */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 opacity-50">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="bg-gradient-to-br from-gray-900/50 to-black/30 border border-gray-700/30 rounded-2xl p-6 h-[150px] flex items-center justify-center">
+                      <div className="text-center text-gray-500 text-sm">
+                        {i === 1 && 'Add deals to see stats'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Dynamic Dashboard Cards - Rendered based on user preferences */}
             {!loadingPreferences && cardPreferences && (() => {

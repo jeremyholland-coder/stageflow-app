@@ -28,11 +28,12 @@ import { supabase } from '../lib/supabase';
  * @returns {Object} { hasProvider, checking, refresh }
  */
 export function useAIProviderStatus(user, organization, options = {}) {
-  // CRITICAL FIX: Extended cache TTL to 24 hours
+  // CACHE TTL OPTIMIZATION: Reduced from 24h to 30 minutes for better correctness
   // Phase 3 Cookie-Only Auth has persistSession: false, causing auth.uid() = NULL
   // This breaks RLS policies on direct Supabase queries from frontend
-  // Events (ai-provider-connected/removed) keep cache accurate, so long TTL is safe
-  const { delay = 500, cacheTTL = 24 * 60 * 60 * 1000 } = options; // 24 hours
+  // Events (ai-provider-connected/removed) keep cache accurate for same-session changes
+  // Shorter TTL ensures external changes (other devices/users) are reflected within 30min
+  const { delay = 500, cacheTTL = 30 * 60 * 1000 } = options; // 30 minutes (down from 24h)
 
   const [hasProvider, setHasProvider] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -249,6 +250,44 @@ export function useAIProviderStatus(user, organization, options = {}) {
       window.removeEventListener('ai-provider-removed', handleProviderRemoved);
     };
   }, [organization?.id, checkAIProviders]);
+
+  // CROSS-TAB SYNC FIX: Re-check cache when window gains focus
+  // This ensures Tab B sees provider changes made in Tab A after tab switch
+  useEffect(() => {
+    if (!user?.id || !organization?.id) return;
+
+    const cacheKey = `ai_provider_${organization.id}`;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Re-read from localStorage when tab becomes visible
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const { hasProvider: cachedValue, timestamp } = JSON.parse(cached);
+            const age = Date.now() - timestamp;
+
+            // If cache is still fresh, use it
+            if (age < cacheTTL) {
+              setHasProvider(cachedValue);
+              setChecking(false);
+              return;
+            }
+          } catch (err) {
+            // Corrupted cache - will refresh below
+          }
+        }
+        // Cache miss or stale - do fresh check
+        checkAIProviders();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.id, organization?.id, cacheTTL, checkAIProviders]);
 
   // NEXT-LEVEL: Provide refresh function for manual re-checking (e.g., after saving new provider)
   const refresh = useCallback(() => {

@@ -5,6 +5,9 @@ import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
 import { logger } from '../lib/logger';
 
+// PAGINATION FIX: Page size for team members list
+const TEAM_PAGE_SIZE = 25;
+
 export const TeamDashboard = () => {
   // CRITICAL FIX: useApp() MUST be called at top of component (React Rules of Hooks)
   // Cannot be called after conditional returns or it will cause "Cannot update component" error
@@ -17,6 +20,10 @@ export const TeamDashboard = () => {
   const [organization, setOrganization] = useState(null);
   const [organizationId, setOrganizationId] = useState(null);
   const debounceTimerRef = useRef(null);
+
+  // PAGINATION FIX: Track displayed member count and total
+  const [displayedCount, setDisplayedCount] = useState(TEAM_PAGE_SIZE);
+  const [totalMemberCount, setTotalMemberCount] = useState(0);
 
   // PRO TIER FIX: Check if user has a paid plan that unlocks team features
   const hasPaidPlan = contextOrganization?.plan && ['startup', 'growth', 'pro'].includes(contextOrganization.plan.toLowerCase());
@@ -173,7 +180,9 @@ export const TeamDashboard = () => {
         return b.activePipeline - a.activePipeline;
       });
 
+      // PAGINATION FIX: Store all members and track total count
       setTeamMembers(sortedMembers);
+      setTotalMemberCount(sortedMembers.length);
     } catch (error) {
       console.error('Error loading team data:', error);
     } finally {
@@ -340,7 +349,8 @@ export const TeamDashboard = () => {
                 {formatCurrency(teamMetrics.totalPipeline)}
               </p>
               <p className="text-sm text-[#6B7280] mt-2 flex items-center gap-1">
-                {teamTrend === 'up' ? (
+                {/* PHASE 19 FIX: Use teamMetrics.teamTrend (was undefined teamTrend) */}
+                {teamMetrics.teamTrend === 'up' ? (
                   <TrendingUp className="w-4 h-4 text-[#16A34A]" />
                 ) : (
                   <TrendingDown className="w-4 h-4 text-[#DC2626]" />
@@ -406,7 +416,8 @@ export const TeamDashboard = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {teamMembers.map((member) => (
+            {/* PAGINATION FIX: Only show displayedCount members */}
+            {teamMembers.slice(0, displayedCount).map((member) => (
             <div
               key={member.userId}
               className="bg-[#F9FAFB] dark:bg-[#1E1E1E] rounded-xl p-6 border-l-4 border-[#1ABC9C]"
@@ -452,6 +463,26 @@ export const TeamDashboard = () => {
               </div>
             </div>
           ))}
+
+            {/* PAGINATION FIX: Load More button when there are more members */}
+            {displayedCount < totalMemberCount && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={() => setDisplayedCount(prev => prev + TEAM_PAGE_SIZE)}
+                  className="flex items-center gap-2 px-6 py-3 bg-[#1ABC9C]/10 border border-[#1ABC9C]/30 text-[#1ABC9C] rounded-lg hover:bg-[#1ABC9C]/20 hover:border-[#1ABC9C]/50 transition font-medium"
+                >
+                  <Users className="w-4 h-4" />
+                  Load More ({totalMemberCount - displayedCount} remaining)
+                </button>
+              </div>
+            )}
+
+            {/* PAGINATION FIX: Show count indicator */}
+            <div className="text-center pt-2">
+              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+                Showing {Math.min(displayedCount, totalMemberCount)} of {totalMemberCount} team members
+              </p>
+            </div>
           </div>
         )}
       </div>

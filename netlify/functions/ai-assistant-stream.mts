@@ -110,8 +110,10 @@ async function readStreamWithTimeout(reader: ReadableStreamDefaultReader<Uint8Ar
 
 // Stream from OpenAI
 // PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
-async function streamOpenAI(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController) {
+// PHASE 19 FIX: Return accumulated text for structured response parsing
+async function streamOpenAI(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController): Promise<string> {
   const encoder = new TextEncoder();
+  let accumulatedText = '';
 
   const messages = [
     {
@@ -175,6 +177,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
             const content = parsed.choices[0]?.delta?.content;
 
             if (content) {
+              accumulatedText += content; // PHASE 19 FIX: Accumulate for structured parsing
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, provider: 'ChatGPT' })}\n\n`));
             }
           } catch (e) {
@@ -194,12 +197,15 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
   } finally {
     reader.releaseLock();
   }
+  return accumulatedText; // PHASE 19 FIX: Return accumulated text
 }
 
 // Stream from Anthropic
 // PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
-async function streamAnthropic(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController) {
+// PHASE 19 FIX: Return accumulated text for structured response parsing
+async function streamAnthropic(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController): Promise<string> {
   const encoder = new TextEncoder();
+  let accumulatedText = '';
 
   const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. ${context}.
 
@@ -261,6 +267,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
             const parsed = JSON.parse(data);
 
             if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+              accumulatedText += parsed.delta.text; // PHASE 19 FIX: Accumulate for structured parsing
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: parsed.delta.text, provider: 'Claude' })}\n\n`));
             }
           } catch (e) {
@@ -280,6 +287,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
   } finally {
     reader.releaseLock();
   }
+  return accumulatedText; // PHASE 19 FIX: Return accumulated text
 }
 
 export default async (req: Request, context: any) => {
@@ -491,11 +499,12 @@ export default async (req: Request, context: any) => {
 
         try {
           // Stream based on provider type (using enrichedContext with visual instructions)
+          // PHASE 19 FIX: Capture accumulated response for structured parsing
           if (selectedProvider.provider_type === 'openai') {
-            await streamOpenAI(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
+            accumulatedResponse = await streamOpenAI(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
             textStreamCompleted = true;
           } else if (selectedProvider.provider_type === 'anthropic') {
-            await streamAnthropic(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
+            accumulatedResponse = await streamAnthropic(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
             textStreamCompleted = true;
           } else {
             // CRITICAL-02 FIX: For Gemini/Grok, use non-streaming fallback

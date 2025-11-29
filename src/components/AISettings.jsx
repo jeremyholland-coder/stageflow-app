@@ -308,9 +308,20 @@ export const AISettings = () => {
         })
       });
 
-      const result = await response.json();
+      // PHASE 19 FIX: Defensive JSON parsing to prevent crashes on invalid responses
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        throw new Error(`Server error (${response.status}): Unable to parse response`);
+      }
+
       if (!response.ok) {
-        throw new Error(result.error || `Remove failed: ${response.status}`);
+        // PHASE 19 FIX: Ensure error is always a string (not object)
+        const errorMsg = typeof result.error === 'string'
+          ? result.error
+          : (result.error?.message || `Remove failed: ${response.status}`);
+        throw new Error(errorMsg);
       }
 
       // AIWIRE-05 FIX: Update local state immediately (optimistic update)
