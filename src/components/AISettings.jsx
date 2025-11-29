@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sparkles, Check, X, Loader2, AlertCircle,
-  Eye, EyeOff, ExternalLink, Zap, Lock, ChevronDown
+  Eye, EyeOff, ExternalLink, Zap, Lock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useApp } from './AppShell';
-import { AI_MODELS, DEFAULT_MODELS } from '../constants/aiModels';
 import { api } from '../lib/api-client';
 
 // AI Provider Logo Components
@@ -432,7 +431,6 @@ export const AISettings = () => {
 const AddProviderModal = ({ provider, onClose, onSuccess }) => {
   const { user, organization, addNotification } = useApp();
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODELS[provider.id]);
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -441,9 +439,8 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
     onClose();
     return null;
   }
-  
+
   const Logo = provider.Logo;
-  const availableModels = AI_MODELS[provider.id] || [];
 
   // CRITICAL FIX: Future-proof validation patterns
   // Strategy: Minimal validation to catch obvious errors, let provider APIs be final authority
@@ -494,14 +491,13 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
     setSaving(true);
 
     try {
-      // Save to backend
+      // Save to backend (model is auto-selected by backend based on provider)
       const response = await api.post('save-ai-provider', {
         user_id: user.id,
         organization_id: organization.id,
         provider_type: provider.id,
         api_key: trimmedKey,
-        display_name: provider.displayName,
-        model: selectedModel
+        display_name: provider.displayName
       }, {
         timeout: 10000
       });
@@ -624,33 +620,11 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div>
-            <label htmlFor="ai-model-select" className="block text-sm font-medium text-gray-300 mb-2">
-              Model
-            </label>
-            <div className="relative">
-              <select
-                id="ai-model-select"
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                aria-describedby="ai-model-help"
-                className="w-full px-4 py-2.5 pr-10 bg-gray-900/50 border border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 text-white text-sm appearance-none cursor-pointer transition-colors duration-200"
-              >
-                {availableModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name} - {model.description}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
-
           <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <div className="text-xs text-gray-300">
               <p id="ai-api-key-help" className="font-medium text-white mb-1">One key for all {provider.displayName} models</p>
-              <p id="ai-model-help">Get your API key from <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer" className="text-teal-400 hover:text-teal-300 hover:underline transition-colors duration-200">{provider.name}</a>. The key works with all available models and will be encrypted.</p>
+              <p>Get your API key from <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer" className="text-teal-400 hover:text-teal-300 hover:underline transition-colors duration-200">{provider.name}</a>. The key works with all available models and will be encrypted.</p>
             </div>
           </div>
         </div>

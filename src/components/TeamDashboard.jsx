@@ -59,14 +59,19 @@ export const TeamDashboard = () => {
       setOrganizationId(orgId);
 
       // Get all team members for this organization
-      // FIX: Corrected Supabase join syntax - removed incorrect ':user_id' syntax
-      const { data: members } = await Promise.race([
+      // FIX D1: Removed incorrect FK hint that was causing query to return empty results
+      // The FK name 'user_workspaces_user_id_fkey' doesn't exist on team_members table
+      const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
-          .select('user_id, users!user_workspaces_user_id_fkey(email, raw_user_meta_data)')
+          .select('user_id, role, created_at')
           .eq('organization_id', orgId),
         timeoutPromise
       ]);
+
+      if (membersError) {
+        console.error('[TeamDashboard] Error fetching team members:', membersError);
+      }
 
       if (!members) return;
 
@@ -115,17 +120,19 @@ export const TeamDashboard = () => {
           const dealsAddedTrend = dealsThisWeek.length >= dealsPreviousWeek.length ? 'up' : 'down';
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
-          // Get user name from metadata or email
-          const userName = member.users?.raw_user_meta_data?.full_name ||
-                          member.users?.email?.split('@')[0] ||
-                          'Team Member';
-
+          // FIX D1: Simplified - no longer fetching user data via join
+          // Display user role and use current user's info when applicable
           const isCurrentUser = member.user_id === user.id;
+
+          // For current user, use their actual name; for others, show role
+          const userName = isCurrentUser
+            ? (user.user_metadata?.full_name || user.email?.split('@')[0] || 'You')
+            : (member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Team Member');
 
           return {
             userId: member.user_id,
             name: userName,
-            email: member.users?.email,
+            role: member.role,
             isCurrentUser,
             dealsAdded: dealsThisWeek.length,
             dealsAddedValue,
@@ -412,7 +419,7 @@ export const TeamDashboard = () => {
                       <span className="ml-2 text-sm font-normal text-[#6B7280]">(You)</span>
                     )}
                   </h3>
-                  <p className="text-sm text-[#6B7280]">{member.email}</p>
+                  <p className="text-sm text-[#6B7280] capitalize">{member.role || 'Member'}</p>
                 </div>
               </div>
 

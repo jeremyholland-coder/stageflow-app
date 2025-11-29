@@ -3,7 +3,15 @@ import { withTimeout, TIMEOUTS, TimeoutError } from './lib/timeout-wrapper';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
-import { detectChartType, calculateChartData, determineTaskType, TaskType } from './lib/ai-analytics';
+import {
+  detectChartType,
+  calculateChartData,
+  determineTaskType,
+  TaskType,
+  isPlanMyDayRequest,
+  buildPlanMyDayResponse,
+  AIStructuredResponse
+} from './lib/ai-analytics';
 // PHASE 5.3: Adaptive AI User Profile
 import {
   AISignal,
@@ -455,12 +463,17 @@ export default async (req: Request, context: any) => {
     // CHART PARITY: Detect chart type BEFORE streaming (same logic as non-streaming)
     const { chartType, chartTitle } = detectChartType(message);
 
+    // PHASE 17: Detect Plan My Day request for structured response
+    const isPlanMyDay = isPlanMyDayRequest(message);
+
     // Create streaming response
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
         // STREAM-02 FIX: Track if text streaming completed successfully for chart handling
         let textStreamCompleted = false;
+        // PHASE 17: Accumulate response text for structured parsing
+        let accumulatedResponse = '';
 
         // STREAM-01 FIX: Helper to safely enqueue with basic backpressure check
         const safeEnqueue = (data: Uint8Array) => {
@@ -529,7 +542,19 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
                   temperature: 0.7, max_tokens: 500
                 })
               });
-              if (!grokResponse.ok) throw new Error(`Grok API error: ${grokResponse.status}`);
+              // CRITICAL FIX A2: Handle Grok 403 permission errors gracefully
+              if (!grokResponse.ok) {
+                if (grokResponse.status === 403) {
+                  responseText = "I'm unable to connect to Grok right now. This usually means your xAI API key needs credits or permissions. Please check your xAI account at console.x.ai to verify your API key has available credits.";
+                  safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
+                  textStreamCompleted = true;
+                  // Increment usage and close stream gracefully
+                  await supabase.rpc('increment_ai_usage', { org_id: organizationId });
+                  controller.close();
+                  return;
+                }
+                throw new Error(`Grok API error: ${grokResponse.status}`);
+              }
               const grokData = await grokResponse.json() as { choices?: { message?: { content?: string } }[] };
               responseText = grokData.choices?.[0]?.message?.content || 'Unable to generate response.';
             } else {
@@ -539,6 +564,8 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
             // Send the complete response as a single SSE event
             safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
             textStreamCompleted = true;
+            // PHASE 17: Store for structured parsing
+            accumulatedResponse = responseText;
           }
 
           // CHART PARITY: Send chart data as final SSE event AFTER text stream completes
@@ -557,6 +584,18 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
             } catch (chartError) {
               console.error('Chart calculation error:', chartError);
               // Don't fail the stream if chart calculation fails
+            }
+          }
+
+          // PHASE 17: Send structured response for Plan My Day
+          // This provides checklist data for the PlanMyDayChecklist component
+          if (textStreamCompleted && isPlanMyDay && accumulatedResponse) {
+            try {
+              const structuredResponse = buildPlanMyDayResponse(accumulatedResponse, deals);
+              safeEnqueue(encoder.encode(`event: structured\ndata: ${JSON.stringify(structuredResponse)}\n\n`));
+            } catch (structuredError) {
+              console.error('Structured response error:', structuredError);
+              // Don't fail the stream if structured parsing fails
             }
           }
 

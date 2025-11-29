@@ -87,6 +87,17 @@ const PowerUpWithAI = memo(() => {
 
 PowerUpWithAI.displayName = 'PowerUpWithAI';
 
+// PHASE 18 PERF: Static filter buttons defined outside component (never recreated)
+const FILTER_BUTTONS = [
+  { id: 'all', label: 'All', tooltip: 'Show all deals' },
+  { id: 'active', label: 'Active', tooltip: 'Active deals in progress' },
+  { id: 'won', label: 'Won', tooltip: 'Closed won deals' },
+  { id: 'invoice_sent', label: 'Invoiced', tooltip: 'Invoice sent, awaiting payment' },
+  { id: 'payment_received', label: 'Paid', tooltip: 'Payment received - revenue recognized!' },
+  { id: 'retention', label: 'Retention', tooltip: 'Current clients needing nurture/renewal' },
+  { id: 'lost', label: 'Lost', tooltip: 'Lost deals' }
+];
+
 // CRITICAL FIX: Fallback components must be defined OUTSIDE Dashboard to prevent React error #310
 // Defining components inside render functions causes them to be recreated on every render
 const ModalFallback = () => null; // Modals render their own loading states
@@ -546,7 +557,8 @@ export const Dashboard = () => {
 
   return (
     <DashboardErrorBoundary>
-      <div className="space-y-6 dashboard-full-width">
+      {/* FIX B2: Explicit z-0 ensures content stays below navbar (z-150) when scrolling */}
+      <div className="space-y-6 dashboard-full-width relative z-0">
         {/* SEO & A11y: Main heading for search engines and screen readers */}
         <h1 className="sr-only">StageFlow Sales Pipeline Dashboard</h1>
 
@@ -556,8 +568,10 @@ export const Dashboard = () => {
             <WelcomeModal
               isOpen={showWelcome}
               onClose={async () => {
-                // ARCHITECTURAL FIX: Mark welcome as shown in BOTH localStorage AND database
-                onboardingStorage.markWelcomeShown(user.id);
+                // ARCHITECTURAL FIX: Mark welcome as shown AND dismissed in localStorage FIRST
+                // This ensures OnboardingChecklist sees dismissed=true when it receives the event
+                // FIX C1: Set dismissed=true BEFORE dispatching event to prevent goal selection showing
+                onboardingStorage.setState(user.id, { welcomeShown: true, dismissed: true });
 
                 // CRITICAL FIX: Use backend endpoint for database update to avoid 401 errors
                 // Direct Supabase calls can fail for Google OAuth users if session isn't fully propagated
@@ -787,16 +801,9 @@ export const Dashboard = () => {
 
               {/* FIX REVOPS #1: Extended filters with revenue lifecycle stages - height matched to search */}
               {/* VISUAL FIX: Removed overflow-x-auto and flex-shrink-0 to eliminate gray rectangle spacer */}
+              {/* PHASE 18 PERF: Using static FILTER_BUTTONS constant (no re-creation on render) */}
               <div className="flex flex-wrap gap-2 bg-gray-50 dark:bg-[#0D1F2D] rounded-lg p-1 border border-[#D1D5DB] dark:border-gray-700 h-auto min-h-[46px]" role="group" aria-label="Filter deals by status and stage">
-                {[
-                  { id: 'all', label: 'All', tooltip: 'Show all deals' },
-                  { id: 'active', label: 'Active', tooltip: 'Active deals in progress' },
-                  { id: 'won', label: 'Won', tooltip: 'Closed won deals' },
-                  { id: 'invoice_sent', label: 'Invoiced', tooltip: 'Invoice sent, awaiting payment' },
-                  { id: 'payment_received', label: 'Paid', tooltip: 'Payment received - revenue recognized!' },
-                  { id: 'retention', label: 'Retention', tooltip: 'Current clients needing nurture/renewal' },
-                  { id: 'lost', label: 'Lost', tooltip: 'Lost deals' }
-                ].map(({ id, label, tooltip }) => (
+                {FILTER_BUTTONS.map(({ id, label, tooltip }) => (
                   <button
                     key={id}
                     onClick={() => handleFilterChange(id)}

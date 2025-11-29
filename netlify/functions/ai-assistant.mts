@@ -1018,7 +1018,14 @@ ${context.adaptationSnippet || ''}
     'Grok API call'
   );
 
+  // CRITICAL FIX A2: Handle Grok 403 permission errors gracefully
   if (!response.ok) {
+    if (response.status === 403) {
+      return {
+        response: "I'm unable to connect to Grok right now. This usually means your xAI API key needs credits or permissions. Please check your xAI account at console.x.ai to verify your API key has available credits.",
+        provider: 'Grok'
+      };
+    }
     const errorText = await response.text();
     throw new Error(`Grok API error: ${response.status} - ${errorText}`);
   }

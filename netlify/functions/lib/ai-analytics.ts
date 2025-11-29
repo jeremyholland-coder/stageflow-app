@@ -415,6 +415,189 @@ export async function calculateGoalProgress(
 
 export type TaskType = 'text_analysis' | 'chart_insight' | 'coaching' | 'image_suitable';
 
+// ============================================================================
+// PHASE 17: STAGEFLOW AI RESPONSE SCHEMA v1
+// ============================================================================
+
+/**
+ * Structured AI response schema for rich UI rendering
+ * Used for Plan My Day, pipeline analysis, forecasts, etc.
+ */
+export type AIResponseType = 'plan_my_day' | 'pipeline_analysis' | 'trend_insight' | 'forecast' | 'text';
+
+export interface AIChecklistItem {
+  id: string;
+  task: string;
+  completed: boolean;
+  priority?: 'high' | 'medium' | 'low';
+  dealId?: string;
+  dealName?: string;
+}
+
+export interface AIMetric {
+  label: string;
+  value: string | number;
+  delta?: string;
+  trend?: 'up' | 'down' | 'flat';
+}
+
+export interface AIVisual {
+  type: 'chart' | 'progress_bar' | 'scorecard' | 'checklist_card';
+  data: any;
+}
+
+export interface AIStructuredResponse {
+  response_type: AIResponseType;
+  summary: string;
+  checklist?: AIChecklistItem[];
+  metrics?: AIMetric[];
+  visual?: AIVisual;
+}
+
+/**
+ * Detect if a message is requesting a Plan My Day response
+ */
+export function isPlanMyDayRequest(message: string): boolean {
+  const messageLower = message.toLowerCase();
+  return (
+    messageLower.includes('plan my day') ||
+    messageLower.includes('daily action plan') ||
+    messageLower.includes('personalized daily') ||
+    (messageLower.includes('plan') && messageLower.includes('day') && messageLower.includes('section'))
+  );
+}
+
+/**
+ * Parse AI text response into structured checklist items
+ * Extracts action items from Plan My Day response sections
+ */
+export function parseChecklistFromResponse(responseText: string, deals: any[]): AIChecklistItem[] {
+  const checklist: AIChecklistItem[] = [];
+  const lines = responseText.split('\n');
+
+  let currentSection = '';
+  let priorityMap: { [key: string]: 'high' | 'medium' | 'low' } = {
+    'closest to close': 'high',
+    'momentum builders': 'medium',
+    'relationship nurture': 'low',
+    'pipeline hygiene': 'low'
+  };
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    // Detect section headers
+    if (trimmedLine.toLowerCase().includes('section') ||
+        trimmedLine.toLowerCase().includes('closest to close') ||
+        trimmedLine.toLowerCase().includes('momentum') ||
+        trimmedLine.toLowerCase().includes('relationship') ||
+        trimmedLine.toLowerCase().includes('pipeline hygiene')) {
+      for (const [key, priority] of Object.entries(priorityMap)) {
+        if (trimmedLine.toLowerCase().includes(key)) {
+          currentSection = key;
+          break;
+        }
+      }
+      continue;
+    }
+
+    // Extract actionable items (lines that look like tasks)
+    const taskPatterns = [
+      /^[-•*]\s*(.+)$/,  // Bullet points
+      /^\d+[\.\)]\s*(.+)$/,  // Numbered lists
+      /^(?:Follow up|Contact|Review|Schedule|Send|Prepare|Check|Update|Create)\s+(.+)/i  // Action verbs
+    ];
+
+    for (const pattern of taskPatterns) {
+      const match = trimmedLine.match(pattern);
+      if (match) {
+        const taskText = match[1] || trimmedLine;
+
+        // Try to match with a deal
+        let matchedDeal = null;
+        for (const deal of deals) {
+          const dealName = deal.name || deal.company || '';
+          if (dealName && taskText.toLowerCase().includes(dealName.toLowerCase())) {
+            matchedDeal = deal;
+            break;
+          }
+        }
+
+        checklist.push({
+          id: `task-${Date.now()}-${checklist.length}`,
+          task: taskText.substring(0, 200), // Limit task length
+          completed: false,
+          priority: priorityMap[currentSection] || 'medium',
+          dealId: matchedDeal?.id,
+          dealName: matchedDeal?.name || matchedDeal?.company
+        });
+        break;
+      }
+    }
+  }
+
+  // Limit to 10 most important items
+  return checklist.slice(0, 10);
+}
+
+/**
+ * Calculate metrics from deals for Plan My Day response
+ */
+export function calculatePlanMyDayMetrics(deals: any[]): AIMetric[] {
+  const activeDeals = deals.filter(d => d.status === 'active');
+  const closingDeals = activeDeals.filter(d =>
+    ['negotiation', 'verbal_commit', 'contract_sent'].includes(d.stage?.toLowerCase())
+  );
+  const totalPipelineValue = activeDeals.reduce((sum, d) => sum + Number(d.value || 0), 0);
+  const closingValue = closingDeals.reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+  return [
+    {
+      label: 'Deals Near Close',
+      value: closingDeals.length,
+      trend: closingDeals.length > 0 ? 'up' : 'flat'
+    },
+    {
+      label: 'Closing Value',
+      value: `$${closingValue.toLocaleString()}`,
+      trend: 'up'
+    },
+    {
+      label: 'Active Pipeline',
+      value: `$${totalPipelineValue.toLocaleString()}`,
+      trend: 'flat'
+    }
+  ];
+}
+
+/**
+ * Build structured response for Plan My Day
+ */
+export function buildPlanMyDayResponse(
+  aiTextResponse: string,
+  deals: any[]
+): AIStructuredResponse {
+  const checklist = parseChecklistFromResponse(aiTextResponse, deals);
+  const metrics = calculatePlanMyDayMetrics(deals);
+
+  // Extract first paragraph as summary
+  const summaryMatch = aiTextResponse.match(/^[^.!?]*[.!?]/);
+  const summary = summaryMatch
+    ? summaryMatch[0].trim()
+    : 'Here\'s your personalized action plan for today.';
+
+  return {
+    response_type: 'plan_my_day',
+    summary,
+    checklist,
+    metrics,
+    visual: {
+      type: 'checklist_card',
+      data: { itemCount: checklist.length }
+    }
+  };
+}
+
 /**
  * Determine the task type from user message and quick action ID
  * Used for task-aware AI provider/model selection

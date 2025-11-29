@@ -1,8 +1,24 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import { CustomQueryView } from './CustomQueryView';
 
+// PERF FIX P16-3: Prefetch chart chunk on idle for faster first AI visualization
+const prefetchChartOnIdle = () => {
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => {
+      import('./DealAnalyticsChart').catch(() => {
+        // Silent fail - chart will load on demand if prefetch fails
+      });
+    }, { timeout: 3000 });
+  }
+};
+
 export const AIInsightsWidget = ({ healthAlert = null, orphanedDealIds = new Set(), onDismissAlert = () => {}, deals = [] }) => {
+  // Prefetch chart chunk when component mounts (browser idle)
+  useEffect(() => {
+    prefetchChartOnIdle();
+  }, []);
+
   return (
     <div className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl p-6">
       {/* Header */}

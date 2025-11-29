@@ -4,10 +4,10 @@ import { Loader2 } from 'lucide-react';
 /**
  * InsightChip - Secondary Action Chip Component for Phase 5.1
  *
- * Subtle mint-outline chip buttons for secondary AI insights.
+ * Subtle mint-outline pill buttons for secondary AI insights.
  * Auto-executes on click (no pre-fill + send flow).
  *
- * Design: Smaller, subtle mint outline, clean hover states
+ * FIX E2: Made smaller and more pill-like, less dominant than Plan My Day
  */
 export const InsightChip = ({
   icon: Icon,
@@ -25,23 +25,23 @@ export const InsightChip = ({
       title={tooltip}
       className={`
         group relative
-        flex items-center gap-2
-        px-4 py-2.5 rounded-xl
+        flex items-center gap-1.5
+        px-3 py-1.5 rounded-full
         bg-transparent
-        border border-[#1ABC9C]/30
-        hover:border-[#1ABC9C]/60 hover:bg-[#1ABC9C]/10
-        text-white/80 hover:text-white
-        text-sm font-medium
+        border border-[#1ABC9C]/20
+        hover:border-[#1ABC9C]/50 hover:bg-[#1ABC9C]/5
+        text-white/60 hover:text-white/90
+        text-xs font-medium
         transition-all duration-200 ease-out
-        disabled:opacity-50 disabled:cursor-not-allowed
+        disabled:opacity-40 disabled:cursor-not-allowed
         ${className}
       `}
     >
-      {/* Icon */}
+      {/* Icon - FIX E2: Smaller icons for pill buttons */}
       {loading ? (
-        <Loader2 className="w-4 h-4 text-[#1ABC9C] animate-spin" />
+        <Loader2 className="w-3 h-3 text-[#1ABC9C] animate-spin" />
       ) : Icon ? (
-        <Icon className="w-4 h-4 text-[#1ABC9C] group-hover:text-[#16A085] transition-colors" />
+        <Icon className="w-3 h-3 text-[#1ABC9C]/70 group-hover:text-[#1ABC9C] transition-colors" />
       ) : null}
 
       {/* Label */}

@@ -111,9 +111,10 @@ export const getCardConfig = (cardId) => DASHBOARD_CARDS[cardId];
 
 /**
  * Get all card IDs in default order
+ * NOTE: dashboard_stats is rendered directly in Dashboard.jsx, not via card system
+ * This prevents duplicate metric rows (FIX B1)
  */
 export const getDefaultCardOrder = () => [
-  'dashboard_stats',
   'goal_forecast',
   'revenue_targets',
   'ai_insights',
