@@ -141,18 +141,39 @@ export default async (req: Request, context: Context) => {
     });
 
   } catch (error: any) {
-    console.error("[remove-ai-provider] Error:", error);
+    console.error("[remove-ai-provider] Error:", {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      statusCode: error.statusCode
+    });
 
-    // Handle auth errors specifically
-    if (error.message?.includes("auth") || error.message?.includes("unauthorized")) {
+    // PHASE G FIX: Handle AuthError instances properly
+    // AuthError classes have statusCode property and specific error codes
+    // Previous check for string matches missed errors like "Missing authentication cookies"
+    const isAuthError = error.statusCode === 401 ||
+                        error.statusCode === 403 ||
+                        error.name === 'UnauthorizedError' ||
+                        error.name === 'TokenExpiredError' ||
+                        error.name === 'InvalidTokenError' ||
+                        error.code === 'UNAUTHORIZED' ||
+                        error.code === 'TOKEN_EXPIRED' ||
+                        error.message?.includes("auth") ||
+                        error.message?.includes("unauthorized") ||
+                        error.message?.includes("token") ||
+                        error.message?.includes("cookie");
+
+    if (isAuthError) {
       return new Response(
-        JSON.stringify({ error: "Authentication required", code: "AUTH_REQUIRED" }),
-        { status: 401, headers: corsHeaders }
+        JSON.stringify({
+          error: error.message || "Authentication required",
+          code: error.code || "AUTH_REQUIRED"
+        }),
+        { status: error.statusCode || 401, headers: corsHeaders }
       );
     }
 
-    // PHASE 19 FIX: Return error with CORS headers to prevent browser blocking
-    // createErrorResponse doesn't include CORS headers, causing client-side failures
+    // Return error with CORS headers to prevent browser blocking
     const errorMessage = typeof error.message === 'string'
       ? error.message
       : 'An error occurred while removing the AI provider';

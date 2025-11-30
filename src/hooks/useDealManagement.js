@@ -507,7 +507,7 @@ export const useDealManagement = (user, organization, addNotification) => {
           return;
         }
 
-      const result = await retryOperation(async () => {
+      let result = await retryOperation(async () => {
         // v1.7.98: Check abort signal before each retry attempt
         if (abortSignal.aborted) {
           throw new DOMException('Request aborted', 'AbortError');
@@ -552,6 +552,31 @@ export const useDealManagement = (user, organization, addNotification) => {
       }
 
       logger.log('[DEALS DEBUG] Setting deals state:', result.length);
+
+      // PHASE G FIX: Retry once if first fetch returns empty (session race condition)
+      // On first load, the Supabase session might not be fully propagated yet,
+      // causing RLS to return empty. Retry after a short delay to handle this.
+      if (result.length === 0 && !hasCache && !initialLoadDoneRef.current) {
+        logger.log('[DEALS DEBUG] First fetch returned empty - waiting for session and retrying...');
+        await new Promise(resolve => setTimeout(resolve, 300)); // Wait for session propagation
+
+        if (abortSignal.aborted) return;
+
+        // Retry the query
+        const retryResult = await supabase
+          .from('deals')
+          .select('*')
+          .eq('organization_id', organization.id)
+          .is('deleted_at', null)
+          .order('created', { ascending: false });
+
+        if (retryResult.data && retryResult.data.length > 0) {
+          logger.log('[DEALS DEBUG] Retry succeeded with', retryResult.data.length, 'deals');
+          result = retryResult.data;
+        } else {
+          logger.log('[DEALS DEBUG] Retry still returned empty - org likely has no deals');
+        }
+      }
 
       // CRITICAL FIX: Filter out any null/undefined deals to prevent crashes
       const validDeals = result.filter(deal => deal != null && typeof deal === 'object');

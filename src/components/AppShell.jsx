@@ -866,13 +866,13 @@ export const AppProvider = ({ children }) => {
   }, [darkMode]);
 
   // Fetch user profile data (avatar, first_name, last_name) when user logs in
+  // PHASE G FIX: Use backend endpoint for reliable cookie-only auth
   React.useEffect(() => {
-    // CRITICAL FIX: Add AbortController to cancel fetch if component unmounts
     const abortController = new AbortController();
     let isMounted = true;
 
     const fetchProfileData = async () => {
-      if (!supabase || !user) {
+      if (!user) {
         setAvatarUrl(null);
         setProfileFirstName('');
         setProfileLastName('');
@@ -880,33 +880,38 @@ export const AppProvider = ({ children }) => {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('avatar_url, first_name, last_name')
-          .eq('id', user.id)
-          .maybeSingle();
+        // PHASE G: Use backend endpoint instead of direct Supabase query
+        // Backend uses HttpOnly cookies which are always available
+        const response = await fetch('/.netlify/functions/profile-get', {
+          method: 'GET',
+          credentials: 'include', // Send HttpOnly cookies
+          signal: abortController.signal
+        });
 
         // Only update state if component is still mounted
         if (!isMounted || abortController.signal.aborted) {
           return;
         }
 
-        if (error && error.code !== 'PGRST116') {
-          console.error('Failed to load profile data:', error);
-          return;
-        }
+        if (response.ok) {
+          const result = await response.json();
+          const profile = result.profile;
 
-        if (data) {
-          setAvatarUrl(data.avatar_url || null);
-          setProfileFirstName(data.first_name || '');
-          setProfileLastName(data.last_name || '');
-        } else {
-          setAvatarUrl(null);
-          setProfileFirstName('');
-          setProfileLastName('');
+          if (profile) {
+            setAvatarUrl(profile.avatar_url || null);
+            setProfileFirstName(profile.first_name || '');
+            setProfileLastName(profile.last_name || '');
+          } else {
+            setAvatarUrl(null);
+            setProfileFirstName('');
+            setProfileLastName('');
+          }
+        } else if (response.status !== 401) {
+          // 401 = not authenticated (expected for logged out users)
+          console.error('Failed to load profile data:', response.status);
         }
       } catch (error) {
-        if (!abortController.signal.aborted) {
+        if (!abortController.signal.aborted && error.name !== 'AbortError') {
           console.error('Profile data fetch error:', error);
         }
       }

@@ -207,14 +207,16 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
     const wonLastMonthTotal = wonLastMonth.reduce((sum, d) => sum + Number(d.value || 0), 0);
     const lostLastMonthTotal = lostLastMonth.reduce((sum, d) => sum + Number(d.value || 0), 0);
     
-    // Calculate trends
-    const wonTrend = wonLastMonthTotal > 0 
+    // PHASE G FIX: Calculate trends only when valid comparison data exists
+    // If there's no prior period data (last month = 0), return null instead of showing misleading +100%
+    // This prevents confusion for new orgs or when historical data is missing
+    const wonTrend = wonLastMonthTotal > 0
       ? ((wonThisMonthTotal - wonLastMonthTotal) / wonLastMonthTotal) * 100
-      : wonThisMonthTotal > 0 ? 100 : 0;
-    
+      : null; // No prior data = no trend to show
+
     const lostTrend = lostLastMonthTotal > 0
       ? ((lostThisMonthTotal - lostLastMonthTotal) / lostLastMonthTotal) * 100
-      : lostThisMonthTotal > 0 ? 100 : 0;
+      : null; // No prior data = no trend to show
     
     // User performance
     let userWonThisMonth = 0;
@@ -297,7 +299,7 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         subValue={`${stats.wonThisMonthCount} deals • ${stats.wonRatePercent}% win rate`}
         extraInfo={currentUser && stats.userWonThisMonth > 0 ? `You: $${stats.userWonThisMonth.toLocaleString()} (${stats.userPercentage}%)` : null}
         colorClass="text-[#27AE60]"
-        trend={stats.wonTrend > 0 ? 'up' : stats.wonTrend < 0 ? 'down' : 'neutral'}
+        trend={stats.wonTrend !== null ? (stats.wonTrend > 0 ? 'up' : stats.wonTrend < 0 ? 'down' : 'neutral') : null}
         trendValue={stats.wonTrend}
       />
 
@@ -307,8 +309,8 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         value={`$${stats.lostThisMonthTotal.toLocaleString()}`}
         subValue={`${stats.lostThisMonthCount} deals • ${stats.lostRate}% lost rate`}
         colorClass="text-[#E74C3C]"
-        trend={stats.lostTrend < 0 ? 'up' : stats.lostTrend > 0 ? 'down' : 'neutral'}
-        trendValue={Math.abs(stats.lostTrend)}
+        trend={stats.lostTrend !== null ? (stats.lostTrend < 0 ? 'up' : stats.lostTrend > 0 ? 'down' : 'neutral') : null}
+        trendValue={stats.lostTrend !== null ? Math.abs(stats.lostTrend) : null}
       />
     </div>
   );

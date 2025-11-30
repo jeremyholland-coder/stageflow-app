@@ -173,21 +173,29 @@ export const Dashboard = () => {
 
     const checkWelcomeStatus = async () => {
       try {
-        // PHASE 19B FIX: Check BOTH database AND localStorage for BOTH dismissed AND completed flags
-        // Onboarding may only appear for brand-new or incomplete users; once dismissed or completed, never show again without manual DB reset.
+        // PHASE G FIX: Use backend endpoint instead of direct Supabase query
+        // Direct queries fail with cookie-only auth if session isn't set in client yet
+        // Backend endpoint uses HttpOnly cookies which are always available
 
-        // 1. Check database first (works in private tabs)
-        // CRITICAL: Fetch BOTH dismissed AND completed_steps to detect completed onboarding
-        const { data: onboardingProgress, error } = await supabase
-          .from('onboarding_progress')
-          .select('dismissed, completed_steps')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        // 1. Check database via backend endpoint (reliable with cookie-only auth)
+        let onboardingProgress = null;
+        try {
+          const response = await fetch('/.netlify/functions/onboarding-progress-fetch', {
+            method: 'GET',
+            credentials: 'include', // Send HttpOnly cookies
+            headers: { 'Content-Type': 'application/json' }
+          });
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (acceptable)
-          logger.error('[Welcome] Database check failed:', error);
-          // On error, default to NOT showing onboarding (safe default)
-          return;
+          if (response.ok) {
+            const result = await response.json();
+            onboardingProgress = result.data;
+          } else if (response.status !== 401) {
+            // 401 = not logged in (session issue), other errors are problems
+            logger.error('[Welcome] Backend check failed:', response.status);
+          }
+        } catch (fetchError) {
+          logger.error('[Welcome] Backend fetch error:', fetchError);
+          // Continue with localStorage check on error
         }
 
         // PHASE 19B: Check BOTH dismissed AND completed status from database
@@ -220,6 +228,20 @@ export const Dashboard = () => {
             reason: dbDismissed ? 'db_dismissed' : dbCompleted ? 'db_completed' : localDismissed ? 'local_dismissed' : 'local_completed'
           });
           return;
+        }
+
+        // PHASE G DEFENSIVE GUARD: Skip onboarding for established organizations
+        // If the org was created more than 5 minutes ago, user has had time to explore
+        // This prevents onboarding from showing for existing users with missing progress data
+        if (organization?.created_at) {
+          const orgAge = Date.now() - new Date(organization.created_at).getTime();
+          const FIVE_MINUTES = 5 * 60 * 1000;
+          if (orgAge > FIVE_MINUTES) {
+            logger.debug('[Welcome] Organization is established (age:', Math.round(orgAge / 1000), 'seconds), skipping onboarding');
+            // Silently mark as completed to prevent future checks
+            onboardingStorage.setState(user.id, { dismissed: true, welcomeShown: true });
+            return;
+          }
         }
 
         // Only show welcome for truly NEW users (no DB row AND no local state indicating completion)
@@ -572,8 +594,9 @@ export const Dashboard = () => {
   return (
     <DashboardErrorBoundary>
       {/* FIX B2: Explicit z-0 ensures content stays below navbar (z-150) when scrolling */}
-      {/* PHASE 19 FIX: Added will-change-transform and contain for layout stability on scroll */}
-      <div className="space-y-6 dashboard-full-width relative z-0" style={{ contain: 'layout style', willChange: 'transform' }}>
+      {/* PHASE G FIX: Removed will-change-transform which can cause stacking context issues */}
+      {/* The contain: layout style is sufficient for layout stability without side effects */}
+      <div className="space-y-6 dashboard-full-width relative z-0" style={{ contain: 'layout style' }}>
         {/* SEO & A11y: Main heading for search engines and screen readers */}
         <h1 className="sr-only">StageFlow Sales Pipeline Dashboard</h1>
 
