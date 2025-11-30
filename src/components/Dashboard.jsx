@@ -630,13 +630,7 @@ export const Dashboard = () => {
                 return (
                   <ChartErrorBoundary key={cardId} chartName={card.label}>
                     <Suspense fallback={<WidgetFallback />}>
-                      {cardId === 'ai_insights' ? (
-                        <div data-onboarding="ai-button">
-                          <Component {...props} />
-                        </div>
-                      ) : (
-                        <Component {...props} />
-                      )}
+                      <Component {...props} />
                     </Suspense>
                   </ChartErrorBoundary>
                 );
@@ -714,7 +708,6 @@ export const Dashboard = () => {
             {/* PHASE 20 CLS FIX: Contain layout to prevent shifts, reserve min-height for board */}
             <ListErrorBoundary listName="Pipeline Board">
               <div
-                data-onboarding="kanban-board"
                 style={{ contain: 'layout paint', minHeight: '400px' }}
               >
                 <KanbanBoard
