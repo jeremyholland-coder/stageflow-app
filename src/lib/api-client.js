@@ -104,8 +104,11 @@ export class APIClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     // Merge headers
+    // FIX: Don't set Content-Type for FormData - browser must set it with multipart boundary
+    // This fixes "Content-Type was not one of 'multipart/form-data'" error for avatar uploads
+    const isFormData = restOptions.body instanceof FormData;
     const finalHeaders = {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...this.defaultHeaders,
       ...headers,
     };

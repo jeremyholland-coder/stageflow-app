@@ -151,11 +151,12 @@ export default async (req: Request, context: Context) => {
     }
 
     // STEP 6: Soft delete - set active to false
+    // FIX: ai_providers table doesn't have updated_at column (see save-ai-provider.mts line 239)
+    // Only set active: false for soft delete - DB trigger handles timestamps if needed
     const { data: removedProvider, error: removeError } = await supabase
       .from("ai_providers")
       .update({
-        active: false,
-        updated_at: new Date().toISOString(),
+        active: false
       })
       .eq("id", providerId)
       .eq("organization_id", organizationId)
