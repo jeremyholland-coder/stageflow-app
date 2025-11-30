@@ -36,10 +36,25 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
   }
 
   try {
-    // Get access token from HttpOnly cookie
-    const cookieHeader = event.headers.cookie || event.headers.Cookie || '';
-    const cookies = parseCookies(cookieHeader);
-    const accessToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
+    // DUAL-MODE AUTH: Check Authorization header first, then fall back to cookies
+    // This supports both API clients (Bearer token) and browser sessions (cookies)
+    let accessToken: string | undefined;
+
+    // Primary: Authorization header
+    const authHeader = event.headers.authorization || event.headers.Authorization;
+    if (authHeader) {
+      const parts = authHeader.split(' ');
+      if (parts.length === 2 && parts[0].toLowerCase() === 'bearer' && parts[1].length > 20) {
+        accessToken = parts[1];
+      }
+    }
+
+    // Fallback: HttpOnly cookie
+    if (!accessToken) {
+      const cookieHeader = event.headers.cookie || event.headers.Cookie || '';
+      const cookies = parseCookies(cookieHeader);
+      accessToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
+    }
 
     if (!accessToken) {
       return {

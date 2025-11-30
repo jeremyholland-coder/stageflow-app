@@ -242,6 +242,30 @@ export default async (req: Request, context: Context) => {
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
 
+    // PHASE K FIX: Handle AuthError instances properly - return 401 for auth errors
+    const isAuthError = error.statusCode === 401 ||
+                        error.statusCode === 403 ||
+                        error.name === 'UnauthorizedError' ||
+                        error.name === 'TokenExpiredError' ||
+                        error.name === 'InvalidTokenError' ||
+                        error.code === 'UNAUTHORIZED' ||
+                        error.code === 'TOKEN_EXPIRED' ||
+                        error.message?.includes("auth") ||
+                        error.message?.includes("unauthorized") ||
+                        error.message?.includes("token") ||
+                        error.message?.includes("cookie") ||
+                        error.message?.includes("Authentication");
+
+    if (isAuthError) {
+      return new Response(
+        JSON.stringify({
+          error: error.message || "Authentication required",
+          code: error.code || "AUTH_REQUIRED"
+        }),
+        { status: error.statusCode || 401, headers: { ...headers, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // PHASE F FIX: Return error with CORS headers
     const errorMessage = typeof error.message === 'string'
       ? error.message
@@ -252,7 +276,7 @@ export default async (req: Request, context: Context) => {
         error: errorMessage,
         code: "AVATAR_UPLOAD_FAILED"
       }),
-      { status: 500, headers }
+      { status: 500, headers: { ...headers, 'Content-Type': 'application/json' } }
     );
   }
 };

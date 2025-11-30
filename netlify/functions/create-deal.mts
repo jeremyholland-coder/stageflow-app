@@ -131,9 +131,10 @@ export default async (req: Request, context: Context) => {
       "expected_close", "probability", "source"
     ];
 
+    // PHASE K FIX: removed `created_by` - column doesn't exist in deals table
+    // The deals table tracks ownership via organization_id, not individual user
     const sanitizedDeal: Record<string, any> = {
       organization_id: organizationId,
-      created_by: userId,
       created: new Date().toISOString(),
       last_activity: new Date().toISOString(),
     };

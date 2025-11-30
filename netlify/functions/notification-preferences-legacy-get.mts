@@ -134,14 +134,29 @@ export default async (req: Request, context: Context) => {
   } catch (error: any) {
     console.error("[notification-preferences-legacy-get] Error:", {
       message: error.message,
-      code: error.code
+      code: error.code,
+      name: error.name,
+      statusCode: error.statusCode
     });
 
-    // Handle auth errors
-    if (error.message?.includes("auth") || error.message?.includes("unauthorized") || error.message?.includes("token")) {
+    // Handle auth errors - comprehensive check matching auth-middleware patterns
+    const isAuthError = error.statusCode === 401 ||
+                        error.statusCode === 403 ||
+                        error.name === 'UnauthorizedError' ||
+                        error.name === 'TokenExpiredError' ||
+                        error.name === 'InvalidTokenError' ||
+                        error.code === 'UNAUTHORIZED' ||
+                        error.code === 'TOKEN_EXPIRED' ||
+                        error.message?.includes("auth") ||
+                        error.message?.includes("unauthorized") ||
+                        error.message?.includes("token") ||
+                        error.message?.includes("cookie") ||
+                        error.message?.includes("Authentication");
+
+    if (isAuthError) {
       return new Response(
-        JSON.stringify({ error: "Authentication required", code: "AUTH_REQUIRED" }),
-        { status: 401, headers: corsHeaders }
+        JSON.stringify({ error: error.message || "Authentication required", code: "AUTH_REQUIRED" }),
+        { status: error.statusCode || 401, headers: corsHeaders }
       );
     }
 

@@ -155,12 +155,30 @@ export default async (req: Request, context: Context) => {
 
   } catch (error: any) {
     console.error('[get-ai-providers] Error:', error);
+    console.error('Error type:', error.constructor?.name);
+    console.error('Error message:', error.message);
 
-    // Handle auth errors specifically
-    if (error.message?.includes('auth') || error.message?.includes('unauthorized') || error.message?.includes('token')) {
+    // PHASE K FIX: Comprehensive auth error detection (matches create-deal pattern)
+    const isAuthError = error.statusCode === 401 ||
+                        error.statusCode === 403 ||
+                        error.name === 'UnauthorizedError' ||
+                        error.name === 'TokenExpiredError' ||
+                        error.name === 'InvalidTokenError' ||
+                        error.code === 'UNAUTHORIZED' ||
+                        error.code === 'TOKEN_EXPIRED' ||
+                        error.message?.includes("auth") ||
+                        error.message?.includes("unauthorized") ||
+                        error.message?.includes("token") ||
+                        error.message?.includes("cookie") ||
+                        error.message?.includes("Authentication");
+
+    if (isAuthError) {
       return new Response(
-        JSON.stringify({ error: 'Authentication required', code: 'AUTH_REQUIRED' }),
-        { status: 401, headers }
+        JSON.stringify({
+          error: error.message || 'Authentication required',
+          code: error.code || 'AUTH_REQUIRED'
+        }),
+        { status: error.statusCode || 401, headers }
       );
     }
 

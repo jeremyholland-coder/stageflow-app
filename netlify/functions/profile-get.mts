@@ -74,9 +74,10 @@ export default async (req: Request, context: Context) => {
     }
 
     // Fetch profile data
+    // Note: email is not stored in profiles table - get it from the authenticated user instead
     const { data: profile, error } = await supabase
       .from("profiles")
-      .select("id, avatar_url, first_name, last_name, email, updated_at")
+      .select("id, avatar_url, first_name, last_name, updated_at")
       .eq("id", userId)
       .maybeSingle();
 
@@ -89,10 +90,11 @@ export default async (req: Request, context: Context) => {
     }
 
     // Return profile data (null if no profile exists yet)
+    // Include email from authenticated user since profiles table doesn't store it
     console.warn("[profile-get] Success for user:", userId);
     return new Response(JSON.stringify({
       success: true,
-      profile: profile || null
+      profile: profile ? { ...profile, email: user.email } : { id: userId, email: user.email }
     }), {
       status: 200,
       headers: corsHeaders,

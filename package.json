@@ -18,6 +18,14 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:webkit": "playwright test --project=webkit",
+    "test:e2e:headed": "playwright test --headed",
+    "test:integration": "vitest run tests/e2e",
+    "test:integration:watch": "vitest watch tests/e2e",
+    "test:qa": "npm run test:integration && npm run test:e2e",
+    "test:perf": "playwright test tests/ui/performance.spec.ts",
+    "test:lighthouse": "node scripts/performance/lighthouse-audit.mjs",
     "setup:test": "bash scripts/setup-local-testing.sh",
     "prepare": "husky"
   },
@@ -47,7 +55,7 @@
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "@sentry/vite-plugin": "^4.6.0",
-    "@types/node": "^24.8.1",
+    "@types/node": "^24.10.1",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "husky": "^9.1.7",
@@ -59,9 +67,11 @@
     "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^3.3.6",
     "terser": "^5.44.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vite-plugin-pwa": "^1.1.0",
+    "vitest": "^4.0.14",
     "workbox-window": "^7.3.0"
   }
 }
