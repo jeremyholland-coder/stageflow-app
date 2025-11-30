@@ -127,13 +127,25 @@ function extractToken(req: Request): string {
 
   try {
     // Parse cookies manually to avoid circular dependency
+    // PHASE I FIX: Hardened cookie parsing with individual try-catch per cookie
     const cookies: Record<string, string> = {};
     cookieHeader.split(';').forEach(cookie => {
-      const [name, ...valueParts] = cookie.split('=');
-      if (name && valueParts.length > 0) {
-        const trimmedName = name.trim();
-        const value = valueParts.join('=').trim();
-        cookies[trimmedName] = decodeURIComponent(value);
+      try {
+        const [name, ...valueParts] = cookie.split('=');
+        if (name && valueParts.length > 0) {
+          const trimmedName = name.trim();
+          const value = valueParts.join('=').trim();
+          // Safely decode - some cookie values may not need decoding
+          try {
+            cookies[trimmedName] = decodeURIComponent(value);
+          } catch (decodeError) {
+            // If decoding fails, use raw value (JWT tokens are base64url, shouldn't need decoding)
+            cookies[trimmedName] = value;
+          }
+        }
+      } catch (cookieParseError) {
+        // Skip malformed cookies, continue parsing others
+        console.warn('[auth-bridge] Skipped malformed cookie:', cookie.substring(0, 20));
       }
     });
 

@@ -56,13 +56,24 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[remove-ai-provider] Authenticated user:", userId);
 
-    // STEP 2: Parse request body
-    const body = await req.json();
+    // STEP 2: Parse request body with defensive error handling
+    // PHASE I FIX: JSON parsing could fail if body is malformed, causing 500 without clear message
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      console.error("[remove-ai-provider] JSON parse error:", parseError);
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid request body - expected JSON" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
     const { providerId, organizationId } = body;
 
     if (!providerId || !organizationId) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields: providerId, organizationId" }),
+        JSON.stringify({ success: false, error: "Missing required fields: providerId, organizationId" }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -70,7 +81,24 @@ export default async (req: Request, context: Context) => {
     console.warn("[remove-ai-provider] Remove request:", { providerId, organizationId });
 
     // STEP 3: Get Supabase client with service role (bypasses RLS)
-    const supabase = getSupabaseClient();
+    // PHASE I FIX: Wrap in explicit try-catch to identify pool initialization failures
+    let supabase;
+    try {
+      supabase = getSupabaseClient();
+    } catch (poolError: any) {
+      console.error("[remove-ai-provider] Supabase pool initialization failed:", {
+        message: poolError.message,
+        stack: poolError.stack?.split('\n').slice(0, 3).join('\n')
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Database connection error",
+          code: "DB_INIT_ERROR"
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
 
     // STEP 4: Verify user belongs to organization
     const { data: membership, error: membershipError } = await supabase
@@ -83,7 +111,7 @@ export default async (req: Request, context: Context) => {
     if (membershipError || !membership) {
       console.error("[remove-ai-provider] User not in organization:", { userId, organizationId, error: membershipError });
       return new Response(
-        JSON.stringify({ error: "Not authorized for this organization" }),
+        JSON.stringify({ success: false, error: "Not authorized for this organization" }),
         { status: 403, headers: corsHeaders }
       );
     }
@@ -99,7 +127,7 @@ export default async (req: Request, context: Context) => {
     if (providerCheckError || !existingProvider) {
       console.error("[remove-ai-provider] Provider not found:", { providerId, organizationId, error: providerCheckError });
       return new Response(
-        JSON.stringify({ error: "AI provider not found" }),
+        JSON.stringify({ success: false, error: "AI provider not found" }),
         { status: 404, headers: corsHeaders }
       );
     }
@@ -108,7 +136,7 @@ export default async (req: Request, context: Context) => {
     if (!existingProvider.active) {
       console.warn("[remove-ai-provider] Provider already inactive:", { providerId });
       return new Response(
-        JSON.stringify({ error: "AI provider already removed", code: "ALREADY_REMOVED" }),
+        JSON.stringify({ success: false, error: "AI provider already removed", code: "ALREADY_REMOVED" }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -128,7 +156,7 @@ export default async (req: Request, context: Context) => {
     if (removeError) {
       console.error("[remove-ai-provider] Remove failed:", removeError);
       return new Response(
-        JSON.stringify({ error: "Failed to remove AI provider", details: removeError.message }),
+        JSON.stringify({ success: false, error: "Failed to remove AI provider", details: removeError.message }),
         { status: 500, headers: corsHeaders }
       );
     }
@@ -166,6 +194,7 @@ export default async (req: Request, context: Context) => {
     if (isAuthError) {
       return new Response(
         JSON.stringify({
+          success: false,
           error: error.message || "Authentication required",
           code: error.code || "AUTH_REQUIRED"
         }),
@@ -180,6 +209,7 @@ export default async (req: Request, context: Context) => {
 
     return new Response(
       JSON.stringify({
+        success: false,
         error: errorMessage,
         code: "REMOVE_AI_PROVIDER_ERROR"
       }),

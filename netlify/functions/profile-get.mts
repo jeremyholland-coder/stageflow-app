@@ -54,7 +54,24 @@ export default async (req: Request, context: Context) => {
     console.warn("[profile-get] Authenticated user:", userId);
 
     // Get Supabase client with service role (bypasses RLS)
-    const supabase = getSupabaseClient();
+    // PHASE I FIX: Wrap in explicit try-catch to identify pool initialization failures
+    let supabase;
+    try {
+      supabase = getSupabaseClient();
+    } catch (poolError: any) {
+      console.error("[profile-get] Supabase pool initialization failed:", {
+        message: poolError.message,
+        stack: poolError.stack?.split('\n').slice(0, 3).join('\n')
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Database connection error",
+          code: "DB_INIT_ERROR"
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
 
     // Fetch profile data
     const { data: profile, error } = await supabase
