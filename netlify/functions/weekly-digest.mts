@@ -61,6 +61,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
       console.log('[weekly-digest] No organizations found');
       return {
         statusCode: 200,
+        headers: CORS_HEADERS,
         body: JSON.stringify({ message: 'No organizations to process' })
       };
     }
@@ -109,12 +110,13 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
             timeZone: userTimezone
           }).toLowerCase();
 
-          const userLocalHourStr = currentTime.toLocaleString('en-US', {
-            hour: '2-digit',
+          // Use Intl.DateTimeFormat for reliable hour extraction
+          const hourFormatter = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
             hour12: false,
             timeZone: userTimezone
           });
-          const userLocalHour = parseInt(userLocalHourStr.split(',')[1]?.trim().split(':')[0] || '0');
+          const userLocalHour = parseInt(hourFormatter.format(currentTime), 10) || 0;
 
           console.log(`[weekly-digest] User ${member.users?.email}: wants ${userPreferredDay} at ${userPreferredTime} (${userTimezone}), current: ${userLocalDay} ${userLocalHour}:00`);
 
@@ -187,6 +189,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
 
     return {
       statusCode: 200,
+      headers: CORS_HEADERS,
       body: JSON.stringify(result)
     };
 
@@ -194,6 +197,7 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
     console.error('[weekly-digest] Fatal error:', error);
     return {
       statusCode: 500,
+      headers: CORS_HEADERS,
       body: JSON.stringify({
         error: 'Failed to process weekly digest',
         details: error instanceof Error ? error.message : 'Unknown error'
@@ -326,7 +330,7 @@ async function calculateAdminAnalytics(supabase: any, organizationId: string): P
 
     const leaderboardRows = leaderboard.map(owner => `
       <tr>
-        <td style="padding:2px 0;">${owner.name}</td>
+        <td style="padding:2px 0;">${escapeHtml(owner.name)}</td>
         <td align="right" style="padding:2px 0;">${owner.wonCount}</td>
         <td align="right" style="padding:2px 0;">${formatCurrency(owner.wonValue)}</td>
       </tr>
@@ -504,6 +508,27 @@ async function calculateUserAnalytics(supabase: any, organizationId: string, use
 // UTILITY FUNCTIONS
 // ==========================================
 
+// CORS headers for all responses
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Content-Type': 'application/json'
+};
+
+/**
+ * Escape HTML special characters to prevent XSS
+ */
+function escapeHtml(str: string): string {
+  const htmlEscapes: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  };
+  return str.replace(/[&<>"']/g, char => htmlEscapes[char] || char);
+}
+
 function formatCurrency(val: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -539,6 +564,11 @@ function getMostCommon(arr: string[]): string | null {
 // ==========================================
 
 function generateAdminDigestEmail(firstName: string, analytics: AdminAnalytics) {
+  // Escape user-provided content to prevent XSS
+  const safeFirstName = escapeHtml(firstName);
+  const safeTopLossReason = escapeHtml(analytics.top_loss_reason);
+  const safeTopDriver = escapeHtml(analytics.top_driver);
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -584,7 +614,7 @@ function generateAdminDigestEmail(firstName: string, analytics: AdminAnalytics) 
           <tr>
             <td class="inner-padding" style="padding:26px 28px 8px;">
               <p style="font-size:13px; color:#9aa5b3; margin:0 0 8px;">
-                Hi ${firstName},
+                Hi ${safeFirstName},
               </p>
               <p class="h1" style="font-size:24px; line-height:1.4; color:#f5f7fa; font-weight:650; margin:0 0 6px;">
                 Here's how your team's pipeline looks this week.
@@ -674,7 +704,7 @@ function generateAdminDigestEmail(firstName: string, analytics: AdminAnalytics) 
                             ${analytics.deals_lost_this_week}
                           </div>
                           <div style="font-size:11px; color:#fca5a5;">
-                            Top reason: ${analytics.top_loss_reason}
+                            Top reason: ${safeTopLossReason}
                           </div>
                         </td>
                       </tr>
@@ -715,7 +745,7 @@ function generateAdminDigestEmail(firstName: string, analytics: AdminAnalytics) 
                       </tr>
                     </table>
                     <p style="font-size:11px; color:#9ca3af; margin:8px 0 0;">
-                      This week's biggest driver: <span style="color:#e5e7eb; font-weight:500;">${analytics.top_driver}</span>.
+                      This week's biggest driver: <span style="color:#e5e7eb; font-weight:500;">${safeTopDriver}</span>.
                     </p>
                   </td>
                 </tr>
@@ -813,6 +843,11 @@ function generateAdminDigestEmail(firstName: string, analytics: AdminAnalytics) 
 }
 
 function generateUserDigestEmail(firstName: string, analytics: DigestAnalytics) {
+  // Escape user-provided content to prevent XSS
+  const safeFirstName = escapeHtml(firstName);
+  const safeTopLossReason = escapeHtml(analytics.top_loss_reason);
+  const safeTopDriver = escapeHtml(analytics.top_driver);
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -858,7 +893,7 @@ function generateUserDigestEmail(firstName: string, analytics: DigestAnalytics) 
           <tr>
             <td class="inner-padding" style="padding:26px 28px 8px;">
               <p style="font-size:13px; color:#9aa5b3; margin:0 0 8px;">
-                Hi ${firstName},
+                Hi ${safeFirstName},
               </p>
               <p class="h1" style="font-size:24px; line-height:1.4; color:#f5f7fa; font-weight:650; margin:0 0 6px;">
                 Here's how your pipeline looks this week.
@@ -948,7 +983,7 @@ function generateUserDigestEmail(firstName: string, analytics: DigestAnalytics) 
                             ${analytics.deals_lost_this_week}
                           </div>
                           <div style="font-size:11px; color:#fca5a5;">
-                            Top reason: ${analytics.top_loss_reason}
+                            Top reason: ${safeTopLossReason}
                           </div>
                         </td>
                       </tr>
@@ -989,7 +1024,7 @@ function generateUserDigestEmail(firstName: string, analytics: DigestAnalytics) 
                       </tr>
                     </table>
                     <p style="font-size:11px; color:#9ca3af; margin:8px 0 0;">
-                      Biggest driver this week: <span style="color:#e5e7eb; font-weight:500;">${analytics.top_driver}</span>.
+                      Biggest driver this week: <span style="color:#e5e7eb; font-weight:500;">${safeTopDriver}</span>.
                     </p>
                   </td>
                 </tr>
