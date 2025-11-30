@@ -17,15 +17,45 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { clearSessionCookies, parseCookies, COOKIE_NAMES } from './lib/cookie-auth';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { invalidateTokenCache } from './lib/auth-middleware';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
+// PHASE F FIX: CORS headers for browser requests
+const getCorsHeaders = (event: HandlerEvent) => {
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
+  return {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+};
+
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  // PHASE F FIX: Get CORS headers for this request
+  const corsHeaders = getCorsHeaders(event);
+
+  // PHASE F FIX: Handle preflight requests
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -92,9 +122,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },
@@ -123,12 +151,10 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     const cookies = clearSessionCookies();
 
-    // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
+    // PHASE F FIX: Return error with CORS headers
     return {
       statusCode: 200, // Return 200 to prevent UI errors
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },

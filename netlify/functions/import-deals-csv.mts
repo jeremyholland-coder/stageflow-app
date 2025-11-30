@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
-import { createErrorResponse } from "./lib/error-sanitizer";
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
  * IMPORT DEALS FROM CSV ENDPOINT
@@ -295,6 +295,17 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    return createErrorResponse(error, 500, "import-deals-csv", "IMPORT_DEALS_CSV_ERROR");
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while importing deals';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "IMPORT_DEALS_CSV_ERROR"
+      }),
+      { status: 500, headers: corsHeaders }
+    );
   }
 };

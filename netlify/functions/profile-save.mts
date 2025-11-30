@@ -1,7 +1,7 @@
 import type { Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 
 // Profile Save Endpoint
@@ -149,11 +149,17 @@ export default async (req: Request, context: Context) => {
     console.error('Error type:', error.constructor.name);
     console.error('Error message:', error.message);
 
-    return createErrorResponse(
-      error,
-      500,
-      'profile_save',
-      'PROFILE_SAVE_FAILED'
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while saving profile';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "PROFILE_SAVE_FAILED"
+      }),
+      { status: 500, headers }
     );
   }
 };

@@ -512,26 +512,36 @@ export const Settings = () => {
     };
 
     const fetchNotificationPreferences = async () => {
-      if (!supabase || !user || !organization) return;
+      // PHASE E FIX: Use backend endpoint instead of direct Supabase query
+      // Direct queries fail RLS with Phase 3 Cookie-Only Auth (auth.uid() is NULL)
+      if (!user || !organization) return;
 
       try {
-        const { data, error } = await supabase
-          .from('notification_preferences')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('organization_id', organization.id)
-          .maybeSingle();
+        const response = await fetch('/.netlify/functions/notification-preferences-legacy-get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Send HttpOnly cookies for auth
+          body: JSON.stringify({
+            organization_id: organization.id
+          })
+        });
 
-        if (error && error.code !== 'PGRST116') throw error;
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Failed to fetch preferences: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const data = result.preferences;
 
         if (isMounted && data) {
           setNotifPrefs({
-            all_notifications: data.all_notifications,
-            notify_deal_created: data.notify_deal_created,
-            notify_stage_changed: data.notify_stage_changed,
-            notify_deal_won: data.notify_deal_won,
-            notify_deal_lost: data.notify_deal_lost,
-            weekly_digest: data.weekly_digest,
+            all_notifications: data.all_notifications ?? true,
+            notify_deal_created: data.notify_deal_created ?? true,
+            notify_stage_changed: data.notify_stage_changed ?? true,
+            notify_deal_won: data.notify_deal_won ?? true,
+            notify_deal_lost: data.notify_deal_lost ?? false,
+            weekly_digest: data.weekly_digest ?? false,
             digest_day: data.digest_day || 'monday',
             digest_time: data.digest_time || '09:00',
             digest_timezone: data.digest_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -540,10 +550,8 @@ export const Settings = () => {
         }
       } catch (error) {
         console.error('Failed to fetch notification preferences:', error);
-        if (isMounted) {
-          const parsedError = parseSupabaseError(error);
-          addNotification(parsedError.message, 'error');
-        }
+        // PHASE E: Don't show error notification for notification prefs fetch failure
+        // Settings page still works without these preferences
       }
     };
     

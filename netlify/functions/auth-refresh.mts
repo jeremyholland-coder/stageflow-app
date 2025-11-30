@@ -30,7 +30,7 @@ import {
   setSessionCookies,
   clearSessionCookies
 } from './lib/cookie-auth';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { RATE_LIMITS } from './lib/rate-limiter';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
@@ -88,7 +88,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       return {
         statusCode: 429,
         headers: {
-          'Content-Type': 'application/json',
+          ...corsHeaders,
           'Retry-After': String(retryAfter)
         },
         body: JSON.stringify({

@@ -1,7 +1,7 @@
 import type { Context } from '@netlify/functions';
 import { createClient, User } from '@supabase/supabase-js';
 import { encrypt } from './lib/encryption';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { requirePermission, PERMISSIONS } from './lib/rbac';
@@ -345,12 +345,17 @@ export default async (req: Request, context: Context) => {
     console.error('Message:', error.message);
     console.error('Stack:', error.stack);
 
-    // SECURITY: Use error sanitizer to prevent information disclosure
-    return createErrorResponse(
-      error,
-      500,
-      'save_ai_provider',
-      'PROVIDER_SAVE_FAILED'
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while saving the AI provider';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "PROVIDER_SAVE_FAILED"
+      }),
+      { status: 500, headers }
     );
   }
 };

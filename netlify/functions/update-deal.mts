@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
-import { createErrorResponse } from "./lib/error-sanitizer";
+// PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
  * UPDATE DEAL ENDPOINT
@@ -222,6 +222,17 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    return createErrorResponse(error, 500, "update-deal", "UPDATE_DEAL_ERROR");
+    // PHASE E FIX: Return error with CORS headers (createErrorResponse doesn't include CORS)
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while updating the deal';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "UPDATE_DEAL_ERROR"
+      }),
+      { status: 500, headers: corsHeaders }
+    );
   }
 };

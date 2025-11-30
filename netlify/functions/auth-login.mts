@@ -32,13 +32,42 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { setSessionCookies, clearSessionCookies } from './lib/cookie-auth';
-import { createErrorResponse } from './lib/error-sanitizer';
 import { RATE_LIMITS } from './lib/rate-limiter';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 import { createAuthLogContext } from './lib/log-sanitizer';
 import { validateCSRFToken, createCSRFErrorResponse } from './lib/csrf-middleware';
 
+// PHASE F FIX: CORS headers for browser requests
+const getCorsHeaders = (event: HandlerEvent) => {
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
+  return {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-CSRF-Token',
+    'Content-Type': 'application/json'
+  };
+};
+
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  // PHASE F FIX: Get CORS headers for this request
+  const corsHeaders = getCorsHeaders(event);
+
+  // PHASE F FIX: Handle preflight requests
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   // SECURITY FIX (CRIT-SEC-3): Track request start time for constant-time responses
   const requestStartTime = Date.now();
 
@@ -46,7 +75,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -94,7 +123,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       return {
         statusCode: 429,
         headers: {
-          'Content-Type': 'application/json',
+          ...corsHeaders,
           'Retry-After': String(retryAfter)
         },
         body: JSON.stringify({
@@ -114,7 +143,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     if (!email || !password) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Missing required fields',
           code: 'MISSING_FIELDS',
@@ -128,7 +157,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     if (!emailRegex.test(email)) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Invalid email format',
           code: 'INVALID_EMAIL'
@@ -144,7 +173,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       console.error('❌ Missing Supabase configuration');
       return {
         statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Server configuration error',
           code: 'CONFIG_ERROR'
@@ -214,7 +243,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         // Return specific error code so frontend can show helpful message + resend button
         return {
           statusCode: 403, // Forbidden - different from 401 Unauthorized
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({
             error: 'Please verify your email address. Check your inbox for the verification link.',
             code: 'EMAIL_NOT_CONFIRMED',
@@ -246,7 +275,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
       return {
         statusCode,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: errorMessage,
           code: errorCode
@@ -258,7 +287,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       console.error('❌ Login succeeded but no session returned');
       return {
         statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Authentication failed',
           code: 'NO_SESSION'
@@ -307,9 +336,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     // Comma-joining cookies causes browser parsing issues
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },
@@ -335,13 +362,15 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
   } catch (error: any) {
     console.error('💥 Login exception:', error);
 
-    // Return sanitized error
-    return createErrorResponse(
-      error,
-      500,
-      'auth_login_exception',
-      'LOGIN_ERROR'
-    );
+    // PHASE F FIX: Return error with CORS headers (createErrorResponse doesn't include CORS)
+    return {
+      statusCode: 500,
+      headers: getCorsHeaders(event),
+      body: JSON.stringify({
+        error: 'An error occurred during login. Please try again.',
+        code: 'LOGIN_ERROR'
+      })
+    };
   }
 };
 
@@ -351,10 +380,18 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
  * Clears session cookies and invalidates server-side session.
  */
 export const logoutHandler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  // PHASE F FIX: Get CORS headers for this request
+  const corsHeaders = getCorsHeaders(event);
+
+  // Handle preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -393,9 +430,7 @@ export const logoutHandler: Handler = async (event: HandlerEvent, context: Handl
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },
@@ -414,9 +449,7 @@ export const logoutHandler: Handler = async (event: HandlerEvent, context: Handl
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },

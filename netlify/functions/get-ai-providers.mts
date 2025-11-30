@@ -1,7 +1,7 @@
 import type { Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
  * GET AI PROVIDERS ENDPOINT
@@ -164,6 +164,17 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    return createErrorResponse(error, 500, 'get-ai-providers', 'GET_PROVIDERS_ERROR');
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while fetching AI providers';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "GET_PROVIDERS_ERROR"
+      }),
+      { status: 500, headers }
+    );
   }
 };

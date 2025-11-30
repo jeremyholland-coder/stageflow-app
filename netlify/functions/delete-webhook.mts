@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
-import { createErrorResponse } from "./lib/error-sanitizer";
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
  * DELETE WEBHOOK ENDPOINT
@@ -153,6 +153,17 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    return createErrorResponse(error, 500, "delete-webhook", "DELETE_WEBHOOK_ERROR");
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while deleting webhook';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "DELETE_WEBHOOK_ERROR"
+      }),
+      { status: 500, headers: corsHeaders }
+    );
   }
 };

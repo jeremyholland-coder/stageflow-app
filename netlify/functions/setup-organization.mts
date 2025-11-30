@@ -1,14 +1,40 @@
 import type { Context } from "@netlify/functions";
 import { createClient } from '@supabase/supabase-js';
-import { createErrorResponse, sanitizeError } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
+import { sanitizeError } from './lib/error-sanitizer';
 import { getSupabaseConfig } from './lib/validate-config';
 import { withTimeout, TIMEOUTS, safeRequestJson } from './lib/timeout-wrapper';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
 
 export default async (req: Request, context: Context) => {
+  // PHASE F FIX: Add CORS headers for browser requests
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = req.headers.get("origin") || '';
+  const corsOrigin = allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": corsOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
+
+  // Handle preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
   }
 
   try {
@@ -21,7 +47,7 @@ export default async (req: Request, context: Context) => {
       console.error('❌ JSON parsing failed:', e.message);
       return new Response(JSON.stringify({ error: 'Invalid request body' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -31,7 +57,7 @@ export default async (req: Request, context: Context) => {
       console.error('❌ Missing params:', { userId, email });
       return new Response(JSON.stringify({ error: 'Missing userId or email' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -82,7 +108,7 @@ export default async (req: Request, context: Context) => {
         details: error.message
       }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -123,7 +149,7 @@ export default async (req: Request, context: Context) => {
         hint: error.hint
       }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -146,21 +172,35 @@ export default async (req: Request, context: Context) => {
 
     if (orgError) {
       console.error('❌ Error fetching org:', orgError);
-      // SECURITY FIX: Sanitize error message
-      return createErrorResponse(orgError, 500, 'fetch_organization', 'ORG_FETCH_FAILED');
+      // PHASE F FIX: Return error with CORS headers
+      const errorMessage = sanitizeError(orgError, 'fetch_organization');
+      return new Response(JSON.stringify({
+        error: errorMessage,
+        code: 'ORG_FETCH_FAILED'
+      }), {
+        status: 500,
+        headers: corsHeaders
+      });
     }
 
-    return new Response(JSON.stringify({ 
-      organization: org, 
-      role: result.role 
+    return new Response(JSON.stringify({
+      organization: org,
+      role: result.role
     }), {
-      headers: { 'Content-Type': 'application/json' }
+      headers: corsHeaders
     });
 
   } catch (error: any) {
     console.error('💥 Exception:', error);
-    // SECURITY FIX: Sanitize exception message
-    return createErrorResponse(error, 500, 'setup_organization_exception', 'SYSTEM_ERROR');
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = sanitizeError(error, 'setup_organization_exception');
+    return new Response(JSON.stringify({
+      error: errorMessage,
+      code: 'SYSTEM_ERROR'
+    }), {
+      status: 500,
+      headers: corsHeaders
+    });
   }
 };
 

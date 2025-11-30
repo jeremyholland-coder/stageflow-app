@@ -1,7 +1,7 @@
 import type { Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
-import { createErrorResponse } from './lib/error-sanitizer';
+// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 
 // FIX v1.7.62 (#9): Backend avatar upload endpoint
@@ -242,11 +242,17 @@ export default async (req: Request, context: Context) => {
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
 
-    return createErrorResponse(
-      error,
-      500,
-      'upload_avatar',
-      'AVATAR_UPLOAD_FAILED'
+    // PHASE F FIX: Return error with CORS headers
+    const errorMessage = typeof error.message === 'string'
+      ? error.message
+      : 'An error occurred while uploading avatar';
+
+    return new Response(
+      JSON.stringify({
+        error: errorMessage,
+        code: "AVATAR_UPLOAD_FAILED"
+      }),
+      { status: 500, headers }
     );
   }
 };
