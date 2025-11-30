@@ -144,13 +144,15 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
 
       {connected ? (
         <div className="space-y-3 relative z-10">
+          {/* PHASE K4 FIX: Clear "Key configured" indicator instead of confusing encrypted key display */}
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 backdrop-blur-sm">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-400 mb-1">API Key</p>
-                <p className="text-sm font-mono text-white">
-                  {connectedData?.api_key_encrypted ? `${connectedData.api_key_encrypted.substring(0, 12)}...${connectedData.api_key_encrypted.slice(-4)}` : '••••••••••••••••'}
-                </p>
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-teal-400" />
+                <div>
+                  <p className="text-sm font-medium text-white">Key configured</p>
+                  <p className="text-xs text-gray-400">Stored securely • Not shown again</p>
+                </div>
               </div>
               <span className="text-xs text-gray-400">
                 Added {new Date(connectedData?.created_at).toLocaleDateString()}
@@ -559,8 +561,8 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
 
       console.warn('[AISettings] Provider added to state immediately from save response');
 
-      // Show success notification
-      addNotification(`${provider.displayName} connected!`, 'success');
+      // PHASE K4 FIX: Clear success message that confirms secure storage
+      addNotification('API key saved securely. Your AI is now powered up!', 'success');
 
       // Small delay to let user see the "Connected" state before closing modal
       setTimeout(() => {
