@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from 'react';
-import { Bell, Mail, Monitor, Smartphone, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
+import { Bell, Mail, Monitor, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences';
 
 /**
@@ -126,13 +126,7 @@ const NotificationCategoryRow = ({
           checked={channelInApp}
           onChange={(val) => onToggleChannel('channel_in_app', val)}
         />
-        <ChannelToggle
-          icon={Smartphone}
-          label="Push"
-          checked={channelPush}
-          onChange={(val) => onToggleChannel('channel_push', val)}
-          disabled={true} // Push not implemented yet
-        />
+        {/* Push toggle intentionally hidden - not yet supported */}
       </div>
     )}
   </div>
