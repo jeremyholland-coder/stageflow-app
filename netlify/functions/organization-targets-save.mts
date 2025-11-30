@@ -184,10 +184,18 @@ export const handler: Handler = async (event: HandlerEvent, _context: HandlerCon
 
     console.log('[Organization Targets] Save successful:', data);
 
+    // Return targets in consistent shape (matching organization-targets-get)
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ success: true, data })
+      body: JSON.stringify({
+        success: true,
+        targets: {
+          monthly: data.monthly_target,
+          quarterly: data.quarterly_target,
+          yearly: data.annual_target
+        }
+      })
     };
 
   } catch (error: any) {

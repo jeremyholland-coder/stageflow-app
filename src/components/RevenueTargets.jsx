@@ -33,26 +33,31 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
     if (!organization?.id || !currentUserId) { setLoading(false); return; }
       setLoading(true);
       try {
-        // Load organization-wide targets
-        // CRITICAL FIX: Use maybeSingle() instead of single() to prevent errors when no row exists
-        const { data: orgData, error: orgError } = await supabase
-          .from('organization_targets')
-          .select('*')
-          .eq('organization_id', organization.id)
-          .maybeSingle();
+        // Load organization-wide targets via backend endpoint (bypasses RLS)
+        // CRITICAL FIX: Direct Supabase queries fail RLS with HttpOnly cookie auth
+        // because auth.uid() returns NULL. Use backend endpoint with service role.
+        const orgResponse = await fetch(`/.netlify/functions/organization-targets-get?organization_id=${organization.id}`, {
+          method: 'GET',
+          credentials: 'include', // Include HttpOnly cookies
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
 
-        if (orgError) {
-          console.warn('Failed to load org targets:', orgError);
+        const orgResult = await orgResponse.json();
+
+        if (!orgResponse.ok || !orgResult.success) {
+          console.warn('Failed to load org targets:', orgResult.error || 'Unknown error');
           // Don't throw - continue with null targets
-        }
-
-        if (orgData) {
+        } else if (orgResult.targets) {
+          // Map response shape to local state shape
           setOrgTargets({
-            annual_target: orgData.annual_target,
-            quarterly_target: orgData.quarterly_target,
-            monthly_target: orgData.monthly_target
+            annual_target: orgResult.targets.yearly,
+            quarterly_target: orgResult.targets.quarterly,
+            monthly_target: orgResult.targets.monthly
           });
         }
+        // If orgResult.targets is null, keep default empty state
 
         // Load team members with their user data
         const { data: members, error: membersError} = await supabase
@@ -152,12 +157,22 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
 
       const responseData = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !responseData.success) {
         console.error('[RevenueTargets] Save failed:', response.status, responseData);
         throw new Error(responseData.error || responseData.details || 'Failed to save targets');
       }
 
       console.log('[RevenueTargets] Save successful:', responseData);
+
+      // Update local state from returned targets to ensure consistency
+      if (responseData.targets) {
+        setOrgTargets({
+          annual_target: responseData.targets.yearly,
+          quarterly_target: responseData.targets.quarterly,
+          monthly_target: responseData.targets.monthly
+        });
+      }
+
       addNotification('Organization targets saved', 'success');
     } catch (error) {
       console.error('[RevenueTargets] Error saving org targets:', error);
