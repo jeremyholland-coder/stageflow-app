@@ -70,26 +70,58 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 /**
- * Extract JWT token from HttpOnly cookies
+ * Extract JWT token from Authorization header OR HttpOnly cookies
  *
- * PHASE 3: Cookie-only authentication (XSS protection)
- * - Bearer tokens no longer supported
- * - All authentication via HttpOnly cookies
- * - Frontend automatically includes cookies (credentials: 'include')
+ * PHASE 4 FIX: Dual-mode authentication (2025-11-30)
+ * - PRIMARY: Authorization: Bearer <token> header (most reliable cross-origin)
+ * - FALLBACK: HttpOnly cookies (for legacy/direct browser navigation)
  *
- * MIGRATION COMPLETE:
- * Phase 1: ✅ Dual authentication infrastructure
- * Phase 2: ✅ Frontend migration to cookies
- * Phase 3: ✅ Bearer token support removed (THIS VERSION)
+ * ROOT CAUSE: Cross-origin requests from stageflow.startupstage.com to
+ * Netlify Functions may not include cookies due to SameSite/Domain restrictions,
+ * even with credentials: 'include'. Authorization header is more reliable.
  */
 function extractToken(req: Request): string {
-  // Extract token from HttpOnly cookies
+  // DIAGNOSTIC LOGGING: Help identify auth flow issues
   const cookieHeader = req.headers.get('cookie');
+  const authHeader = req.headers.get('authorization');
+  const origin = req.headers.get('origin') || 'no-origin';
 
+  console.warn('[auth-bridge] Request received:', {
+    origin,
+    hasCookieHeader: !!cookieHeader,
+    cookieHeaderLength: cookieHeader?.length || 0,
+    hasAuthHeader: !!authHeader,
+    authHeaderType: authHeader ? authHeader.split(' ')[0] : 'none',
+    // Log cookie names present (not values for security)
+    cookieNames: cookieHeader
+      ? cookieHeader.split(';').map(c => c.split('=')[0]?.trim()).filter(Boolean)
+      : []
+  });
+
+  // PRIMARY: Check Authorization header first (most reliable for cross-origin)
+  if (authHeader) {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+      const token = parts[1];
+      if (token && token.length > 20) {
+        console.warn('[auth-bridge] Using Authorization header token');
+        return token;
+      }
+    }
+    console.warn('[auth-bridge] Malformed Authorization header:', {
+      format: authHeader.substring(0, 15) + '...'
+    });
+  }
+
+  // FALLBACK: Try HttpOnly cookies
   if (!cookieHeader) {
+    console.error('[auth-bridge] FAILED: No Authorization header AND no cookies');
     throw new UnauthorizedError(
-      'Missing authentication cookies. Please log in again.',
-      { hint: 'Ensure credentials: "include" is set in fetch requests' }
+      'Authentication required. Please log in again.',
+      {
+        hint: 'No Authorization header or cookies received. Check CORS and credentials settings.',
+        diagnostics: { origin, hadAuthHeader: !!authHeader, hadCookies: false }
+      }
     );
   }
 
@@ -108,12 +140,19 @@ function extractToken(req: Request): string {
     const accessToken = cookies['sb-access-token'];
 
     if (!accessToken) {
+      console.error('[auth-bridge] FAILED: Cookies present but no sb-access-token', {
+        cookieNames: Object.keys(cookies)
+      });
       throw new UnauthorizedError(
-        'Session cookie not found. Please log in again.',
-        { hint: 'Authentication cookies may have expired or been cleared' }
+        'Session expired. Please log in again.',
+        {
+          hint: 'Cookie header present but sb-access-token not found',
+          diagnostics: { cookieNames: Object.keys(cookies) }
+        }
       );
     }
 
+    console.warn('[auth-bridge] Using cookie token (sb-access-token)');
     return accessToken;
 
   } catch (error) {
@@ -122,8 +161,9 @@ function extractToken(req: Request): string {
     }
 
     // Cookie parsing failed
+    console.error('[auth-bridge] Cookie parsing failed:', error);
     throw new UnauthorizedError(
-      'Failed to parse authentication cookies',
+      'Failed to parse authentication',
       { original: error instanceof Error ? error.message : String(error) }
     );
   }

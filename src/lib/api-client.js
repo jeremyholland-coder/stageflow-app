@@ -85,6 +85,10 @@ export class APIClient {
 
   /**
    * Prepare request options with auth, timeout, and headers
+   *
+   * PHASE 4 FIX (2025-11-30): Always send Authorization header
+   * Cross-origin cookies are unreliable due to SameSite/Domain restrictions.
+   * Authorization header is the most reliable auth method for cross-origin requests.
    */
   async prepareRequest(options = {}) {
     const {
@@ -106,10 +110,31 @@ export class APIClient {
       ...headers,
     };
 
+    // PHASE 4 FIX: Always inject Authorization header if we have a session
+    // This is more reliable than cookies for cross-origin requests
+    if (includeAuth && !finalHeaders['Authorization']) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          finalHeaders['Authorization'] = `Bearer ${session.access_token}`;
+          if (import.meta.env.DEV) {
+            console.debug('[APIClient] Injected Authorization header');
+          }
+        } else {
+          if (import.meta.env.DEV) {
+            console.debug('[APIClient] No session available for Authorization header');
+          }
+        }
+      } catch (authError) {
+        // Log but don't fail - cookies might still work
+        console.warn('[APIClient] Failed to get session for Authorization header:', authError.message);
+      }
+    }
+
     return {
       ...restOptions,
       headers: finalHeaders,
-      credentials: 'include', // Use HttpOnly cookies for auth
+      credentials: 'include', // Keep cookies as fallback
       signal: signal || controller.signal,
       _timeoutId: timeoutId, // Store for cleanup
       _controller: controller,
