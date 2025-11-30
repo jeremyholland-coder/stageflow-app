@@ -229,7 +229,9 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
 
           return result.deal;
         },
-        { context: { component: 'NewDealModal', action: 'create' }, retry: true, retryOptions: { maxRetries: 2 } }
+        // FIX PHASE Z2: Remove outer retry - api.post already has network-aware retry logic
+        // Previous double-retry caused up to 9 network calls on failure (3 × 3)
+        { context: { component: 'NewDealModal', action: 'create' } }
       );
 
       if (success) {

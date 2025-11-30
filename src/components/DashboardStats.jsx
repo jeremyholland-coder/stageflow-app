@@ -78,17 +78,20 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
     const twoWeeksFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    // Active Pipeline = deals in middle stages
-    const activePipeline = deals.filter(d =>
-      d.status === 'active' &&
-      d.stage !== 'lead' &&
-      d.stage !== 'retention' &&
-      d.stage !== 'lost'
-    );
-
     // Leads = all lead-type stages from centralized config
     // CRITICAL FIX: Use LEAD_STAGES constant for single source of truth
     const leads = deals.filter(d => LEAD_STAGES.includes(d.stage));
+
+    // Active Pipeline = deals in middle stages (NOT leads, NOT won/lost)
+    // FIX: Treat null/undefined status as 'active' (the default)
+    // FIX: Exclude ALL lead stages (not just 'lead'), use LEAD_STAGES for consistency
+    // Deals with status=null weren't matching any category, causing $0 metrics
+    const activePipeline = deals.filter(d =>
+      (d.status === 'active' || d.status == null) &&
+      !LEAD_STAGES.includes(d.stage) &&
+      d.stage !== 'retention' &&
+      d.stage !== 'lost'
+    );
 
     // Won = status 'won' or stage 'retention'
     const wonDeals = deals.filter(d => d.status === 'won' || d.stage === 'retention');
