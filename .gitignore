@@ -6,3 +6,6 @@ dist
 .netlify
 *.log
 .DS_Store
+
+# Test artifacts
+test-results/
