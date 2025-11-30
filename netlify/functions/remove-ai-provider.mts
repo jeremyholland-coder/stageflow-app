@@ -1,5 +1,5 @@
 import type { Context } from "@netlify/functions";
-import { getSupabaseClient } from "./lib/supabase-pool";
+import { createClient } from "@supabase/supabase-js";
 import { requireAuth } from "./lib/auth-middleware";
 import { createErrorResponse } from "./lib/error-sanitizer";
 
@@ -80,25 +80,34 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[remove-ai-provider] Remove request:", { providerId, organizationId });
 
-    // STEP 3: Get Supabase client with service role (bypasses RLS)
-    // PHASE I FIX: Wrap in explicit try-catch to identify pool initialization failures
-    let supabase;
-    try {
-      supabase = getSupabaseClient();
-    } catch (poolError: any) {
-      console.error("[remove-ai-provider] Supabase pool initialization failed:", {
-        message: poolError.message,
-        stack: poolError.stack?.split('\n').slice(0, 3).join('\n')
+    // STEP 3: Create Supabase client with service role (bypasses RLS)
+    // CRITICAL FIX: Use explicit service role key like get-ai-providers.mts
+    // This ensures we have proper permissions for the update operation
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error("[remove-ai-provider] Missing Supabase configuration:", {
+        hasUrl: !!supabaseUrl,
+        hasServiceKey: !!supabaseServiceKey
       });
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Database connection error",
-          code: "DB_INIT_ERROR"
+          error: "Server configuration error",
+          code: "CONFIG_ERROR"
         }),
         { status: 500, headers: corsHeaders }
       );
     }
+
+    // Create service role client (bypasses RLS)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
     // STEP 4: Verify user belongs to organization
     const { data: membership, error: membershipError } = await supabase

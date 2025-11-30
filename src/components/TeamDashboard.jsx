@@ -375,7 +375,21 @@ export const TeamDashboard = () => {
       </div>
 
       {/* Team Overview Metrics */}
-      {/* PHASE 20: All metrics use defensive null-safe access with ?? fallbacks */}
+      {/* CRITICAL FIX: Show honest empty state when no pipeline data */}
+      {/* Don't show misleading "Trending up" or "70% probability" with $0 */}
+      {(teamMetrics?.totalPipeline ?? 0) === 0 && (teamMetrics?.totalDealsAdded ?? 0) === 0 ? (
+        <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-12 border border-white/[0.08] text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+          <div className="w-[72px] h-[72px] bg-white/[0.05] rounded-2xl flex items-center justify-center mx-auto mb-5 border border-white/[0.08]">
+            <TrendingUp className="w-9 h-9 text-white/40" />
+          </div>
+          <h3 className="text-xl font-semibold text-white mb-2 tracking-tight">
+            No Pipeline Data Yet
+          </h3>
+          <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
+            Create your first deal to see team performance metrics and trends.
+          </p>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Total Pipeline */}
         <div className="bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 backdrop-blur-md rounded-2xl p-6 border border-emerald-400/25 shadow-[0_4px_20px_rgba(16,185,129,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(16,185,129,0.15)] hover:border-emerald-400/35">
@@ -385,17 +399,19 @@ export const TeamDashboard = () => {
               <p className="text-3xl font-bold text-emerald-400 tracking-tight">
                 {formatCurrency(teamMetrics?.totalPipeline ?? 0)}
               </p>
-              <p className="text-sm text-white/50 mt-2.5 flex items-center gap-1.5">
-                {/* PHASE 19/20 FIX: Use teamMetrics?.teamTrend with null-safe access */}
-                {(teamMetrics?.teamTrend ?? 'up') === 'up' ? (
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <TrendingDown className="w-4 h-4 text-rose-400" />
-                )}
-                <span className={(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'text-emerald-400' : 'text-rose-400'}>
-                  {(teamMetrics?.teamTrend ?? 'up') === 'up' ? 'Trending up' : 'Trending down'}
-                </span>
-              </p>
+              {/* CRITICAL FIX: Only show trend if there's actual pipeline data */}
+              {(teamMetrics?.totalPipeline ?? 0) > 0 && (
+                <p className="text-sm text-white/50 mt-2.5 flex items-center gap-1.5">
+                  {teamMetrics?.teamTrend === 'up' ? (
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-rose-400" />
+                  )}
+                  <span className={teamMetrics?.teamTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}>
+                    {teamMetrics?.teamTrend === 'up' ? 'Trending up' : 'Trending down'}
+                  </span>
+                </p>
+              )}
             </div>
             <DollarSign className="w-10 h-10 text-emerald-400/30" />
           </div>
@@ -409,7 +425,12 @@ export const TeamDashboard = () => {
               <p className="text-3xl font-bold text-sky-400 tracking-tight">
                 {formatCurrency(teamMetrics?.totalExpectedRevenue ?? 0)}
               </p>
-              <p className="text-sm text-white/50 mt-2.5">70% avg probability</p>
+              {/* CRITICAL FIX: Only show probability if there's actual revenue data */}
+              {(teamMetrics?.totalExpectedRevenue ?? 0) > 0 && (teamMetrics?.totalPipeline ?? 0) > 0 && (
+                <p className="text-sm text-white/50 mt-2.5">
+                  {Math.round((teamMetrics.totalExpectedRevenue / teamMetrics.totalPipeline) * 100)}% avg probability
+                </p>
+              )}
             </div>
             <Target className="w-10 h-10 text-sky-400/30" />
           </div>
@@ -432,6 +453,7 @@ export const TeamDashboard = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Team Members Performance */}
       <div>

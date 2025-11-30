@@ -54,24 +54,40 @@ export const COOKIE_NAMES = {
 /**
  * Parse cookies from Cookie header string
  *
+ * CRITICAL FIX: Added defensive type checking to prevent "e.split is not a function" error
+ * This error occurs when cookieHeader is not a string (e.g., undefined, null, array, number)
+ *
  * @param cookieHeader - Cookie header string (e.g., "name1=value1; name2=value2")
  * @returns Object with cookie name-value pairs
  */
 export function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {};
 
-  if (!cookieHeader) {
+  // CRITICAL FIX: Defensive type checking
+  // Ensure cookieHeader is actually a string before calling split
+  if (!cookieHeader || typeof cookieHeader !== 'string') {
     return cookies;
   }
 
-  cookieHeader.split(';').forEach(cookie => {
-    const [name, ...valueParts] = cookie.split('=');
-    if (name && valueParts.length > 0) {
-      const trimmedName = name.trim();
-      const value = valueParts.join('=').trim();
-      cookies[trimmedName] = decodeURIComponent(value);
-    }
-  });
+  try {
+    cookieHeader.split(';').forEach(cookie => {
+      const [name, ...valueParts] = cookie.split('=');
+      if (name && valueParts.length > 0) {
+        const trimmedName = name.trim();
+        const value = valueParts.join('=').trim();
+        // Safely decode - some cookie values may not need decoding
+        try {
+          cookies[trimmedName] = decodeURIComponent(value);
+        } catch (decodeErr) {
+          // If decoding fails, use raw value
+          cookies[trimmedName] = value;
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('[cookie-auth] Cookie parse error:', error);
+    return cookies;
+  }
 
   return cookies;
 }

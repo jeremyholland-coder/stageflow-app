@@ -296,27 +296,28 @@ export const Settings = () => {
   }, []);
 
   // Load existing profile data (avatar, first_name, last_name) on mount
+  // CRITICAL FIX: Use profile-get API endpoint for consistent avatar handling
+  // This ensures Settings page uses the same avatar source as the header (with OAuth fallback)
   useEffect(() => {
     let isMounted = true;
     const loadProfileData = async () => {
-      if (!supabase || !user) return;
+      if (!user) return;
 
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('avatar_url, first_name, last_name')
-          .eq('id', user.id)
-          .maybeSingle();
+        // Use the same profile-get endpoint as AppShell for consistent avatar handling
+        const { data: result, response } = await api.get('profile-get');
 
-        if (error && error.code !== 'PGRST116') throw error;
+        if (!isMounted) return;
 
-        if (isMounted && data) {
-          if (data.avatar_url) {
-            setProfilePicUrl(data.avatar_url);
+        if (response.ok && result.profile) {
+          const profile = result.profile;
+          // avatar_url now includes OAuth fallback from profile-get endpoint
+          if (profile.avatar_url) {
+            setProfilePicUrl(profile.avatar_url);
           }
           // Load name fields (empty string if null)
-          setFirstName(data.first_name || '');
-          setLastName(data.last_name || '');
+          setFirstName(profile.first_name || '');
+          setLastName(profile.last_name || '');
         }
       } catch (error) {
         console.error('Failed to load profile data:', error);

@@ -41,12 +41,15 @@ body {
 }
 
 /* Root container - fills entire viewport edge-to-edge */
+/* CRITICAL FIX: Changed to use min-h-0 + flex to allow proper scrolling on Safari/Mac */
+/* The min-h-0 overrides flex item's default min-height:auto which blocks scroll */
 #root {
   min-height: 100vh;
   min-height: -webkit-fill-available; /* iOS Safari */
   min-height: stretch; /* Android */
   width: 100%;
   overflow-x: hidden;
+  overflow-y: auto; /* CRITICAL: Allow vertical scrolling */
   display: flex;
   flex-direction: column;
 }

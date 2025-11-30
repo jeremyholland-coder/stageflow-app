@@ -41,8 +41,10 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     let accessToken: string | undefined;
 
     // Primary: Authorization header
+    // CRITICAL FIX: Add type guard to prevent "e.split is not a function" error (React #31)
+    // Headers can sometimes be arrays or other types in certain environments
     const authHeader = event.headers.authorization || event.headers.Authorization;
-    if (authHeader) {
+    if (authHeader && typeof authHeader === 'string') {
       const parts = authHeader.split(' ');
       if (parts.length === 2 && parts[0].toLowerCase() === 'bearer' && parts[1].length > 20) {
         accessToken = parts[1];
@@ -50,8 +52,10 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // Fallback: HttpOnly cookie
+    // CRITICAL FIX: Ensure cookieHeader is always a string before splitting
     if (!accessToken) {
-      const cookieHeader = event.headers.cookie || event.headers.Cookie || '';
+      const rawCookie = event.headers.cookie || event.headers.Cookie;
+      const cookieHeader = typeof rawCookie === 'string' ? rawCookie : '';
       const cookies = parseCookies(cookieHeader);
       accessToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
     }

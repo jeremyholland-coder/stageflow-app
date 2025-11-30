@@ -1785,7 +1785,9 @@ export const AppShell = ({ children }) => {
 
   return (
     <div className={darkMode ? 'dark' : ''}>
-      <div className="min-h-screen bg-white dark:bg-[#121212]" style={{ minHeight: '-webkit-fill-available' }}>
+      {/* CRITICAL FIX: Removed min-h-screen and -webkit-fill-available which block scrolling on Safari/Mac */}
+      {/* Using flex-1 + min-h-0 allows proper flex behavior and enables page scroll */}
+      <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-[#121212]">
         {/* FIX #9: Skip link for accessibility (WCAG 2.1 Level A) */}
         <a
           href="#main-content"
@@ -2028,10 +2030,11 @@ export const AppShell = ({ children }) => {
           </div>
         )}
 
+        {/* CRITICAL FIX: Added flex-1 to allow main content to grow and enable page scrolling */}
         <main
           id="main-content"
           tabIndex="-1"
-          className="w-full mx-auto px-4 pb-8 lg:px-6 xl:px-8 2xl:px-12 transition-all duration-200"
+          className="flex-1 w-full mx-auto px-4 pb-8 lg:px-6 xl:px-8 2xl:px-12 transition-all duration-200"
           style={{
             paddingTop: `${
               64 + // Nav height (h-16 = 64px)

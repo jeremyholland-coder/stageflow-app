@@ -89,12 +89,24 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // Return profile data (null if no profile exists yet)
+    // CRITICAL FIX: Provide avatar fallback for Google OAuth users
+    // When profiles.avatar_url is null but user has Google OAuth avatar in user_metadata
+    // This ensures consistent avatar display across header and profile page
+    const userMetadataAvatar = user.user_metadata?.avatar_url ||
+                               user.user_metadata?.picture ||
+                               null;
+
+    // Determine which avatar to return (profile takes precedence, then OAuth fallback)
+    const avatarUrl = profile?.avatar_url || userMetadataAvatar;
+
+    // Return profile data with avatar fallback
     // Include email from authenticated user since profiles table doesn't store it
-    console.warn("[profile-get] Success for user:", userId);
+    console.warn("[profile-get] Success for user:", userId, "avatarUrl:", avatarUrl ? "set" : "null");
     return new Response(JSON.stringify({
       success: true,
-      profile: profile ? { ...profile, email: user.email } : { id: userId, email: user.email }
+      profile: profile
+        ? { ...profile, avatar_url: avatarUrl, email: user.email }
+        : { id: userId, email: user.email, avatar_url: userMetadataAvatar }
     }), {
       status: 200,
       headers: corsHeaders,
