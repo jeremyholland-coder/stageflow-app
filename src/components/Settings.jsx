@@ -377,70 +377,105 @@ export const Settings = () => {
   const limits = React.useMemo(() => getPlanLimits(currentPlanTier), [currentPlanTier]);
 
   // Fetch AI providers and usage
+  // PHASE D FIX: Use backend endpoint instead of direct Supabase query
+  // With Phase 3 Cookie-Only Auth (persistSession: false), auth.uid() is NULL on client
+  // Direct Supabase queries fail RLS. Backend uses service role for consistent results.
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchAIData = async () => {
-      if (!supabase || !user || !organization) {
+      if (!user || !organization) {
         if (isMounted) setLoadingAI(false);
         return;
       }
 
       try {
-        // Fetch AI providers
-        // PERSIST-01 FIX: Remove created_by filter to match AISettings.jsx behavior
-        // All org members should see all active providers for the organization
-        const { data: providers, error: providerError } = await supabase
-          .from('ai_providers')
-          .select('*')
-          .eq('organization_id', organization.id)
-          .eq('active', true);
+        // PHASE D FIX: Use backend endpoint (same as AISettings.jsx)
+        // This fixes the "No LLMs connected" mismatch with Integrations tab
+        const response = await fetch('/.netlify/functions/get-ai-providers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Send HttpOnly cookies for auth
+          body: JSON.stringify({
+            organization_id: organization.id
+          })
+        });
 
-        if (providerError) throw providerError;
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Failed to fetch AI providers: ${response.status}`);
+        }
 
-        // Fetch organization AI usage
-        // CRITICAL FIX: Use maybeSingle() instead of single() to prevent errors
-        const { data: orgData, error: orgError } = await supabase
-          .from('organizations')
-          .select('ai_requests_used_this_month, plan')
-          .eq('id', organization.id)
-          .maybeSingle();
+        const result = await response.json();
+        const providers = result.providers || [];
 
-        if (orgError && orgError.code !== 'PGRST116') throw orgError;
+        // Fetch organization AI usage via backend
+        const usageResponse = await fetch('/.netlify/functions/get-ai-usage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            organization_id: organization.id
+          })
+        });
 
-        // Get plan limits
-        const planLimits = {
-          'free': 100,
-          'startup': 1000,
-          'growth': 5000,
-          'pro': -1 // -1 means unlimited
-        };
-        const limit = planLimits[orgData.plan?.toLowerCase()] || 100;
+        let aiUsageData = { used: 0, limit: 100 };
+        if (usageResponse.ok) {
+          const usageResult = await usageResponse.json();
+          aiUsageData = {
+            used: usageResult.used || 0,
+            limit: usageResult.limit || 100
+          };
+        } else {
+          // Fallback: Use plan-based defaults
+          const planLimits = {
+            'free': 100,
+            'startup': 1000,
+            'growth': 5000,
+            'pro': -1 // -1 means unlimited
+          };
+          aiUsageData.limit = planLimits[organization.plan?.toLowerCase()] || 100;
+        }
 
         if (isMounted) {
-          setAiProviders(providers || []);
-          setAiUsage({
-            used: orgData.ai_requests_used_this_month || 0,
-            limit: limit
-          });
+          setAiProviders(providers);
+          setAiUsage(aiUsageData);
         }
       } catch (error) {
         console.error('Failed to fetch AI data:', error);
+        // GRACEFUL DEGRADATION: Don't show error, just log it
+        // Settings page still works without AI data
       } finally {
         if (isMounted) setLoadingAI(false);
       }
     };
-    
+
     fetchAIData();
-    
+
+    // PHASE D FIX: Listen for AI provider changes from Integrations tab
+    // This ensures Settings → General updates when providers are connected/removed
+    const handleProviderConnected = () => {
+      logger.log('[Settings] AI provider connected, refreshing...');
+      fetchAIData();
+    };
+    const handleProviderRemoved = () => {
+      logger.log('[Settings] AI provider removed, refreshing...');
+      fetchAIData();
+    };
+
+    window.addEventListener('ai-provider-connected', handleProviderConnected);
+    window.addEventListener('ai-provider-removed', handleProviderRemoved);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('ai-provider-connected', handleProviderConnected);
+      window.removeEventListener('ai-provider-removed', handleProviderRemoved);
     };
   }, [organization, user]);
 
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchUsageData = async () => {
       if (!supabase || !organization) {
         if (isMounted) setLoading(false);
