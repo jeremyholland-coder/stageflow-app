@@ -16,12 +16,10 @@ import { PIPELINE_TEMPLATES, isWonStage, isLostStage } from '../config/pipelineT
 import { useDashboardPreferences } from '../hooks/useDashboardPreferences';
 import { DASHBOARD_CARDS, shouldRenderCard, getDefaultCardOrder } from '../config/dashboardCards';
 import { dataPrefetcher } from '../lib/data-prefetcher'; // NEXT-LEVEL: Smart data prefetching
-import { onboardingStorage } from '../lib/onboardingStorage'; // CRITICAL FIX: Unified onboarding storage
 import { logger } from '../lib/logger'; // PERFORMANCE FIX: Production-safe logging
 
 // PERFORMANCE: Lazy load heavy modals and widgets (only load when needed)
 // This reduces initial bundle by ~150KB and speeds up first paint by 40%+
-const WelcomeModal = lazy(() => import('./WelcomeModal').then(m => ({ default: m.WelcomeModal })));
 const NewDealModal = lazy(() => import('./NewDealModal').then(m => ({ default: m.NewDealModal })));
 const DealDetailsModal = lazy(() => import('./DealDetailsModal').then(m => ({ default: m.DealDetailsModal })));
 const RevenueTargetsWidget = lazy(() => import('./RevenueTargetsWidget').then(m => ({ default: m.RevenueTargetsWidget })));
@@ -110,12 +108,11 @@ const WidgetFallback = () => (
 );
 
 export const Dashboard = () => {
-  const { user, organization, addNotification, handleCloseWelcome, setActiveView } = useApp();
+  const { user, organization, addNotification, setActiveView } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showNewDeal, setShowNewDeal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState(null);
-  const [showWelcome, setShowWelcome] = useState(false);
   const [pipelineRetryTrigger, setPipelineRetryTrigger] = useState(0); // CRITICAL FIX: Trigger for soft retry without page reload
   const [healthAlert, setHealthAlert] = useState(null); // AI-powered health alerts
   const [orphanedDealIds, setOrphanedDealIds] = useState(new Set()); // Track recovered orphaned deals
@@ -158,111 +155,6 @@ export const Dashboard = () => {
     document.addEventListener('keydown', handleSearchEscape);
     return () => document.removeEventListener('keydown', handleSearchEscape);
   }, [showNewDeal, selectedDeal]); // FIXED: Removed searchTerm from deps
-
-  // ONBOARDING: First-time user detection - show simple welcome modal (per user)
-  // Onboarding may only appear for brand-new or incomplete users; once dismissed or completed, never show again without manual DB reset.
-  useEffect(() => {
-    // MOBILE BYPASS: Skip onboarding for phones (< 768px)
-    const isMobileDevice = window.innerWidth < 768;
-    if (isMobileDevice) return;
-
-    if (!user || !organization) {
-      logger.debug('[Welcome] Waiting for user/org:', { user: !!user, org: !!organization });
-      return;
-    }
-
-    const checkWelcomeStatus = async () => {
-      try {
-        // PHASE G FIX: Use backend endpoint instead of direct Supabase query
-        // Direct queries fail with cookie-only auth if session isn't set in client yet
-        // Backend endpoint uses HttpOnly cookies which are always available
-
-        // 1. Check database via backend endpoint (reliable with cookie-only auth)
-        let onboardingProgress = null;
-        try {
-          const response = await fetch('/.netlify/functions/onboarding-progress-fetch', {
-            method: 'GET',
-            credentials: 'include', // Send HttpOnly cookies
-            headers: { 'Content-Type': 'application/json' }
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            onboardingProgress = result.data;
-          } else if (response.status !== 401) {
-            // 401 = not logged in (session issue), other errors are problems
-            logger.error('[Welcome] Backend check failed:', response.status);
-          }
-        } catch (fetchError) {
-          logger.error('[Welcome] Backend fetch error:', fetchError);
-          // Continue with localStorage check on error
-        }
-
-        // PHASE 19B: Check BOTH dismissed AND completed status from database
-        const dbDismissed = onboardingProgress?.dismissed === true;
-        // Consider onboarding "completed" if user has completed any steps (array is not empty)
-        // OR if they explicitly have all 4 steps completed
-        const dbCompleted = Array.isArray(onboardingProgress?.completed_steps) &&
-                           onboardingProgress.completed_steps.length > 0;
-
-        // 2. Check localStorage for dismissed/completed state
-        const localState = onboardingStorage.getState(user.id);
-        const localDismissed = localState?.dismissed === true;
-        const localCompleted = localState?.tourFullyCompleted === true ||
-                              localState?.welcomeShown === true ||
-                              (Array.isArray(localState?.completed) && localState.completed.length > 0);
-
-        logger.debug('[Welcome] Check:', {
-          userId: user.id,
-          dbDismissed,
-          dbCompleted,
-          localDismissed,
-          localCompleted,
-          hasDbRow: !!onboardingProgress
-        });
-
-        // PHASE 19B CRITICAL: Never show onboarding if ANY completion/dismissal flag is true
-        // This prevents the bug where onboarding reappeared for existing users
-        if (dbDismissed || dbCompleted || localDismissed || localCompleted) {
-          logger.debug('[Welcome] User already completed onboarding, skipping welcome', {
-            reason: dbDismissed ? 'db_dismissed' : dbCompleted ? 'db_completed' : localDismissed ? 'local_dismissed' : 'local_completed'
-          });
-          return;
-        }
-
-        // PHASE G DEFENSIVE GUARD: Skip onboarding for established organizations
-        // If the org was created more than 5 minutes ago, user has had time to explore
-        // This prevents onboarding from showing for existing users with missing progress data
-        if (organization?.created_at) {
-          const orgAge = Date.now() - new Date(organization.created_at).getTime();
-          const FIVE_MINUTES = 5 * 60 * 1000;
-          if (orgAge > FIVE_MINUTES) {
-            logger.debug('[Welcome] Organization is established (age:', Math.round(orgAge / 1000), 'seconds), skipping onboarding');
-            // Silently mark as completed to prevent future checks
-            onboardingStorage.setState(user.id, { dismissed: true, welcomeShown: true });
-            return;
-          }
-        }
-
-        // Only show welcome for truly NEW users (no DB row AND no local state indicating completion)
-        logger.debug('[Welcome] New user detected, will show in 800ms');
-
-        // Small delay to let dashboard render first
-        const timer = setTimeout(() => {
-          setShowWelcome(true);
-          logger.debug('[Welcome] SHOWING NOW');
-        }, 800);
-
-        // Cleanup function
-        return () => clearTimeout(timer);
-      } catch (error) {
-        logger.error('[Welcome] Unexpected error checking welcome status:', error);
-        // PHASE 19B: On error, DON'T show welcome (fail safe - never show to possibly existing users)
-      }
-    };
-
-    checkWelcomeStatus();
-  }, [user?.id, organization]); // Depend on user.id and organization
 
   const {
     deals,
@@ -599,58 +491,6 @@ export const Dashboard = () => {
       <div className="space-y-6 dashboard-full-width relative z-0" style={{ contain: 'layout style' }}>
         {/* SEO & A11y: Main heading for search engines and screen readers */}
         <h1 className="sr-only">StageFlow Sales Pipeline Dashboard</h1>
-
-        {/* ONBOARDING: Simple welcome modal */}
-        <ModalErrorBoundary onClose={() => setShowWelcome(false)}>
-          <Suspense fallback={<ModalFallback />}>
-            <WelcomeModal
-              isOpen={showWelcome}
-              onClose={async () => {
-                // ARCHITECTURAL FIX: Mark welcome as shown AND dismissed in localStorage FIRST
-                // This ensures OnboardingChecklist sees dismissed=true when it receives the event
-                // FIX C1: Set dismissed=true BEFORE dispatching event to prevent goal selection showing
-                onboardingStorage.setState(user.id, { welcomeShown: true, dismissed: true });
-
-                // CRITICAL FIX: Use backend endpoint for database update to avoid 401 errors
-                // Direct Supabase calls can fail for Google OAuth users if session isn't fully propagated
-                // The backend endpoint uses HttpOnly cookies which are more reliable
-                try {
-                  const response = await fetch('/.netlify/functions/onboarding-progress-save', {
-                    method: 'POST',
-                    credentials: 'include', // Include HttpOnly cookies
-                    headers: {
-                      'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                      completed_steps: ['add_first_deal', 'setup_ai', 'customize_pipeline', 'invite_team'],
-                      dismissed: true,
-                      current_step: 4
-                    })
-                  });
-
-                  if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || `HTTP ${response.status}`);
-                  }
-
-                  logger.debug('[Dashboard] Welcome dismissed - updated database via backend');
-                } catch (error) {
-                  logger.error('[Dashboard] Failed to update database on welcome dismiss:', error);
-                  // Non-blocking - localStorage update still happened
-                }
-
-                logger.debug('[Dashboard] Welcome Modal closed, dispatching event');
-
-                // Dispatch custom event so OnboardingChecklist can react immediately
-                window.dispatchEvent(new CustomEvent('onboardingWelcomeDismissed', {
-                  detail: { userId: user.id }
-                }));
-
-                setShowWelcome(false);
-              }}
-            />
-          </Suspense>
-        </ModalErrorBoundary>
 
         <ModalErrorBoundary onClose={() => setShowNewDeal(false)}>
           <Suspense fallback={<ModalFallback />}>

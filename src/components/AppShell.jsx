@@ -15,10 +15,8 @@ import { pageVisibility } from '../lib/page-visibility'; // CRITICAL FIX: Import
 import { initializeCache } from '../lib/cache-manager'; // CRITICAL FIX: Auto-clear stale caches
 import { setSentryUser, clearSentryUser } from '../lib/sentry'; // Error monitoring user tracking
 import LoadingOverlay from './LoadingOverlay';
-import { OnboardingChecklist } from './OnboardingChecklist';
 import AppContext, { useApp } from '../context/AppContext';
 import { logger } from '../lib/logger';
-import { onboardingStorage } from '../lib/onboardingStorage'; // CRITICAL FIX: Unified onboarding storage
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 // Re-export for backward compatibility
@@ -42,7 +40,6 @@ export const AppProvider = ({ children }) => {
   const [avatarUrl, setAvatarUrl] = React.useState(null); // User profile avatar
   const [profileFirstName, setProfileFirstName] = React.useState(''); // User first name
   const [profileLastName, setProfileLastName] = React.useState(''); // User last name
-  const [showWelcome, setShowWelcome] = React.useState(false);
   const [showResetPassword, setShowResetPassword] = React.useState(false); // Password reset modal
   const [resetPasswordSession, setResetPasswordSession] = React.useState(null); // Store session for password reset
   const [orgSetupRetrying, setOrgSetupRetrying] = React.useState(false); // AUTO-HEAL: Track org setup retry status
@@ -638,8 +635,6 @@ export const AppProvider = ({ children }) => {
 
             // Continue with org setup if email verified
             if (authenticatedUser.email_confirmed_at) {
-              onboardingStorage.migrateOldKeys(authenticatedUser.id);
-
               if (!organization || !organization.id) {
                 const setupPromise = setupOrganization(authenticatedUser);
                 const orgTimeoutPromise = new Promise((_, reject) =>
@@ -723,10 +718,6 @@ export const AppProvider = ({ children }) => {
             email: user.email,
             emailConfirmed: !!user.email_confirmed_at
           });
-
-          // CRITICAL FIX: Migrate old localStorage keys to unified storage
-          // This runs once per user to consolidate fragmented onboarding state
-          onboardingStorage.migrateOldKeys(user.id);
 
           // CRITICAL FIX: Only setup organization if we don't already have one loaded
           // This prevents unnecessary re-fetches when switching Mac workspaces/desktops
@@ -999,27 +990,6 @@ export const AppProvider = ({ children }) => {
     };
   }, [user, loading, orgLoading]); // CRITICAL FIX: Removed 'organization' to prevent infinite loop (same as line 831)
 
-  const handleCloseWelcome = useCallback(() => {
-    // CRITICAL FIX: Use unified storage instead of global key
-    if (user?.id) {
-      onboardingStorage.markWelcomeShown(user.id);
-      logger.debug('[AppShell] Welcome marked as shown via unified storage');
-    }
-
-    // Keep tour views tracking (separate concern)
-    // SAFARI COMPATIBILITY FIX: Wrap localStorage in try-catch
-    // Private browsing mode throws QuotaExceededError on writes
-    try {
-      const currentViews = parseInt(localStorage.getItem('stageflow_tour_views') || '0', 10);
-      localStorage.setItem('stageflow_tour_views', String(currentViews + 1));
-    } catch (error) {
-      // Graceful degradation: Tour view count won't increment, but welcome modal still dismisses
-      logger.warn('[AppShell] Failed to save tour views (private browsing?):', error);
-    }
-
-    setShowWelcome(false);
-  }, [user?.id]);
-
   const logout = useCallback(async () => {
     // PHASE C FIX (B-SEC-02): Capture user ID before clearing state for cache cleanup
     const userId = user?.id;
@@ -1050,9 +1020,6 @@ export const AppProvider = ({ children }) => {
 
           // Clear AI provider status cache
           localStorage.removeItem(`ai_provider_status_${userId}`);
-
-          // Clear onboarding state for this user
-          localStorage.removeItem(`stageflow_onboarding_${userId}`);
 
           // Clear any other user-specific keys
           const keysToRemove = [];
@@ -1115,17 +1082,14 @@ export const AppProvider = ({ children }) => {
     addNotification, organization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl, setAvatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
-    showWelcome, setShowWelcome,
     showResetPassword, setShowResetPassword, resetPasswordSession, setResetPasswordSession,
-    handleCloseWelcome,
     VIEWS // Include VIEWS constant for navigation
   }), [
     user, logout, loading, darkMode, activeView,
     addNotification, organization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
-    showWelcome, showResetPassword, resetPasswordSession,
-    handleCloseWelcome
+    showResetPassword, resetPasswordSession
   ]);
 
   // Add notifications separately to avoid re-renders when they change
@@ -1242,10 +1206,6 @@ export const AuthScreen = () => {
           // OAuth login successful!
           setUser(exchangeData.session.user);
           addNotification('Welcome! Signed in with Google', 'success');
-
-          // CRITICAL FIX: Migrate old onboarding keys for OAuth users
-          // This ensures users who switch from email/password to OAuth don't lose progress
-          onboardingStorage.migrateOldKeys(exchangeData.session.user.id);
 
           // Setup organization for OAuth user
           if (!organization || !organization.id) {
@@ -2085,9 +2045,6 @@ export const AppShell = ({ children }) => {
             </div>
           ))}
         </div>
-
-        {/* Onboarding Checklist - Global across all pages, persists during navigation */}
-        {user && <OnboardingChecklist />}
 
         {/* Feedback Widget - Global across all pages */}
         <FeedbackWidget />

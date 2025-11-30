@@ -13,8 +13,6 @@ import { csrfProtection } from './lib/csrf-protection';
 import { logger } from './lib/logger';
 import { timerManager, initTimerManager } from './lib/timerManager';
 import { cleanupMemoryCaches, initMemoryCaches } from './lib/memory-cache';
-import { onboardingStorage } from './lib/onboardingStorage';
-import { onboardingSync } from './lib/onboardingSync';
 import { initIndexedDBCache } from './lib/indexeddb-cache';
 import { backgroundSync } from './lib/background-sync';
 import { initPerformanceBudget } from './lib/performance-budget';
@@ -487,7 +485,6 @@ export default function App() {
     logger.info('[App] Initializing caches and timers');
     initValidator(); // Initialize config validator (was running at module load)
     initTimerManager(); // Initialize timer cleanup listener
-    onboardingStorage.init(); // Initialize onboarding storage event listeners
     initMemoryCaches(); // Initialize memory cache timers and event listeners
     initIndexedDBCache(); // Initialize IndexedDB and cleanup timer
     backgroundSync.init(); // Initialize background sync event listeners
@@ -501,8 +498,6 @@ export default function App() {
       logger.info('[App] Unmounting - cleaning up global resources');
       timerManager.cleanup(); // Fix #7: Timer cleanup
       cleanupMemoryCaches(); // Fix #11: Memory cache event listener cleanup
-      onboardingStorage.cleanup(); // Fix #11: Onboarding storage event listener cleanup
-      onboardingSync.cleanup(); // Fix #12: Supabase subscription cleanup
     };
   }, []);
 
@@ -553,7 +548,6 @@ const ResetPasswordModalContainer = () => {
 
       // Setup organization if needed (async - happens in background)
       if (userData.email_confirmed_at) {
-        onboardingStorage.migrateOldKeys(userData.id);
         if (!organization || !organization.id) {
           setupOrganization(userData);
         }
