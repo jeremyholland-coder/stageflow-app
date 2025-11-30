@@ -142,7 +142,17 @@ export function parseSupabaseError(error) {
   }
 
   // Authentication errors
-  if (error.message?.includes('JWT') || error.message?.includes('token') || error.code === 'PGRST301') {
+  // FIX: Recognize HTTP 401/403 status AND authentication-related messages
+  // Previous version only checked for 'JWT'/'token' strings, missing backend 401 responses
+  if (error.message?.includes('JWT') ||
+      error.message?.includes('token') ||
+      error.code === 'PGRST301' ||
+      error.status === 401 ||
+      error.status === 403 ||
+      error.message?.toLowerCase().includes('authentication') ||
+      error.message?.toLowerCase().includes('unauthorized') ||
+      error.code === 'UNAUTHORIZED' ||
+      error.code === 'AUTH_REQUIRED') {
     return new AppError(
       'Authentication failed',
       ERROR_CODES.SESSION_EXPIRED,

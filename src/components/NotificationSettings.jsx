@@ -197,19 +197,14 @@ const NotificationSettingsComponent = ({ addNotification }) => {
     if (result.success) {
       setHasChanges(false);
       if (addNotification) {
-        addNotification({
-          type: 'success',
-          title: 'Preferences saved',
-          message: 'Your notification preferences have been updated.'
-        });
+        // FIX: addNotification expects (message: string, type: string), not an object
+        // Passing an object caused React error #31 (Objects are not valid as React children)
+        addNotification('Your notification preferences have been updated.', 'success');
       }
     } else {
       if (addNotification) {
-        addNotification({
-          type: 'error',
-          title: 'Failed to save',
-          message: result.error || 'Could not save notification preferences.'
-        });
+        // FIX: addNotification expects (message: string, type: string)
+        addNotification(result.error || 'Could not save notification preferences.', 'error');
       }
     }
   };
