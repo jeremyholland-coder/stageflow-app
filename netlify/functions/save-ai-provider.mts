@@ -323,14 +323,21 @@ export default async (req: Request, context: Context) => {
     }
 
 
+    // PHASE AI4 FIX: Return complete provider object matching get-ai-providers shape
+    // This allows frontend to update local state immediately without refetch
+    // Eliminates race condition where 250ms delay wasn't enough for DB visibility
     return new Response(
       JSON.stringify({
         success: true,
         provider: {
           id: result.id,
+          organization_id: result.organization_id,
           provider_type: result.provider_type,
           display_name: result.display_name,
-          model: result.model
+          model: result.model,
+          active: result.active,
+          created_at: result.created_at,
+          api_key_encrypted: result.api_key_encrypted // Needed for masked display in UI
         },
         message: 'Provider saved successfully'
       }),

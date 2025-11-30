@@ -433,7 +433,22 @@ export const AISettings = () => {
             setShowAddModal(false);
             setSelectedProvider(null);
           }}
-          onSuccess={fetchProviders}
+          onSuccess={(savedProvider) => {
+            // PHASE AI4 FIX: Immediately update local state with saved provider
+            // Eliminates race condition - no need to wait for DB visibility
+            if (savedProvider) {
+              setProviders(prev => {
+                // Check if this provider_type already exists (update case)
+                const exists = prev.some(p => p.provider_type === savedProvider.provider_type);
+                if (exists) {
+                  return prev.map(p => p.provider_type === savedProvider.provider_type ? savedProvider : p);
+                }
+                return [...prev, savedProvider];
+              });
+            }
+            // Fire-and-forget verification (don't await)
+            fetchProviders();
+          }}
         />
       )}
     </div>
@@ -519,7 +534,8 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
       console.warn('[AISettings] Provider saved successfully:', {
         providerId: provider.id,
         organizationId: organization.id,
-        savedProviderId: savedProvider?.id || 'no-id'
+        savedProviderId: savedProvider?.id || 'no-id',
+        savedProviderData: savedProvider
       });
 
       // AIWIRE-03 FIX: Set cache to hasProvider=true IMMEDIATELY
@@ -537,14 +553,11 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
         detail: { providerId: provider.id, organizationId: organization.id }
       }));
 
-      // CRITICAL FIX: Longer delay to ensure DB write is committed before querying
-      // PostgreSQL transactions should be immediate, but network latency can cause issues
-      await new Promise(resolve => setTimeout(resolve, 250));
+      // PHASE AI4 FIX: Pass saved provider directly to onSuccess for immediate state update
+      // Removes the 250ms delay race condition - state updates from save response, not refetch
+      onSuccess(savedProvider);
 
-      // Fetch providers to update local state with full data
-      await onSuccess();
-
-      console.warn('[AISettings] fetchProviders completed after save');
+      console.warn('[AISettings] Provider added to state immediately from save response');
 
       // Show success notification
       addNotification(`${provider.displayName} connected!`, 'success');
