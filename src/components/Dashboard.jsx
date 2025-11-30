@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, memo, Suspense, lazy } from 'react';
-import { Plus, Search, Zap, TrendingUp, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Search, Zap, AlertCircle, RefreshCw, Loader2, Sparkles, X, Brain, Users, DollarSign } from 'lucide-react';
 import { useApp } from './AppShell';
 import { useDealManagement } from '../hooks/useDealManagement';
 import { useDebounce } from '../hooks/useDebounce';
@@ -25,65 +25,104 @@ const DealDetailsModal = lazy(() => import('./DealDetailsModal').then(m => ({ de
 const RevenueTargetsWidget = lazy(() => import('./RevenueTargetsWidget').then(m => ({ default: m.RevenueTargetsWidget })));
 const AIInsightsWidget = lazy(() => import('./AIInsightsWidget').then(m => ({ default: m.AIInsightsWidget })));
 
-const PowerUpWithAI = memo(() => {
-  const { setActiveView } = useApp();
-
-  const handlePowerUp = useCallback(() => {
-    // Set URL parameter before switching view
-    const url = new URL(window.location);
-    url.searchParams.set('tab', 'ai-providers');
-    window.history.pushState({}, '', url);
-    setActiveView('integrations');
-  }, [setActiveView]);
+// PHASE W4: WelcomeBlock - Minimal new-user intro experience (replaces dead PowerUpWithAI)
+// Visibility: !hasAIProvider && deals.length === 0 && !welcomeDismissed
+// Lives ONLY in Dashboard.jsx - no global state, no external dependencies
+const WelcomeBlock = memo(({ onConnectAI, onCreateDeal, onDismiss }) => {
+  const VALUE_PROPS = [
+    {
+      icon: Brain,
+      title: 'Pipeline Intelligence',
+      description: 'AI-powered deal tracking that surfaces what matters'
+    },
+    {
+      icon: Users,
+      title: 'Founder-First CRM',
+      description: 'Built for how you actually sell, not how enterprises do'
+    },
+    {
+      icon: DollarSign,
+      title: 'Revenue Clarity',
+      description: 'See every dollar from first touch to paid invoice'
+    }
+  ];
 
   return (
-    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.2)] p-8">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-14 h-14 relative">
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/25 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_4px_20px_rgba(12,227,177,0.2)]">
-                <Zap className="w-7 h-7 text-[#0CE3B1]" strokeWidth={2.5} />
-              </div>
-            </div>
-            <h2 className="text-3xl font-bold text-white tracking-tight">Power Up with AI</h2>
+    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.2)] p-8 relative">
+      {/* Dismiss button */}
+      <button
+        onClick={onDismiss}
+        className="absolute top-4 right-4 p-2 text-white/40 hover:text-white/70 hover:bg-white/[0.05] rounded-xl transition-all duration-200"
+        aria-label="Dismiss welcome message"
+      >
+        <X className="w-5 h-5" />
+      </button>
+
+      {/* Section 1: Brand Intro */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="w-14 h-14 relative">
+          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/25 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_4px_20px_rgba(12,227,177,0.2)]">
+            <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={2.5} />
           </div>
-          <p className="text-white/60 text-lg mb-5 max-w-2xl leading-relaxed">
-            Unlock AI-powered insights, deal health analysis, stage predictions, and smart recommendations.
-            Connect an AI provider in seconds.
+        </div>
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+            Welcome to StageFlow
+          </h2>
+          <p className="text-white/60 text-base md:text-lg">
+            Your RevOps engine that transforms founders into closers.
           </p>
-          <ul className="space-y-3 mb-7">
-            <li className="flex items-center gap-3 text-white/70">
-              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
-              <span>Real-time deal health scoring</span>
-            </li>
-            <li className="flex items-center gap-3 text-white/70">
-              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
-              <span>Stage progression predictions</span>
-            </li>
-            <li className="flex items-center gap-3 text-white/70">
-              <div className="w-2 h-2 rounded-full bg-[#0CE3B1] shadow-[0_0_8px_rgba(12,227,177,0.5)]" aria-hidden="true" />
-              <span>Natural language queries about your pipeline</span>
-            </li>
-          </ul>
-          <button
-            onClick={handlePowerUp}
-            className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-7 py-3.5 min-h-touch rounded-2xl font-semibold flex items-center gap-2.5 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
-            aria-label="Connect AI Provider to unlock AI features"
+        </div>
+      </div>
+
+      {/* Section 2: Value Props */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-6">
+        {VALUE_PROPS.map(({ icon: Icon, title, description }) => (
+          <div
+            key={title}
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.04] transition-colors duration-200"
           >
-            <Zap className="w-5 h-5" aria-hidden="true" />
-            Connect AI Provider
-          </button>
-        </div>
-        <div className="hidden lg:block" aria-hidden="true">
-          <TrendingUp className="w-32 h-32 text-[#0CE3B1]/10" />
-        </div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-[#0CE3B1]/10 flex items-center justify-center">
+                <Icon className="w-4 h-4 text-[#0CE3B1]" />
+              </div>
+              <h3 className="font-semibold text-white text-sm">{title}</h3>
+            </div>
+            <p className="text-white/50 text-sm leading-relaxed">{description}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Section 3: CTAs */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={onConnectAI}
+          className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-6 py-3 min-h-touch rounded-2xl font-semibold flex items-center gap-2 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
+          aria-label="Connect your AI provider"
+        >
+          <Zap className="w-5 h-5" aria-hidden="true" />
+          Connect Your AI
+        </button>
+        <button
+          onClick={onCreateDeal}
+          className="bg-white/[0.06] hover:bg-white/[0.1] text-white px-6 py-3 min-h-touch rounded-2xl font-semibold flex items-center gap-2 transition-all duration-300 border border-white/[0.1] hover:border-white/[0.2]"
+          aria-label="Create your first deal"
+        >
+          <Plus className="w-5 h-5" aria-hidden="true" />
+          Create Your First Deal
+        </button>
+        <button
+          onClick={onDismiss}
+          className="text-white/40 hover:text-white/60 text-sm px-3 py-2 transition-colors duration-200"
+        >
+          Dismiss this for now
+        </button>
       </div>
     </div>
   );
 });
 
-PowerUpWithAI.displayName = 'PowerUpWithAI';
+WelcomeBlock.displayName = 'WelcomeBlock';
 
 // PHASE 18 PERF: Static filter buttons defined outside component (never recreated)
 const FILTER_BUTTONS = [
@@ -116,6 +155,11 @@ export const Dashboard = () => {
   const [pipelineRetryTrigger, setPipelineRetryTrigger] = useState(0); // CRITICAL FIX: Trigger for soft retry without page reload
   const [healthAlert, setHealthAlert] = useState(null); // AI-powered health alerts
   const [orphanedDealIds, setOrphanedDealIds] = useState(new Set()); // Track recovered orphaned deals
+
+  // PHASE W4: WelcomeBlock dismiss state (localStorage-backed)
+  const [welcomeDismissed, setWelcomeDismissed] = useState(() => {
+    return localStorage.getItem('stageflow_welcome_dismissed') === 'true';
+  });
 
   const { handleError } = useErrorHandler(addNotification);
 
@@ -324,6 +368,19 @@ export const Dashboard = () => {
   const handleFilterChange = useCallback((filterId) => {
     setFilterStatus(filterId);
   }, []);
+
+  // PHASE W4: WelcomeBlock handlers
+  const handleWelcomeDismiss = useCallback(() => {
+    setWelcomeDismissed(true);
+    localStorage.setItem('stageflow_welcome_dismissed', 'true');
+  }, []);
+
+  const handleConnectAI = useCallback(() => {
+    const url = new URL(window.location);
+    url.searchParams.set('tab', 'ai-providers');
+    window.history.pushState({}, '', url);
+    setActiveView('integrations');
+  }, [setActiveView]);
 
   // PERFORMANCE FIX: Use useMemo to detect orphaned deals (runs only when deals/stages change)
   const orphanedDealsData = useMemo(() => {
@@ -563,6 +620,15 @@ export const Dashboard = () => {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* PHASE W4: WelcomeBlock for new users (no AI, no deals, not dismissed) */}
+            {!hasAIProvider && deals.length === 0 && !welcomeDismissed && (
+              <WelcomeBlock
+                onConnectAI={handleConnectAI}
+                onCreateDeal={handleNewDealClick}
+                onDismiss={handleWelcomeDismiss}
+              />
             )}
 
             {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
