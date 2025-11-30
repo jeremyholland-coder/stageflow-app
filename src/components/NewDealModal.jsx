@@ -12,6 +12,7 @@ import { useFormValidation } from '../hooks/useFormValidation';
 import { useFocusTrap } from '../lib/accessibility';
 import { getPlanLimits, isOverLimit } from '../config/planLimits';
 import { PhoneInput } from './PhoneInput';
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 // Field validation configuration
 const fieldConfigs = {
@@ -211,23 +212,15 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
             notes: sanitizeText(formData.notes) || null
           };
 
-          // CRITICAL FIX: Use backend endpoint instead of direct Supabase RPC
-          // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-          // RPC calls fail because RLS policies can't verify the user. Backend has service role.
-          const response = await fetch('/.netlify/functions/create-deal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', // Send HttpOnly cookies for auth
-            body: JSON.stringify({
-              dealData: sanitizedData,
-              organizationId: organization.id
-            })
+          // PHASE J: Use auth-aware api-client with Authorization header
+          // Fixes cross-origin cookie issues by sending Bearer token
+          const { data: result } = await api.post('create-deal', {
+            dealData: sanitizedData,
+            organizationId: organization.id
           });
 
-          const result = await response.json();
-
-          if (!response.ok) {
-            throw new Error(result.error || `Create failed: ${response.status}`);
+          if (!result.success && result.error) {
+            throw new Error(result.error);
           }
 
           if (!result.deal) {

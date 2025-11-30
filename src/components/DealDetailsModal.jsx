@@ -9,6 +9,7 @@ import { LostReasonModal } from './LostReasonModal';
 import { getStatusForStage } from '../config/pipelineTemplates';
 import { useFocusTrap } from '../lib/accessibility';
 import { PhoneInput } from './PhoneInput';
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, onDealDeleted, pipelineStages = [] }) => {
@@ -204,24 +205,15 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         status: deal.status
       };
 
-      // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
-      // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-      // RLS policies deny all client-side mutations. Use backend with service role.
-      const response = await fetch('/.netlify/functions/update-deal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Send HttpOnly cookies for auth
-        body: JSON.stringify({
-          dealId: deal.id,
-          updates: sanitizedData,
-          organizationId: organization.id
-        })
+      // PHASE J: Use auth-aware api-client with Authorization header
+      const { data: result } = await api.post('update-deal', {
+        dealId: deal.id,
+        updates: sanitizedData,
+        organizationId: organization.id
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `Update failed: ${response.status}`);
+      if (!result.success && result.error) {
+        throw new Error(result.error);
       }
 
       const data = result.deal;
@@ -253,29 +245,20 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     }
   };
 
-  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
-  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-  // RLS policies deny all client-side mutations. Use backend with service role.
+  // PHASE J: Use auth-aware api-client with Authorization header
   const handleDelete = async () => {
     if (!deal || !confirm('Are you sure you want to delete this deal? This action cannot be undone.')) return;
 
     try {
       setDeleting(true);
 
-      const response = await fetch('/.netlify/functions/delete-deal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Send HttpOnly cookies for auth
-        body: JSON.stringify({
-          dealId: deal.id,
-          organizationId: organization.id
-        })
+      const { data: result } = await api.post('delete-deal', {
+        dealId: deal.id,
+        organizationId: organization.id
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `Delete failed: ${response.status}`);
+      if (!result.success && result.error) {
+        throw new Error(result.error);
       }
 
       onDealDeleted(deal.id);

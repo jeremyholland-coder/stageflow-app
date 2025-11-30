@@ -4,6 +4,7 @@ import {
   CheckCircle2, Sparkles, Loader2
 } from 'lucide-react';
 import { supabase, VIEWS } from '../lib/supabase';
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 /**
  * NEXT-LEVEL OPTIMIZATION: General Settings Tab Component
@@ -424,46 +425,32 @@ const GeneralSettingsComponent = ({
 
                       setUploadingImage(true);
 
-                      // FIX v1.7.63 - E1: Add 30s timeout for backend upload
-                      const abortController = new AbortController();
-                      const timeoutId = setTimeout(() => {
-                        abortController.abort();
-                      }, 30000); // 30 second timeout (backend needs more time)
-
                       try {
-                        // Upload via backend function (has service role access)
+                        // PHASE J: Use auth-aware api-client with Authorization header
+                        // api.upload handles FormData uploads with proper auth
                         const formData = new FormData();
                         formData.append('file', file);
 
-                        const response = await fetch('/.netlify/functions/upload-avatar', {
-                          method: 'POST',
-                          body: formData,
-                          credentials: 'include', // Send HttpOnly cookies for auth
-                          signal: abortController.signal
+                        const { data: result, response } = await api.upload('upload-avatar', formData, {
+                          timeout: 30000 // 30 second timeout
                         });
 
-                        // Clear timeout on response
-                        clearTimeout(timeoutId);
-
                         if (!response.ok) {
-                          const errorData = await response.json().catch(() => ({}));
-                          throw new Error(errorData.error || `Upload failed: ${response.status}`);
+                          throw new Error(result.error || `Upload failed: ${response.status}`);
                         }
 
-                        const { avatarUrl } = await response.json();
-
                         // Update UI with new avatar
-                        setProfilePicUrl(avatarUrl);
-                        setAvatarUrl(avatarUrl);
+                        setProfilePicUrl(result.avatarUrl);
+                        setAvatarUrl(result.avatarUrl);
                         addNotification('Profile picture updated', 'success');
                       } catch (error) {
                         console.error('Upload error:', error);
 
-                        // FIX v1.7.63 - E1: Enhanced error messages with timeout handling
+                        // Enhanced error messages
                         let errorMessage = 'Failed to upload image';
 
-                        // Check for timeout/abort first
-                        if (error.name === 'AbortError' || abortController.signal.aborted) {
+                        // Check for timeout first
+                        if (error.code === 'TIMEOUT' || error.message?.includes('timeout')) {
                           errorMessage = 'Upload timed out after 30 seconds. Please check your connection and try a smaller file.';
                         } else if (error.message?.includes('bucket') || error.message?.includes('Storage not configured')) {
                           errorMessage = 'Storage not configured. Please contact support.';
@@ -473,7 +460,7 @@ const GeneralSettingsComponent = ({
                           errorMessage = 'File too large. Maximum size is 2MB.';
                         } else if (!navigator.onLine) {
                           errorMessage = 'No internet connection. Please check your network and try again.';
-                        } else if (error.message?.includes('timeout') || error.message?.includes('network')) {
+                        } else if (error.message?.includes('network')) {
                           errorMessage = 'Network error. Please try again.';
                         } else if (error.message) {
                           errorMessage = error.message;
@@ -481,8 +468,6 @@ const GeneralSettingsComponent = ({
 
                         addNotification(errorMessage, 'error');
                       } finally {
-                        // Clean up timeout to prevent memory leaks
-                        clearTimeout(timeoutId);
                         setUploadingImage(false);
                         e.target.value = '';
                       }
@@ -507,25 +492,16 @@ const GeneralSettingsComponent = ({
                   {profilePicUrl && (
                     <button
                       onClick={async () => {
-                        // FIX v1.7.62 (#9): Use backend remove endpoint
-                        // REASON: Phase 3 Cookie-Only Auth means client has no session
+                        // PHASE J: Use auth-aware api-client with Authorization header
                         setUploadingImage(true);
 
-                        const abortController = new AbortController();
-                        const timeoutId = setTimeout(() => abortController.abort(), 10000);
-
                         try {
-                          const response = await fetch('/.netlify/functions/remove-avatar', {
-                            method: 'POST',
-                            credentials: 'include', // Send HttpOnly cookies for auth
-                            signal: abortController.signal
+                          const { data: result, response } = await api.post('remove-avatar', {}, {
+                            timeout: 10000
                           });
 
-                          clearTimeout(timeoutId);
-
                           if (!response.ok) {
-                            const errorData = await response.json().catch(() => ({}));
-                            throw new Error(errorData.error || `Remove failed: ${response.status}`);
+                            throw new Error(result.error || `Remove failed: ${response.status}`);
                           }
 
                           setProfilePicUrl(null);
@@ -533,13 +509,12 @@ const GeneralSettingsComponent = ({
                           addNotification('Profile picture removed', 'success');
                         } catch (error) {
                           console.error('Remove error:', error);
-                          if (error.name === 'AbortError') {
+                          if (error.code === 'TIMEOUT') {
                             addNotification('Request timed out. Please try again.', 'error');
                           } else {
                             addNotification('Failed to remove image', 'error');
                           }
                         } finally {
-                          clearTimeout(timeoutId);
                           setUploadingImage(false);
                         }
                       }}

@@ -7,6 +7,7 @@ import { requestDeduplicator } from '../lib/request-deduplicator';
 import { cacheDeals, getCachedDeals } from '../lib/indexeddb-cache'; // NEXT-LEVEL: 50MB IndexedDB cache
 import { dealsMemoryCache } from '../lib/memory-cache'; // OPT-4: In-memory cache (<1ms reads)
 import { logger } from '../lib/logger';
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client with Authorization header
 // OFFLINE: Import offline queue for "works on a plane" support
 import {
   enqueueCommand,
@@ -201,61 +202,40 @@ export const useDealManagement = (user, organization, addNotification) => {
             const { dealId, updates } = command.payload;
             const finalUpdates = { ...updates, last_activity: new Date().toISOString() };
 
-            // CRITICAL FIX: Use backend endpoint instead of direct Supabase client/RPC
-            // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-            // Backend endpoint handles stage history recording automatically
-            const updateResponse = await fetch('/.netlify/functions/update-deal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                dealId,
-                updates: finalUpdates,
-                organizationId: organization.id
-              })
+            // PHASE J: Use auth-aware api-client with Authorization header
+            // Fixes cross-origin cookie issues by sending Bearer token
+            const { data: updateResult } = await api.post('update-deal', {
+              dealId,
+              updates: finalUpdates,
+              organizationId: organization.id
             });
 
-            const updateResult = await updateResponse.json();
-            if (!updateResponse.ok) {
-              throw new Error(updateResult.error || `Update failed: ${updateResponse.status}`);
+            if (!updateResult.success && updateResult.error) {
+              throw new Error(updateResult.error);
             }
           } else if (command.type === OFFLINE_COMMAND_TYPES.CREATE_DEAL) {
             const { deal } = command.payload;
 
-            // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
-            // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-            const createResponse = await fetch('/.netlify/functions/create-deal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                dealData: deal,
-                organizationId: organization.id
-              })
+            // PHASE J: Use auth-aware api-client with Authorization header
+            const { data: createResult } = await api.post('create-deal', {
+              dealData: deal,
+              organizationId: organization.id
             });
 
-            const createResult = await createResponse.json();
-            if (!createResponse.ok) {
-              throw new Error(createResult.error || `Create failed: ${createResponse.status}`);
+            if (!createResult.success && createResult.error) {
+              throw new Error(createResult.error);
             }
           } else if (command.type === OFFLINE_COMMAND_TYPES.DELETE_DEAL) {
             const { dealId } = command.payload;
 
-            // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
-            // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-            const deleteResponse = await fetch('/.netlify/functions/delete-deal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                dealId,
-                organizationId: organization.id
-              })
+            // PHASE J: Use auth-aware api-client with Authorization header
+            const { data: deleteResult } = await api.post('delete-deal', {
+              dealId,
+              organizationId: organization.id
             });
 
-            const deleteResult = await deleteResponse.json();
-            if (!deleteResponse.ok) {
-              throw new Error(deleteResult.error || `Delete failed: ${deleteResponse.status}`);
+            if (!deleteResult.success && deleteResult.error) {
+              throw new Error(deleteResult.error);
             }
           }
 
@@ -698,29 +678,19 @@ export const useDealManagement = (user, organization, addNotification) => {
         return; // Don't attempt network call
       }
 
-      // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
-      // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-      // RLS policies deny all client-side mutations. Use backend with service role.
-      let data;
-
-      const response = await fetch('/.netlify/functions/update-deal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Send HttpOnly cookies for auth
-        body: JSON.stringify({
-          dealId,
-          updates: finalUpdates,
-          organizationId: organization.id
-        })
+      // PHASE J: Use auth-aware api-client with Authorization header
+      // Fixes cross-origin cookie issues by sending Bearer token
+      const { data: result } = await api.post('update-deal', {
+        dealId,
+        updates: finalUpdates,
+        organizationId: organization.id
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `Update failed: ${response.status}`);
+      if (!result.success && result.error) {
+        throw new Error(result.error);
       }
 
-      data = result.deal;
+      const data = result.deal;
       logger.log('[updateDeal] Backend update successful');
 
       // Update with server response
@@ -777,21 +747,15 @@ export const useDealManagement = (user, organization, addNotification) => {
         try {
           const finalUpdates = { ...dealUpdates, last_activity: new Date().toISOString() };
 
-          // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
-          const response = await fetch('/.netlify/functions/update-deal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              dealId,
-              updates: finalUpdates,
-              organizationId: organization.id
-            })
+          // PHASE J: Use auth-aware api-client with Authorization header
+          const { data: result } = await api.post('update-deal', {
+            dealId,
+            updates: finalUpdates,
+            organizationId: organization.id
           });
 
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(result.error || `Batch update failed: ${response.status}`);
+          if (!result.success && result.error) {
+            throw new Error(result.error);
           }
 
           const data = result.deal;

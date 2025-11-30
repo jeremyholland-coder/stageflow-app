@@ -8,6 +8,7 @@ import {
 import { useApp } from './AppShell';
 import { supabase, VIEWS } from '../lib/supabase';
 import { parseSupabaseError } from '../lib/error-handler';
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 // PERFORMANCE: Lazy load heavy Settings tabs to reduce initial bundle
 // This improves Settings page load time by ~100KB+ and enables better code splitting
@@ -333,24 +334,15 @@ export const Settings = () => {
   const handleSaveProfile = async () => {
     setSavingProfile(true);
     try {
-      const response = await fetch('/.netlify/functions/profile-save', {
-        method: 'POST',
-        credentials: 'include', // Send HttpOnly cookies for auth
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          first_name: firstName,
-          last_name: lastName
-        })
+      // PHASE J: Use auth-aware api-client with Authorization header
+      const { data: result } = await api.post('profile-save', {
+        first_name: firstName,
+        last_name: lastName
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Save failed: ${response.status}`);
+      if (!result.success && result.error) {
+        throw new Error(result.error);
       }
-
-      const result = await response.json();
 
       // Update AppShell context with new profile data for header display
       if (setProfileData && result.profile) {
@@ -390,38 +382,24 @@ export const Settings = () => {
       }
 
       try {
-        // PHASE D FIX: Use backend endpoint (same as AISettings.jsx)
-        // This fixes the "No LLMs connected" mismatch with Integrations tab
-        const response = await fetch('/.netlify/functions/get-ai-providers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // Send HttpOnly cookies for auth
-          body: JSON.stringify({
-            organization_id: organization.id
-          })
+        // PHASE J: Use auth-aware api-client with Authorization header
+        const { data: result } = await api.post('get-ai-providers', {
+          organization_id: organization.id
         });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Failed to fetch AI providers: ${response.status}`);
+        if (!result.success && result.error) {
+          throw new Error(result.error);
         }
 
-        const result = await response.json();
         const providers = result.providers || [];
 
         // Fetch organization AI usage via backend
-        const usageResponse = await fetch('/.netlify/functions/get-ai-usage', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            organization_id: organization.id
-          })
+        const { data: usageResult, response: usageResponse } = await api.post('get-ai-usage', {
+          organization_id: organization.id
         });
 
         let aiUsageData = { used: 0, limit: 100 };
-        if (usageResponse.ok) {
-          const usageResult = await usageResponse.json();
+        if (usageResponse.ok && usageResult) {
           aiUsageData = {
             used: usageResult.used || 0,
             limit: usageResult.limit || 100
@@ -517,21 +495,15 @@ export const Settings = () => {
       if (!user || !organization) return;
 
       try {
-        const response = await fetch('/.netlify/functions/notification-preferences-legacy-get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // Send HttpOnly cookies for auth
-          body: JSON.stringify({
-            organization_id: organization.id
-          })
+        // PHASE J: Use auth-aware api-client with Authorization header
+        const { data: result } = await api.post('notification-preferences-legacy-get', {
+          organization_id: organization.id
         });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Failed to fetch preferences: ${response.status}`);
+        if (!result.success && result.error) {
+          throw new Error(result.error);
         }
 
-        const result = await response.json();
         const data = result.preferences;
 
         if (isMounted && data) {
@@ -582,43 +554,25 @@ export const Settings = () => {
       // Save to localStorage for immediate persistence
       localStorage.setItem('stageflow_notification_prefs', JSON.stringify(newPrefs));
 
-      // CRITICAL FIX v1.7.87: Use backend endpoint with HttpOnly cookie auth
-      // PROBLEM: Direct Supabase queries fail RLS because auth.uid() unavailable with HttpOnly cookies
-      // SOLUTION: Backend endpoint uses service role to bypass RLS (same pattern as onboarding-progress-save)
+      // PHASE J: Use auth-aware api-client with Authorization header
       if (user && organization) {
-        // Call backend endpoint with timeout
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Request timed out')), 10000)
-        );
-
-        const response = await Promise.race([
-          fetch('/.netlify/functions/notification-preferences-save', {
-            method: 'POST',
-            credentials: 'include', // Include HttpOnly cookies
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              organization_id: organization.id,
-              all_notifications: newPrefs.all_notifications,
-              notify_deal_created: newPrefs.notify_deal_created,
-              notify_stage_changed: newPrefs.notify_stage_changed,
-              notify_deal_won: newPrefs.notify_deal_won,
-              notify_deal_lost: newPrefs.notify_deal_lost,
-              weekly_digest: newPrefs.weekly_digest,
-              digest_day: newPrefs.digest_day,
-              digest_time: newPrefs.digest_time,
-              digest_timezone: newPrefs.digest_timezone,
-              digest_time_format: newPrefs.digest_time_format
-            })
-          }),
-          timeoutPromise
-        ]);
+        const { data: result, response } = await api.post('notification-preferences-save', {
+          organization_id: organization.id,
+          all_notifications: newPrefs.all_notifications,
+          notify_deal_created: newPrefs.notify_deal_created,
+          notify_stage_changed: newPrefs.notify_stage_changed,
+          notify_deal_won: newPrefs.notify_deal_won,
+          notify_deal_lost: newPrefs.notify_deal_lost,
+          weekly_digest: newPrefs.weekly_digest,
+          digest_day: newPrefs.digest_day,
+          digest_time: newPrefs.digest_time,
+          digest_timezone: newPrefs.digest_timezone,
+          digest_time_format: newPrefs.digest_time_format
+        }, { timeout: 10000 });
 
         if (!response.ok) {
-          const error = await response.json();
-          console.error('❌ Backend save error:', error);
-          addNotification(`Database error: ${error.error}. Settings saved locally.`, 'error');
+          console.error('❌ Backend save error:', result);
+          addNotification(`Database error: ${result.error || 'Unknown error'}. Settings saved locally.`, 'error');
           // Don't throw - localStorage still works
         }
       }

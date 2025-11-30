@@ -19,6 +19,7 @@ import { OnboardingChecklist } from './OnboardingChecklist';
 import AppContext, { useApp } from '../context/AppContext';
 import { logger } from '../lib/logger';
 import { onboardingStorage } from '../lib/onboardingStorage'; // CRITICAL FIX: Unified onboarding storage
+import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 
 // Re-export for backward compatibility
 export { useApp };
@@ -880,11 +881,9 @@ export const AppProvider = ({ children }) => {
       }
 
       try {
-        // PHASE G: Use backend endpoint instead of direct Supabase query
-        // Backend uses HttpOnly cookies which are always available
-        const response = await fetch('/.netlify/functions/profile-get', {
-          method: 'GET',
-          credentials: 'include', // Send HttpOnly cookies
+        // PHASE J: Use auth-aware api-client with Authorization header
+        // Fixes cross-origin cookie issues by sending Bearer token
+        const { data: result, response } = await api.get('profile-get', {
           signal: abortController.signal
         });
 
@@ -894,7 +893,6 @@ export const AppProvider = ({ children }) => {
         }
 
         if (response.ok) {
-          const result = await response.json();
           const profile = result.profile;
 
           if (profile) {
