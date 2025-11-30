@@ -84,19 +84,31 @@ export class CsrfProtection {
 
   /**
    * Get CSRF token from cookie
+   * FIX: Defensive cookie parsing to prevent crashes in SSR/restricted contexts
    */
   getCookie() {
-    const name = this.cookieName + '=';
-    const cookies = document.cookie.split(';');
-    
-    for (let cookie of cookies) {
-      cookie = cookie.trim();
-      if (cookie.indexOf(name) === 0) {
-        return cookie.substring(name.length);
-      }
+    // Guard against undefined document or cookie (SSR, iframes, restricted contexts)
+    if (typeof document === 'undefined' || typeof document.cookie !== 'string') {
+      return null;
     }
-    
-    return null;
+
+    try {
+      const name = this.cookieName + '=';
+      const cookieString = document.cookie || '';
+      const cookies = cookieString.split(';');
+
+      for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.indexOf(name) === 0) {
+          return cookie.substring(name.length);
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('[CSRF] Cookie parse error:', error);
+      return null;
+    }
   }
 
   /**

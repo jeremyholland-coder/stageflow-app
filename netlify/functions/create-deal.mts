@@ -56,13 +56,32 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[create-deal] Authenticated user:", userId);
 
-    // STEP 2: Parse request body
-    const body = await req.json();
+    // STEP 2: Parse request body with defensive error handling
+    // FIX: JSON parsing could fail if body is malformed, causing 500 without clear message
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      console.error("[create-deal] JSON parse error:", parseError);
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid request body - expected JSON" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
     const { dealData, organizationId } = body;
 
     if (!dealData || !organizationId) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields: dealData, organizationId" }),
+        JSON.stringify({ success: false, error: "Missing required fields: dealData, organizationId" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    // FIX: Validate required client field - frontend requires it but server should validate too
+    if (!dealData.client || typeof dealData.client !== 'string' || dealData.client.trim().length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Client name is required" }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -83,7 +102,7 @@ export default async (req: Request, context: Context) => {
     if (membershipError || !membership) {
       console.error("[create-deal] User not in organization:", { userId, organizationId, error: membershipError });
       return new Response(
-        JSON.stringify({ error: "Not authorized for this organization" }),
+        JSON.stringify({ success: false, error: "Not authorized for this organization" }),
         { status: 403, headers: corsHeaders }
       );
     }
@@ -149,6 +168,7 @@ export default async (req: Request, context: Context) => {
       console.error("[create-deal] Invalid stage value:", sanitizedDeal.stage);
       return new Response(
         JSON.stringify({
+          success: false,
           error: `Invalid stage value: ${sanitizedDeal.stage}`,
           hint: "Stage must be a valid pipeline stage"
         }),
@@ -200,6 +220,7 @@ export default async (req: Request, context: Context) => {
       });
       return new Response(
         JSON.stringify({
+          success: false,
           error: "Failed to create deal",
           details: insertError.message,
           code: insertError.code,
@@ -228,7 +249,8 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[create-deal] Success:", { dealId: newDeal.id, stage: newDeal.stage });
 
-    return new Response(JSON.stringify({ deal: newDeal }), {
+    // FIX: Include success: true in response for consistent API shape
+    return new Response(JSON.stringify({ success: true, deal: newDeal }), {
       status: 200,
       headers: corsHeaders,
     });
@@ -261,6 +283,7 @@ export default async (req: Request, context: Context) => {
     if (isAuthError) {
       return new Response(
         JSON.stringify({
+          success: false,
           error: error.message || "Authentication required",
           code: error.code || "AUTH_REQUIRED"
         }),
@@ -272,7 +295,7 @@ export default async (req: Request, context: Context) => {
     if (error.code === "42501" || error.message?.includes("permission denied")) {
       console.error("[create-deal] RLS policy violation - check team_members/deals RLS");
       return new Response(
-        JSON.stringify({ error: "Permission denied", code: "PERMISSION_DENIED" }),
+        JSON.stringify({ success: false, error: "Permission denied", code: "PERMISSION_DENIED" }),
         { status: 403, headers: corsHeaders }
       );
     }
@@ -285,6 +308,7 @@ export default async (req: Request, context: Context) => {
 
     return new Response(
       JSON.stringify({
+        success: false,
         error: errorMessage,
         code: "CREATE_DEAL_ERROR"
       }),

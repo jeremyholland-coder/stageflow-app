@@ -145,19 +145,38 @@ export default async (req: Request, context: Context) => {
   } catch (error: any) {
     console.error("[notification-preferences] Error:", {
       message: error.message,
-      code: error.code
+      code: error.code,
+      name: error.name,
+      statusCode: error.statusCode
     });
 
-    // Handle auth errors
-    if (error.message?.includes("auth") || error.message?.includes("unauthorized") || error.message?.includes("token")) {
+    // FIX: Comprehensive auth error detection (matches create-deal.mts pattern)
+    // This ensures auth errors from requireAuth are properly caught and return 401 with CORS headers
+    const isAuthError = error.statusCode === 401 ||
+                        error.statusCode === 403 ||
+                        error.name === 'UnauthorizedError' ||
+                        error.name === 'TokenExpiredError' ||
+                        error.name === 'InvalidTokenError' ||
+                        error.code === 'UNAUTHORIZED' ||
+                        error.code === 'TOKEN_EXPIRED' ||
+                        error.message?.includes("auth") ||
+                        error.message?.includes("unauthorized") ||
+                        error.message?.includes("token") ||
+                        error.message?.includes("cookie");
+
+    if (isAuthError) {
       return new Response(
-        JSON.stringify({ error: "Authentication required", code: "AUTH_REQUIRED" }),
-        { status: 401, headers: corsHeaders }
+        JSON.stringify({
+          success: false,
+          error: error.message || "Authentication required",
+          code: error.code || "AUTH_REQUIRED"
+        }),
+        { status: error.statusCode || 401, headers: corsHeaders }
       );
     }
 
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ success: false, error: "Internal server error" }),
       { status: 500, headers: corsHeaders }
     );
   }
