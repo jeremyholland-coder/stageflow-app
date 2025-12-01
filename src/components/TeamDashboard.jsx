@@ -70,13 +70,21 @@ export const TeamDashboard = () => {
       setOrganizationId(orgId);
 
       // Get all team members for this organization with user profile data for display
-      // FIX: Join with users table to fetch email AND raw_user_meta_data for full_name
-      // Uses same pattern as RevenueTargets.jsx (users:user_id syntax)
+      // FIX: Join with profiles table to fetch email AND raw_user_meta_data for full_name
       const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
-          .select('user_id, role, created_at, users:user_id(email, raw_user_meta_data)')
-          .eq('organization_id', orgId),
+          .select(`
+            user_id,
+            role,
+            created_at,
+            profiles:user_id (
+              email,
+              raw_user_meta_data
+            )
+          `)
+          .eq('organization_id', orgId)
+          .order('created_at', { ascending: true }),
         timeoutPromise
       ]);
 
@@ -135,8 +143,8 @@ export const TeamDashboard = () => {
 
           // FIX: Use full_name from raw_user_meta_data, then email for meaningful identity display
           const isCurrentUser = member.user_id === user.id;
-          const memberEmail = member.users?.email;
-          const memberFullName = member.users?.raw_user_meta_data?.full_name;
+          const memberEmail = member.profiles?.email;
+          const memberFullName = member.profiles?.raw_user_meta_data?.full_name;
 
           // Determine display name with fallback order:
           // 1. Full name from user metadata (raw_user_meta_data)
