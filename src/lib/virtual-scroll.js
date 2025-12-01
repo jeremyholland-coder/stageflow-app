@@ -72,15 +72,22 @@ export function useVirtualScroll(items, config = {}) {
   const visibleItems = useMemo(() => {
     if (!items || items.length === 0) return [];
 
+    // KANBAN SPACING FIX: Calculate gap-adjusted positioning
+    // Standard rendering uses space-y-3 (12px gap), so we use that as our gap
+    const gap = 12; // Matches space-y-3 from standard rendering
+
     return items.slice(visibleRange.start, visibleRange.end).map((item, index) => ({
       item,
       index: visibleRange.start + index,
       style: {
         position: 'absolute',
+        // Position using item slot + gap, NOT fixed height
         top: (visibleRange.start + index) * itemHeight,
         left: 0,
         right: 0,
-        height: itemHeight,
+        // KANBAN SPACING FIX: Remove fixed height - let card size naturally
+        // The gap comes from positioning (itemHeight includes built-in buffer)
+        // This matches standard rendering behavior where cards size to content
       }
     }));
   }, [items, visibleRange, itemHeight]);

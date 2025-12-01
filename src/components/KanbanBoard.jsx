@@ -610,12 +610,13 @@ export const KanbanColumn = memo(({
   );
 
   // NEXT-LEVEL: Use virtual scrolling for large lists (20+ deals)
-  // DEV NOTE (LAYOUT FIX): itemHeight was 310px but actual cards are ~150-220px.
-  // This caused large gaps between cards when virtual scrolling was active.
-  // Reduced to 220px (max card height ~200px + 20px buffer for spacing).
+  // KANBAN SPACING FIX: itemHeight must match actual card height + 12px gap
+  // Standard rendering uses space-y-3 (12px gap) between cards
+  // Card content is ~168px (p-5 padding + header + confidence bar)
+  // itemHeight = 168 + 12 = 180px for consistent 12px gaps
   const useVirtualScrolling = stageDeals.length >= 20;
   const { containerProps, innerProps, visibleItems } = useVirtualScroll(stageDeals, {
-    itemHeight: 220, // Accurate card height: ~200px max + gap buffer
+    itemHeight: 180, // Card height (~168px) + 12px gap to match space-y-3
     overscan: 3,     // Render 3 extra items above/below viewport
   });
 
