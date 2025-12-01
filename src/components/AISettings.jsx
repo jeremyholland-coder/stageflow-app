@@ -495,8 +495,14 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
         return trimmed.startsWith('AIza') && trimmed.length >= 35;
 
       case 'xai':
-        // xAI/Grok keys: xai- prefix with variable length
-        return trimmed.startsWith('xai-') && trimmed.length >= 20;
+        // ISSUE 3 FIX: xAI/Grok keys come in multiple formats:
+        // - xai-... (native xAI format)
+        // - gsk_... (older Grok format)
+        // - sk-... or sk-proj-... (OpenAI-compatible format that xAI supports)
+        // FUTURE-PROOF: Accept reasonable length + valid API key characters
+        if (trimmed.length < 20) return false;
+        // Standard API key characters: alphanumeric, underscore, dash
+        return /^[A-Za-z0-9_\-]+$/.test(trimmed);
 
       default:
         // Generic fallback: any non-empty string with reasonable length

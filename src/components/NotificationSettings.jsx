@@ -50,6 +50,8 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
 );
 
 // Channel Toggle with Label
+// FIX ISSUE 2: Removed redundant onClick on div - the label naturally triggers checkbox onChange
+// Having both onClick on div AND checkbox onChange caused double-fire, breaking toggle behavior
 const ChannelToggle = ({ icon: Icon, label, checked, onChange, disabled = false }) => (
   <label className={`flex items-center gap-2 ${disabled ? 'opacity-50' : ''}`}>
     <input
@@ -60,7 +62,6 @@ const ChannelToggle = ({ icon: Icon, label, checked, onChange, disabled = false 
       className="sr-only"
     />
     <div
-      onClick={() => !disabled && onChange(!checked)}
       className={`
         flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
         ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}

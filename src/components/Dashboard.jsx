@@ -642,13 +642,16 @@ export const Dashboard = () => {
 
             {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
             {/* PHASE UX-B: Always render DashboardStats - it handles its own skeleton/empty states */}
-            <div data-tour="dashboard-stats" className="mb-6 min-h-[180px]" style={{ contain: 'layout' }}>
-              <DashboardStats
-                deals={deals}
-                currentUser={user}
-                loading={loading}
-              />
-            </div>
+            {/* ISSUE 1 FIX: Wrap in ChartErrorBoundary to isolate failures - prevents blank dashboard */}
+            <ChartErrorBoundary chartName="Dashboard Statistics">
+              <div data-tour="dashboard-stats" className="mb-6 min-h-[180px]" style={{ contain: 'layout' }}>
+                <DashboardStats
+                  deals={deals}
+                  currentUser={user}
+                  loading={loading}
+                />
+              </div>
+            </ChartErrorBoundary>
 
             {/* Dynamic Dashboard Cards - Rendered based on user preferences */}
             {!loadingPreferences && cardPreferences && (() => {
