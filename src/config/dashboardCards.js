@@ -6,7 +6,8 @@ import { PipelineHealthDashboard } from '../components/PipelineHealthDashboard';
 // PERFORMANCE: Lazy load heavy widgets to reduce main bundle size
 const RevenueTargetsWidget = lazy(() => import('../components/RevenueTargetsWidget').then(m => ({ default: m.RevenueTargetsWidget })));
 const GoalForecastWidget = lazy(() => import('../components/GoalForecastWidget').then(m => ({ default: m.GoalForecastWidget })));
-const AIInsightsWidget = lazy(() => import('../components/AIInsightsWidget').then(m => ({ default: m.AIInsightsWidget })));
+// PHASE: Mission Control - Replace AIInsightsWidget with unified MissionControlPanel
+const MissionControlPanel = lazy(() => import('../components/MissionControlPanel').then(m => ({ default: m.MissionControlPanel })));
 
 /**
  * Dashboard Card Registry
@@ -68,9 +69,9 @@ export const DASHBOARD_CARDS = {
 
   ai_insights: {
     id: 'ai_insights',
-    label: 'AI Insights',
-    description: 'AI-powered pattern analysis and forecasts',
-    component: AIInsightsWidget,
+    label: 'AI Mission Control',
+    description: 'Unified AI panel with daily plan, tasks, performance, and coaching',
+    component: MissionControlPanel,
     icon: Sparkles,
     defaultVisible: true,
     requiresFeature: 'AI provider connected',
@@ -78,11 +79,13 @@ export const DASHBOARD_CARDS = {
     // Only show if user has AI provider
     isAvailable: ({ hasAIProvider, checkingAI }) => hasAIProvider && !checkingAI,
 
-    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals }) => ({
+    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, coachingData }) => ({
       healthAlert,
       orphanedDealIds,
       onDismissAlert,
-      deals
+      deals,
+      targets: targets || {},
+      coachingData: coachingData || null
     })
   },
 
