@@ -495,14 +495,18 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
         return trimmed.startsWith('AIza') && trimmed.length >= 35;
 
       case 'xai':
-        // ISSUE 3 FIX: xAI/Grok keys come in multiple formats:
-        // - xai-... (native xAI format)
-        // - gsk_... (older Grok format)
-        // - sk-... or sk-proj-... (OpenAI-compatible format that xAI supports)
-        // FUTURE-PROOF: Accept reasonable length + valid API key characters
+        // PHASE G4 FIX: xAI/Grok keys from console.x.ai use various formats
+        // Known formats: xai-..., gsk_..., sk-..., sk-proj-...
+        // May contain periods, colons, or other token-standard characters
+        //
+        // Validation strategy:
+        // 1. Minimum length of 20 characters (catches empty/short garbage)
+        // 2. No whitespace characters (catches copy-paste errors with spaces)
+        // 3. Let the xAI API be the final authority on format validity
         if (trimmed.length < 20) return false;
-        // Standard API key characters: alphanumeric, underscore, dash
-        return /^[A-Za-z0-9_\-]+$/.test(trimmed);
+        // Reject keys with whitespace (spaces, tabs, newlines)
+        // Allow all other printable characters - xAI API will validate
+        return !/\s/.test(trimmed);
 
       default:
         // Generic fallback: any non-empty string with reasonable length

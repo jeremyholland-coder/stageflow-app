@@ -520,7 +520,8 @@ export const Dashboard = () => {
   }, [deals, filterStatus, debouncedSearchTerm]);
 
   // FIX UX #10: Track if filtered view has no results
-  const hasNoFilteredResults = filteredDeals.length === 0 && deals.length > 0;
+  // PHASE D4 FIX: Null-safe check for deals to prevent crash if deals is undefined
+  const hasNoFilteredResults = filteredDeals.length === 0 && (deals?.length > 0);
 
   // CRITICAL FIX: Move cardContext useMemo to TOP LEVEL to fix React error #310
   // Cannot call hooks inside conditional or IIFE - must be at component top level
@@ -632,13 +633,16 @@ export const Dashboard = () => {
             )}
 
             {/* PHASE W4: WelcomeBlock for new users (no AI, no deals, not dismissed) */}
-            {!hasAIProvider && deals.length === 0 && !welcomeDismissed && (
-              <WelcomeBlock
-                onConnectAI={handleConnectAI}
-                onCreateDeal={handleNewDealClick}
-                onDismiss={handleWelcomeDismiss}
-              />
-            )}
+            {/* PHASE D4 FIX: Wrap in ChartErrorBoundary + null-safe deals check to prevent dashboard crash */}
+            <ChartErrorBoundary chartName="Welcome">
+              {!hasAIProvider && (!deals || deals.length === 0) && !welcomeDismissed && (
+                <WelcomeBlock
+                  onConnectAI={handleConnectAI}
+                  onCreateDeal={handleNewDealClick}
+                  onDismiss={handleWelcomeDismiss}
+                />
+              )}
+            </ChartErrorBoundary>
 
             {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
             {/* PHASE UX-B: Always render DashboardStats - it handles its own skeleton/empty states */}
