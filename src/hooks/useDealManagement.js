@@ -140,9 +140,25 @@ const dealsCache = {
   }
 };
 
+// PHASE B FIX: Helper to get initial deals from memory cache SYNCHRONOUSLY
+// This prevents the "empty deals" flash when Dashboard remounts after AI connection
+const getInitialDealsFromCache = (orgId) => {
+  if (!orgId) return [];
+  const memKey = `deals_${orgId}`;
+  const cached = dealsMemoryCache.get(memKey);
+  if (cached && Array.isArray(cached) && cached.length > 0) {
+    logger.log('[Deals Init] ✅ Loaded', cached.length, 'deals from memory cache');
+    return cached;
+  }
+  return [];
+};
+
 export const useDealManagement = (user, organization, addNotification) => {
-  const [deals, setDeals] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // PHASE B FIX: Initialize deals from memory cache to prevent empty state flash
+  // Memory cache is synchronous, so deals are immediately available if cached
+  const [deals, setDeals] = useState(() => getInitialDealsFromCache(organization?.id));
+  // PHASE B FIX: Start with loading=true if no cached deals, so skeleton shows until data loads
+  const [loading, setLoading] = useState(() => getInitialDealsFromCache(organization?.id).length === 0);
   const [error, setError] = useState(null); // MEDIUM FIX: Track fetch errors for retry UI
   // OFFLINE: Track network status for "works on a plane" support
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -455,7 +471,7 @@ export const useDealManagement = (user, organization, addNotification) => {
       logger.log('[Deals] ✅ Using IndexedDB cached deals (instant display) -', cachedDeals.length, 'deals');
       if (isMountedRef.current) {
         setDeals(cachedDeals);
-        // DON'T set loading=true - we have data to show!
+        setLoading(false); // PHASE B FIX: Ensure loading=false when we have cached data
         // Fresh data will load silently in background
       }
       initialLoadDoneRef.current = true;

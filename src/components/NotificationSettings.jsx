@@ -297,10 +297,7 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
 
       {/* Save Button */}
       {localPrefs.length > 0 && (
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
-          <p className="text-xs text-slate-500">
-            Push notifications coming soon
-          </p>
+        <div className="flex items-center justify-end mt-4 pt-4 border-t border-white/5">
           <button
             onClick={handleSave}
             disabled={saving || !hasChanges}

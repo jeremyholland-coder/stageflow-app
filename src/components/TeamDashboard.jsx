@@ -69,13 +69,13 @@ export const TeamDashboard = () => {
       const orgId = member.organization_id;
       setOrganizationId(orgId);
 
-      // Get all team members for this organization with user email for display
-      // FIX G1: Join with users table to fetch email for meaningful identity display
+      // Get all team members for this organization with user profile data for display
+      // FIX: Join with users table to fetch email AND raw_user_meta_data for full_name
       // Uses same pattern as RevenueTargets.jsx (users:user_id syntax)
       const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
-          .select('user_id, role, created_at, users:user_id(email)')
+          .select('user_id, role, created_at, users:user_id(email, raw_user_meta_data)')
           .eq('organization_id', orgId),
         timeoutPromise
       ]);
@@ -133,16 +133,19 @@ export const TeamDashboard = () => {
           const dealsAddedTrend = dealsThisWeek.length >= dealsPreviousWeek.length ? 'up' : 'down';
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
-          // FIX G1: Use email from users join for meaningful identity display
+          // FIX: Use full_name from raw_user_meta_data, then email for meaningful identity display
           const isCurrentUser = member.user_id === user.id;
           const memberEmail = member.users?.email;
+          const memberFullName = member.users?.raw_user_meta_data?.full_name;
 
           // Determine display name with fallback order:
-          // 1. Current user: full_name from metadata, or email username, or 'You'
-          // 2. Other users: email from join, or last resort 'Team Member'
+          // 1. Full name from user metadata (raw_user_meta_data)
+          // 2. Email username (before @)
+          // 3. Full email address
+          // 4. Last resort: email or 'Unknown Member' (never 'Team Member 1')
           const userName = isCurrentUser
-            ? (user.user_metadata?.full_name || user.email?.split('@')[0] || 'You')
-            : (memberEmail || 'Team Member');
+            ? (user.user_metadata?.full_name || memberFullName || user.email?.split('@')[0] || 'You')
+            : (memberFullName || memberEmail?.split('@')[0] || memberEmail || 'Unknown Member');
 
           return {
             userId: member.user_id,
