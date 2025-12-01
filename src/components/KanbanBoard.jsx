@@ -780,10 +780,10 @@ export const KanbanColumn = memo(({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`px-4 pb-4 flex-1 flex flex-col justify-start transition-all duration-200 ${
+          className={`px-4 pb-4 flex flex-col justify-start transition-all duration-200 ${
             dragOver ? 'bg-teal-500/10 rounded-2xl' : ''
           }`}
-          style={{ minHeight: '400px' }}
+          style={{ minHeight: '120px' }}
         >
           {stageDeals.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -1262,7 +1262,7 @@ export const KanbanBoard = memo(({
       {/* Modern Horizontal Scroll Layout */}
       <div
         data-tour="pipeline-columns"
-        className={`flex ${isMobile ? 'flex-col gap-4' : 'gap-4 overflow-x-auto'} ${isMobile ? 'pb-24' : 'pb-6'} ${isMobile ? 'w-full' : 'kanban-full-width'}`}
+        className={`flex ${isMobile ? 'flex-col gap-4' : 'gap-4 overflow-x-auto items-start'} ${isMobile ? 'pb-24' : 'pb-6'} ${isMobile ? 'w-full' : 'kanban-full-width'}`}
         style={{
           height: isMobile ? 'auto' : 'auto',
           overflowY: 'visible',
