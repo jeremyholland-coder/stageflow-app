@@ -1029,36 +1029,48 @@ export const Settings = () => {
       )}
 
       {activeTab === 'notifications' && (
-        <div className="max-w-2xl mx-auto space-y-6" data-tour="notifications-settings">
-          {/* New Notification Preferences System */}
-          <Suspense fallback={<TabFallback />}>
-            <NotificationSettings addNotification={addNotification} />
-          </Suspense>
-
-          {/* Weekly Digest Settings - Unified visual style with Activity Notifications above */}
-          <div className="bg-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
-            <div className="flex items-center gap-3 mb-2">
+        <div className="max-w-2xl mx-auto" data-tour="notifications-settings">
+          {/* Unified Notifications Card */}
+          <div className="bg-white/[0.02] backdrop-blur-xl rounded-3xl p-6 md:p-8 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.12)] space-y-6">
+            {/* Global Header */}
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[#1ABC9C]/10 flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-[#1ABC9C]" />
+                <Bell className="w-5 h-5 text-[#1ABC9C]" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-white">Weekly Digest Schedule</h3>
-                <p className="text-sm text-slate-400">Control when your summary email of pipeline activity and wins is delivered.</p>
+                <h3 className="text-lg font-semibold text-white">Notifications</h3>
+                <p className="text-sm text-slate-400">Choose how StageFlow keeps you updated about pipeline activity, tasks, and weekly summaries.</p>
               </div>
             </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-sm font-medium text-white">Enable Weekly Digest</span>
-                  <p className="text-xs text-gray-300 mt-0.5">
-                    Get a weekly summary of your team's pipeline activity and wins
-                  </p>
+
+            {/* Section A: Activity Notifications */}
+            <div>
+              <h4 className="text-sm font-medium text-slate-300 mb-3">Activity Notifications</h4>
+              <Suspense fallback={<TabFallback />}>
+                <NotificationSettings addNotification={addNotification} bare={true} />
+              </Suspense>
+            </div>
+
+            {/* Section Divider */}
+            <div className="border-t border-white/10" />
+
+            {/* Section B: Weekly Digest Schedule */}
+            <div>
+              <h4 className="text-sm font-medium text-slate-300 mb-3">Weekly Digest Schedule</h4>
+              <p className="text-xs text-slate-400 mb-4">Control when your summary email of pipeline activity and wins is delivered.</p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-white">Enable Weekly Digest</span>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      Get a weekly summary of your team's pipeline activity and wins
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={notifPrefs.weekly_digest}
+                    onChange={handleWeeklyDigestToggle}
+                  />
                 </div>
-                <Toggle
-                  checked={notifPrefs.weekly_digest}
-                  onChange={handleWeeklyDigestToggle}
-                />
-              </div>
 
                 {/* Scheduling Options - Only show when weekly digest is enabled */}
                 {notifPrefs.weekly_digest && (
@@ -1348,6 +1360,7 @@ export const Settings = () => {
                     </div>
                   </div>
                 )}
+              </div>
             </div>
           </div>
         </div>

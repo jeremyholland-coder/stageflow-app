@@ -127,7 +127,8 @@ const NotificationCategoryRow = ({
 );
 
 // Main Component
-const NotificationSettingsComponent = ({ addNotification }) => {
+// bare prop: when true, renders content without GlassCard wrapper (for unified card in Settings)
+const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
   const {
     categories,
     loading,
@@ -205,42 +206,52 @@ const NotificationSettingsComponent = ({ addNotification }) => {
 
   // Loading state
   if (loading) {
+    const loadingContent = (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-5 h-5 animate-spin text-[#1ABC9C]" />
+        <span className="ml-2 text-slate-400 text-sm">Loading...</span>
+      </div>
+    );
+
+    if (bare) return loadingContent;
+
     return (
       <GlassCard
         title="Activity Notifications"
         description="Loading notification settings..."
       >
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-[#1ABC9C]" />
-          <span className="ml-2 text-slate-400 text-sm">Loading...</span>
-        </div>
+        {loadingContent}
       </GlassCard>
     );
   }
 
   // Error state
   if (error && localPrefs.length === 0) {
+    const errorContent = (
+      <div className="flex items-center gap-3 p-3 bg-red-500/10 rounded-xl text-red-400 border border-red-500/20">
+        <AlertCircle className="w-5 h-5 flex-shrink-0" />
+        <div>
+          <p className="font-medium text-sm">Failed to load preferences</p>
+          <p className="text-xs opacity-80">{error}</p>
+        </div>
+      </div>
+    );
+
+    if (bare) return errorContent;
+
     return (
       <GlassCard
         title="Activity Notifications"
         description="Choose how StageFlow keeps you updated on important activity."
       >
-        <div className="flex items-center gap-3 p-3 bg-red-500/10 rounded-xl text-red-400 border border-red-500/20">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <div>
-            <p className="font-medium text-sm">Failed to load preferences</p>
-            <p className="text-xs opacity-80">{error}</p>
-          </div>
-        </div>
+        {errorContent}
       </GlassCard>
     );
   }
 
-  return (
-    <GlassCard
-      title="Activity Notifications"
-      description="Choose how StageFlow keeps you updated on important activity."
-    >
+  // Main content (used in both bare and wrapped modes)
+  const mainContent = (
+    <>
       {/* Unsaved changes indicator */}
       {hasChanges && (
         <div className="mb-4 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
@@ -316,6 +327,20 @@ const NotificationSettingsComponent = ({ addNotification }) => {
           </button>
         </div>
       )}
+    </>
+  );
+
+  // Bare mode: return content without GlassCard wrapper (for unified Settings card)
+  if (bare) {
+    return mainContent;
+  }
+
+  return (
+    <GlassCard
+      title="Activity Notifications"
+      description="Choose how StageFlow keeps you updated on important activity."
+    >
+      {mainContent}
     </GlassCard>
   );
 };

@@ -460,6 +460,12 @@ export const TeamDashboard = () => {
       )}
 
       {/* Team Members Performance */}
+      {/* TODO: Per-user revenue targets
+          Once the user_targets table is integrated with TeamDashboard (via a new query or
+          backend endpoint), this section will display and allow editing of annual, quarterly,
+          and monthly targets for each team member. The backend already supports user_targets
+          (see user-targets-save Netlify function), but TeamDashboard does not currently load
+          this data. When ready, add a "Targets" row per member showing their goals. */}
       <div>
         <h2 className="text-title-2 text-white tracking-tight mb-5">
           Team Member Performance

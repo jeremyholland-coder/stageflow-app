@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Target, TrendingUp, Loader2, Users, DollarSign, Calendar, Eye, EyeOff, Save, Plus, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Target, TrendingUp, Loader2, DollarSign, Calendar, Save } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { logger } from '../lib/logger';
 import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 
-export const RevenueTargets = ({ organization, userRole, addNotification, onSwitchToBilling }) => {
+export const RevenueTargets = ({ organization, userRole, addNotification }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -21,8 +20,6 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
     monthly_target: null
   });
   const [userTargets, setUserTargets] = useState([]);
-  const [teamMembers, setTeamMembers] = useState([]);
-  const [editMode, setEditMode] = useState(false);
 
   const isAdmin = ['owner', 'admin'].includes(userRole);
 
@@ -103,7 +100,6 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
           };
         });
 
-        setTeamMembers(enrichedMembers);
         setUserTargets(enrichedMembers);
       } catch (error) {
         console.error('Error loading targets:', error);
@@ -219,68 +215,6 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
     } finally {
       setSaving(false);
     }
-  };
-
-  // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
-  // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
-  // RLS policies deny all client-side mutations. Use backend with service role.
-  const saveUserTargets = async () => {
-    if (!isAdmin || !organization) return;
-    setSaving(true);
-    try {
-      // Format targets for the backend, converting string values to numbers
-      const targetsToSave = userTargets.map(member => ({
-        user_id: member.user_id,
-        annual_target: toNumberOrNull(member.annual_target),
-        quarterly_target: toNumberOrNull(member.quarterly_target),
-        monthly_target: toNumberOrNull(member.monthly_target),
-        show_on_dashboard: member.show_on_dashboard,
-        visible_to_team: member.visible_to_team,
-        is_active: member.is_active,
-        notes: member.notes
-      }));
-
-      const response = await fetch('/.netlify/functions/user-targets-save', {
-        method: 'POST',
-        credentials: 'include', // Include HttpOnly cookies
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          organization_id: organization.id,
-          user_targets: targetsToSave
-        })
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || result.details?.join(', ') || 'Failed to save targets');
-      }
-
-      // Show partial success warning if some failed
-      if (result.failed > 0) {
-        addNotification(`Saved ${result.saved} targets, ${result.failed} failed`, 'warning');
-      } else {
-        addNotification('Team targets saved', 'success');
-      }
-
-      setEditMode(false);
-      await loadTargets(); // Reload to get fresh data
-    } catch (error) {
-      console.error('Error saving user targets:', error);
-      addNotification(`Failed to save team targets: ${error.message}`, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateUserTarget = (userId, field, value) => {
-    setUserTargets(prev => prev.map(member =>
-      member.user_id === userId
-        ? { ...member, [field]: value }
-        : member
-    ));
   };
 
   const formatCurrency = (value) => {
@@ -483,255 +417,10 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
         </div>
       </div>
 
-      {/* Team Member Targets */}
-      <div className="p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center">
-              <Users className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">Team Member Targets</h3>
-              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Individual revenue goals and visibility settings</p>
-            </div>
-          </div>
-          {userTargets.length > 0 && (
-            <div className="flex items-center gap-2">
-              {editMode && (
-                <button
-                  onClick={() => {
-                    setEditMode(false);
-                    loadTargets(); // Reset changes
-                  }}
-                  disabled={saving}
-                  className="px-4 py-2 text-[#6B7280] hover:text-[#1A1A1A] dark:text-[#9CA3AF] dark:hover:text-[#E0E0E0] transition"
-                >
-                  Cancel
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (editMode) {
-                    saveUserTargets();
-                  } else {
-                    setEditMode(true);
-                  }
-                }}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : editMode ? (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Team Targets
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    Edit Targets
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* TODO: Legacy "Team Member Targets" upsell card hidden for launch.
-            Future: move per-user targets to Team tab with accurate plan gating.
-            The upsell messaging was misleading for Pro/demo orgs that already have team members. */}
-        {userTargets.length === 0 ? (
-          // No team members - Show neutral empty state (upsell removed for launch)
-          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-8 border border-gray-200 dark:border-gray-700">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                <Users className="w-8 h-8 text-gray-400 dark:text-gray-500" />
-              </div>
-              <div>
-                <h4 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
-                  No Team Members Yet
-                </h4>
-                <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF] max-w-md mx-auto">
-                  Once you have team members, you can set individual revenue targets for each person here.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : !editMode ? (
-          // View Mode
-          <div className="space-y-3">
-            {userTargets.map(member => (
-              <div
-                key={member.user_id}
-                className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700"
-              >
-                {/* Avatar */}
-                <div className="flex-shrink-0">
-                  {member.avatar_url ? (
-                    <img src={member.avatar_url} alt={member.full_name} className="w-10 h-10 rounded-full" />
-                  ) : (
-                    <div className="w-10 h-10 bg-[#1ABC9C] rounded-full flex items-center justify-center text-white font-semibold">
-                      {member.full_name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-
-                {/* Name & Role */}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-[#1A1A1A] dark:text-[#E0E0E0] truncate">{member.full_name}</p>
-                  <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] capitalize">{member.role}</p>
-                </div>
-
-                {/* Targets */}
-                <div className="flex items-center gap-6">
-                  {member.annual_target && (
-                    <div className="text-right">
-                      <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Annual</p>
-                      <p className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">{formatCurrency(member.annual_target)}</p>
-                    </div>
-                  )}
-                  {member.quarterly_target && (
-                    <div className="text-right">
-                      <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Quarterly</p>
-                      <p className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">{formatCurrency(member.quarterly_target)}</p>
-                    </div>
-                  )}
-                  {member.monthly_target && (
-                    <div className="text-right">
-                      <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Monthly</p>
-                      <p className="font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">{formatCurrency(member.monthly_target)}</p>
-                    </div>
-                  )}
-                  {!member.annual_target && !member.quarterly_target && !member.monthly_target && (
-                    <p className="text-sm text-[#9CA3AF] dark:text-[#6B7280] italic">No targets set</p>
-                  )}
-                </div>
-
-                {/* Visibility Indicators */}
-                <div className="flex items-center gap-2">
-                  {member.show_on_dashboard ? (
-                    <Eye className="w-4 h-4 text-[#1ABC9C]" title="Visible on dashboard" />
-                  ) : (
-                    <EyeOff className="w-4 h-4 text-[#6B7280]" title="Hidden from dashboard" />
-                  )}
-                  {!member.is_active && (
-                    <AlertCircle className="w-4 h-4 text-amber-500" title="Inactive" />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          // Edit Mode
-          <div className="space-y-4">
-            {userTargets.map(member => (
-              <div
-                key={member.user_id}
-                className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 space-y-4"
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3">
-                  {member.avatar_url ? (
-                    <img src={member.avatar_url} alt={member.full_name} className="w-10 h-10 rounded-full" />
-                  ) : (
-                    <div className="w-10 h-10 bg-[#1ABC9C] rounded-full flex items-center justify-center text-white font-semibold">
-                      {member.full_name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <p className="font-medium text-[#1A1A1A] dark:text-[#E0E0E0]">{member.full_name}</p>
-                    <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] capitalize">{member.role}</p>
-                  </div>
-                </div>
-
-                {/* Target Inputs */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Annual</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={member.annual_target != null ? String(member.annual_target) : ''}
-                      onChange={(e) => {
-                        const sanitized = sanitizeNumberInput(e.target.value);
-                        updateUserTarget(member.user_id, 'annual_target', sanitized || null);
-                      }}
-                      placeholder="Optional"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Quarterly</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={member.quarterly_target != null ? String(member.quarterly_target) : ''}
-                      onChange={(e) => {
-                        const sanitized = sanitizeNumberInput(e.target.value);
-                        updateUserTarget(member.user_id, 'quarterly_target', sanitized || null);
-                      }}
-                      placeholder="Optional"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Monthly</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={member.monthly_target != null ? String(member.monthly_target) : ''}
-                      onChange={(e) => {
-                        const sanitized = sanitizeNumberInput(e.target.value);
-                        updateUserTarget(member.user_id, 'monthly_target', sanitized || null);
-                      }}
-                      placeholder="Optional"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                {/* Visibility Controls */}
-                <div className="flex items-center gap-6 pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={member.show_on_dashboard}
-                      onChange={(e) => updateUserTarget(member.user_id, 'show_on_dashboard', e.target.checked)}
-                      className="w-4 h-4 text-[#1ABC9C] border-gray-300 rounded focus:ring-[#1ABC9C]"
-                    />
-                    <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Show on their dashboard</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={member.is_active}
-                      onChange={(e) => updateUserTarget(member.user_id, 'is_active', e.target.checked)}
-                      className="w-4 h-4 text-[#1ABC9C] border-gray-300 rounded focus:ring-[#1ABC9C]"
-                    />
-                    <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Active (counts toward team totals)</span>
-                  </label>
-                </div>
-
-                {/* Notes */}
-                <div>
-                  <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Notes (optional)</label>
-                  <input
-                    type="text"
-                    value={member.notes}
-                    onChange={(e) => updateUserTarget(member.user_id, 'notes', e.target.value)}
-                    placeholder="e.g., 'New hire - targets start Q2'"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* TODO: Team member revenue targets have been moved to the Team tab.
+          Once backend fields (user_targets table) and RPC are fully integrated with TeamDashboard,
+          per-user annual, quarterly, and monthly targets will be managed from the Team tab
+          instead of this Revenue Targets settings page. See TeamDashboard.jsx for implementation. */}
     </div>
   );
 };
