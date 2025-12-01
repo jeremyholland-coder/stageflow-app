@@ -15,6 +15,14 @@ import {
   updateUserProfileFromSignals,
   buildAdaptationPromptSnippet,
 } from './lib/aiUserProfile';
+// AI FALLBACK: Automatic provider failover chain
+import {
+  runWithFallback,
+  sortProvidersForFallback,
+  AllProvidersFailedError,
+  PROVIDER_NAMES,
+  logProviderAttempt
+} from './lib/ai-fallback';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1469,26 +1477,38 @@ export default async (req: Request, context: any) => {
       adaptationSnippet: userProfile ? buildAdaptationPromptSnippet(userProfile) : ''
     };
 
-    // Call AI provider with retry logic
-    let aiResponse;
-    let lastError;
-
-    for (const provider of [selectedProvider, ...providers.filter(p => p.id !== selectedProvider.id)]) {
-      try {
+    // AI FALLBACK: Use standardized fallback chain (openai → anthropic → google → xai)
+    // This ensures consistent failover behavior across all AI operations
+    const fallbackResult = await runWithFallback(
+      'mission-control',
+      providers,
+      async (provider) => {
         // LEARNING ENGINE: Pass enriched analysis with historical performance data
         // PHASE 3: Pass taskType for visual spec instructions
-        aiResponse = await callAIProvider(provider, message, enrichedAnalysis, conversationHistory, taskType);
-        break; // Success - exit loop
-      } catch (error: any) {
-        console.error(`Provider ${provider.provider_type} failed:`, error);
-        lastError = error;
-        // Continue to next provider
-      }
+        return await callAIProvider(provider, message, enrichedAnalysis, conversationHistory, taskType);
+      },
+      preferredProvider // Use user's preferred provider first if specified
+    );
+
+    // Check if all providers failed
+    if (!fallbackResult.success || !fallbackResult.result) {
+      // Log the full error chain for debugging
+      console.error('[ai-assistant] All providers failed:', fallbackResult.errors);
+
+      // Build user-friendly error message
+      const providerNames = fallbackResult.errors
+        .map(e => PROVIDER_NAMES[e.provider] || e.provider)
+        .filter(Boolean)
+        .join(', ');
+
+      const errorDetails = fallbackResult.errors
+        .map(e => `${e.provider}: ${e.errorType}`)
+        .join('; ');
+
+      throw new AllProvidersFailedError(fallbackResult.errors);
     }
 
-    if (!aiResponse) {
-      throw lastError || new Error('All AI providers failed');
-    }
+    const aiResponse = fallbackResult.result;
 
     // CRITICAL: Increment AI usage counter for organization (revenue tracking!)
     try {
@@ -1607,6 +1627,40 @@ export default async (req: Request, context: any) => {
 
   } catch (error: any) {
     console.error('AI Assistant error:', error);
+
+    // AI FALLBACK: Handle AllProvidersFailedError with detailed info
+    if (error instanceof AllProvidersFailedError) {
+      const providerNames = error.errors
+        .map(e => PROVIDER_NAMES[e.provider] || e.provider)
+        .filter(Boolean)
+        .join(', ');
+
+      return new Response(JSON.stringify({
+        error: 'ALL_PROVIDERS_FAILED',
+        response: `I tried all available AI providers (${providerNames}) but none could respond. This may be a temporary issue - please try again in a moment.`,
+        providersAttempted: error.providersAttempted,
+        errors: error.errors.map(e => ({
+          provider: e.provider,
+          errorType: e.errorType
+        })),
+        suggestions: ['Check your AI provider API keys in Settings', 'Try again in a few moments']
+      }), {
+        status: 503, // Service Unavailable
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check for auth/session errors - provide specific guidance
+    if (error?.message?.includes('401') || error?.message?.includes('session') || error?.message?.includes('auth')) {
+      return new Response(JSON.stringify({
+        error: 'SESSION_ERROR',
+        response: "We couldn't verify your session. Please sign out and sign back in, then try again.",
+        suggestions: ['Sign out and sign back in', 'Clear your browser cache if the issue persists']
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
     return new Response(JSON.stringify({
       error: error?.message || 'Internal server error',
