@@ -25,6 +25,8 @@ import { ActionMicroButtonGroup } from './ActionMicroButton';
 import { PlanMyDayChecklist } from './PlanMyDayChecklist';
 // PHASE 19B: Compact summary strip for Plan My Day
 import { PlanMyDaySummary } from './PlanMyDaySummary';
+// APMDOS: Adaptive Plan My Day Onboarding System
+import { useActivationState, markFeatureSeen } from '../hooks/useActivationState';
 
 // Metrics Summary Strip Component - Shows key performance stats
 const MetricsSummaryStrip = ({ metrics }) => {
@@ -94,8 +96,19 @@ const MetricsSummaryStrip = ({ metrics }) => {
   );
 };
 
-export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
-  const { user, organization, addNotification, setActiveView, VIEWS } = useApp();
+export const CustomQueryView = ({
+  deals = [],
+  isOnline: isOnlineProp,
+  // APMDOS: New props for adaptive onboarding
+  hasAIProviderProp,
+  user: userProp,
+  organization: organizationProp
+}) => {
+  const appContext = useApp();
+  // APMDOS: Use props if provided, otherwise fall back to context
+  const user = userProp || appContext.user;
+  const organization = organizationProp || appContext.organization;
+  const { addNotification, setActiveView, VIEWS } = appContext;
   const [query, setQuery] = useState('');
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -143,6 +156,16 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic
   const { hasProvider: hasProviders } = useAIProviderStatus(user, organization);
+  // APMDOS: Determine hasAIProvider - use prop if provided, otherwise use hook result
+  const hasAIProvider = hasAIProviderProp !== undefined ? hasAIProviderProp : hasProviders;
+
+  // APMDOS: Get activation state for adaptive onboarding
+  const activationState = useActivationState({
+    user,
+    organization,
+    deals,
+    hasAIProvider
+  });
 
   // AI FALLBACK: Track connected providers for fallback chain
   const [connectedProviders, setConnectedProviders] = useState([]);
@@ -1121,33 +1144,195 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         {/* Scrollable Conversation Area - Maximum space for AI content */}
         <div className="flex-1 overflow-y-auto space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
 
-          {/* Welcome State - Plan My Day as primary CTA */}
-          {conversationHistory.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center py-10 space-y-6">
-              {/* Compact icon */}
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
-                <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
+          {/* APMDOS: Goal Summary Bar - Show when user has goals (STATE_D+) */}
+          {activationState.hasGoals && activationState.goalProgress && conversationHistory.length === 0 && !loading && (
+            <div className="bg-white/[0.03] backdrop-blur-sm border border-white/[0.08] rounded-xl p-4 mb-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-[#0CE3B1]" />
+                <span className="text-xs font-semibold text-white/80">Goal Progress</span>
               </div>
-
-              {/* Heading and Plan My Day CTA */}
-              <div className="text-center max-w-sm space-y-4">
-                <p className="text-base text-white/80 font-medium">
-                  Start your day with a quick plan.
-                </p>
-
-                {/* Primary CTA: Plan My Day - only show when AI is available */}
-                {hasProviders && isOnline && (
-                  <PlanMyDayButton
-                    onClick={() => handleQuickAction('plan_my_day')}
-                    disabled={loading || isSubmitting}
-                    loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-                  />
+              <div className="grid grid-cols-3 gap-3">
+                {activationState.goalProgress.monthly && (
+                  <div className="text-center">
+                    <div className={`text-lg font-bold ${
+                      activationState.goalProgress.monthly.status === 'on_track' ? 'text-emerald-400' :
+                      activationState.goalProgress.monthly.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {activationState.goalProgress.monthly.percent}%
+                    </div>
+                    <div className="text-[10px] text-white/40">Monthly</div>
+                  </div>
                 )}
-
-                <p className="text-xs text-white/40 pt-2">
-                  Or ask anything about your deals in the chat box below.
-                </p>
+                {activationState.goalProgress.quarterly && (
+                  <div className="text-center">
+                    <div className={`text-lg font-bold ${
+                      activationState.goalProgress.quarterly.status === 'on_track' ? 'text-emerald-400' :
+                      activationState.goalProgress.quarterly.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {activationState.goalProgress.quarterly.percent}%
+                    </div>
+                    <div className="text-[10px] text-white/40">Quarterly</div>
+                  </div>
+                )}
+                {activationState.goalProgress.annual && (
+                  <div className="text-center">
+                    <div className={`text-lg font-bold ${
+                      activationState.goalProgress.annual.status === 'on_track' ? 'text-emerald-400' :
+                      activationState.goalProgress.annual.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {activationState.goalProgress.annual.percent}%
+                    </div>
+                    <div className="text-[10px] text-white/40">Annual</div>
+                  </div>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* APMDOS: Adaptive Welcome State */}
+          {conversationHistory.length === 0 && !loading && (
+            <div className="flex flex-col items-center justify-center py-8 space-y-6">
+
+              {/* STATE_A: No AI Connected - Setup Prompt */}
+              {activationState.state === 'A' && (
+                <>
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 border border-amber-500/20 flex items-center justify-center">
+                    <Settings className="w-7 h-7 text-amber-400" strokeWidth={1.5} />
+                  </div>
+                  <div className="text-center max-w-sm space-y-4">
+                    <p className="text-base text-white/80 font-medium">
+                      Connect your AI to unlock coaching
+                    </p>
+                    <p className="text-sm text-white/50">
+                      Add your OpenAI, Anthropic, or Google AI key to get personalized daily plans and deal insights.
+                    </p>
+                    <button
+                      onClick={() => setActiveView && setActiveView(VIEWS?.SETTINGS)}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white font-semibold rounded-xl hover:scale-[1.02] transition-all shadow-lg shadow-[#0CE3B1]/20"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Connect AI Provider
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* STATE_B: No Deals - Onboarding Wizard */}
+              {activationState.state === 'B' && (
+                <>
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
+                    <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
+                  </div>
+                  <div className="text-center max-w-sm space-y-4">
+                    <p className="text-base text-white/80 font-medium">
+                      Welcome! Let's set you up in 30 seconds.
+                    </p>
+                    <div className="space-y-3 text-left bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-6 h-6 rounded-full bg-[#0CE3B1]/20 flex items-center justify-center text-xs font-bold text-[#0CE3B1]">1</div>
+                        <span className="text-sm text-white/70">Create your first deal or import from CSV</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white/50">2</div>
+                        <span className="text-sm text-white/50">Set your annual revenue goal</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white/50">3</div>
+                        <span className="text-sm text-white/50">Get daily AI coaching</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-white/40">
+                      Go to the Pipeline tab to add your first deal.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* STATE_C: Few Deals (<5) - Activation Tasks */}
+              {activationState.state === 'C' && (
+                <>
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
+                    <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
+                  </div>
+                  <div className="text-center max-w-sm space-y-4">
+                    <p className="text-base text-white/80 font-medium">
+                      Great start! Here's how to get more value:
+                    </p>
+                    <div className="space-y-2 text-left bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
+                      <div className="flex items-center gap-2 text-sm text-white/60">
+                        <CheckCircle className="w-4 h-4 text-[#0CE3B1]" />
+                        <span>Add confidence scores to your deals</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-white/60">
+                        <CheckCircle className="w-4 h-4 text-[#0CE3B1]" />
+                        <span>Set expected close dates</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-white/60">
+                        <CheckCircle className="w-4 h-4 text-[#0CE3B1]" />
+                        <span>Import more contacts from your CRM</span>
+                      </div>
+                    </div>
+                    {/* Still show Plan My Day for users with some deals */}
+                    {hasProviders && isOnline && (
+                      <PlanMyDayButton
+                        onClick={() => handleQuickAction('plan_my_day')}
+                        disabled={loading || isSubmitting}
+                        loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* STATE_D & E: Has Goals or Fully Activated - Standard Plan My Day */}
+              {(activationState.state === 'D' || activationState.state === 'E') && (
+                <>
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
+                    <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
+                  </div>
+                  <div className="text-center max-w-sm space-y-4">
+                    <p className="text-base text-white/80 font-medium">
+                      Start your day with a quick plan.
+                    </p>
+                    {hasProviders && isOnline && (
+                      <PlanMyDayButton
+                        onClick={() => handleQuickAction('plan_my_day')}
+                        disabled={loading || isSubmitting}
+                        loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                      />
+                    )}
+                    <p className="text-xs text-white/40 pt-2">
+                      Or ask anything about your deals in the chat box below.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* APMDOS: Feature Discovery Tips */}
+              {activationState.tips.length > 0 && (
+                <div className="w-full max-w-sm mt-4">
+                  {activationState.tips.slice(0, 1).map(tip => (
+                    <div
+                      key={tip.id}
+                      className="flex items-start gap-3 p-3 bg-white/[0.02] rounded-lg border border-white/[0.05]"
+                    >
+                      <Info className="w-4 h-4 text-[#0CE3B1] flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs text-white/60">{tip.text}</p>
+                        <button
+                          onClick={() => {
+                            tip.dismiss();
+                            // Force re-render by updating a state (optional)
+                          }}
+                          className="text-[10px] text-white/30 hover:text-white/50 mt-1"
+                        >
+                          Got it
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

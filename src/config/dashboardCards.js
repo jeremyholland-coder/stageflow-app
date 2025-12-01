@@ -74,17 +74,22 @@ export const DASHBOARD_CARDS = {
     component: MissionControlPanel,
     icon: Sparkles,
     defaultVisible: true,
-    requiresFeature: 'AI provider connected',
+    // APMDOS: Removed requiresFeature - always show for adaptive onboarding
 
-    // Only show if user has AI provider
-    isAvailable: ({ hasAIProvider, checkingAI }) => hasAIProvider && !checkingAI,
+    // APMDOS: Always show - component handles adaptive content internally
+    // New users see onboarding wizard, activated users see full coaching
+    isAvailable: ({ checkingAI }) => !checkingAI,
 
-    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets }) => ({
+    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, hasAIProvider, user, organization }) => ({
       healthAlert,
       orphanedDealIds,
       onDismissAlert,
       deals,
-      targets: targets || {}
+      targets: targets || {},
+      // APMDOS: Pass activation state props
+      hasAIProvider,
+      user,
+      organization
     })
   },
 

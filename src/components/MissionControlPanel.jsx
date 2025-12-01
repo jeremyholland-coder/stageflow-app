@@ -252,9 +252,16 @@ export const MissionControlPanel = ({
   healthAlert = null,
   orphanedDealIds = new Set(),
   onDismissAlert = () => {},
-  targets = {}
+  targets = {},
+  // APMDOS: New props for adaptive onboarding
+  hasAIProvider: hasAIProviderProp,
+  user: userProp,
+  organization: organizationProp
 }) => {
-  const { user, organization } = useApp();
+  const appContext = useApp();
+  // APMDOS: Use props if provided, otherwise fall back to context
+  const user = userProp || appContext.user;
+  const organization = organizationProp || appContext.organization;
   const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
   const [newTaskInput, setNewTaskInput] = useState('');
   const [aiTasks, setAiTasks] = useState([]);
@@ -497,12 +504,16 @@ export const MissionControlPanel = ({
         )}
 
         {/* COACH TAB - CustomQueryView with AI conversation */}
+        {/* APMDOS: Pass activation props for adaptive onboarding */}
         {activeTab === 'coach' && (
           <CustomQueryView
             deals={deals}
             healthAlert={healthAlert}
             orphanedDealIds={orphanedDealIds}
             onDismissAlert={onDismissAlert}
+            hasAIProviderProp={hasAIProviderProp}
+            user={user}
+            organization={organization}
           />
         )}
 
