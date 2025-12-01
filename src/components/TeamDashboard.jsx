@@ -69,20 +69,11 @@ export const TeamDashboard = () => {
       const orgId = member.organization_id;
       setOrganizationId(orgId);
 
-      // Get all team members for this organization with user profile data for display
-      // FIX: Join with profiles table to fetch email AND raw_user_meta_data for full_name
+      // Get all team members for this organization (simple query - no joins)
       const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
-          .select(`
-            user_id,
-            role,
-            created_at,
-            profiles:user_id (
-              email,
-              raw_user_meta_data
-            )
-          `)
+          .select('user_id, role, created_at')
           .eq('organization_id', orgId)
           .order('created_at', { ascending: true }),
         timeoutPromise
@@ -92,11 +83,41 @@ export const TeamDashboard = () => {
         console.error('[TeamDashboard] Error fetching team members:', membersError);
       }
 
-      if (!members) return;
+      if (!members || members.length === 0) {
+        console.log('[TeamDashboard] No team members found for org:', orgId);
+        return;
+      }
+
+      // Fetch profile data separately for all member user_ids
+      const userIds = members.map(m => m.user_id);
+      const { data: profiles, error: profilesError } = await Promise.race([
+        supabase
+          .from('profiles')
+          .select('id, email, raw_user_meta_data')
+          .in('id', userIds),
+        timeoutPromise
+      ]);
+
+      if (profilesError) {
+        console.error('[TeamDashboard] Error fetching profiles:', profilesError);
+        // Continue without profile data - we'll use fallbacks
+      }
+
+      // Create a map of user_id -> profile for quick lookup
+      const profileMap = new Map();
+      if (profiles) {
+        profiles.forEach(p => profileMap.set(p.id, p));
+      }
+
+      // Merge profile data into members
+      const membersWithProfiles = members.map(m => ({
+        ...m,
+        profiles: profileMap.get(m.user_id) || null
+      }));
 
       // QA FIX: Deduplicate members by user_id (handles rare edge case of user in multiple orgs)
       const uniqueMembers = Array.from(
-        new Map(members.map(m => [m.user_id, m])).values()
+        new Map(membersWithProfiles.map(m => [m.user_id, m])).values()
       );
 
       // Get all deals for the organization
