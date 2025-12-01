@@ -1,10 +1,18 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, Sparkles, Loader2, MessageSquare, Settings, ExternalLink, RotateCcw, AlertCircle, TrendingUp, Target, BarChart3, AlertTriangle, Users, DollarSign, CheckCircle, Percent, Clock, Award, WifiOff, History, Zap, LineChart } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Send, Sparkles, Loader2, MessageSquare, Settings, ExternalLink, RotateCcw, AlertCircle, TrendingUp, Target, BarChart3, AlertTriangle, Users, DollarSign, CheckCircle, Percent, Clock, Award, WifiOff, History, Zap, LineChart, Info } from 'lucide-react';
 import { useApp } from './AppShell';
 import { supabase } from '../lib/supabase';
 import { DealAnalyticsChartLazy as DealAnalyticsChart } from './DealAnalyticsChartLazy';
 import { renderMarkdown } from '../lib/format-ai-response.jsx';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook
+// AI FALLBACK: Import fallback utilities for provider resilience
+import {
+  runAIQueryWithFallback,
+  fetchConnectedProviders,
+  generateFallbackNotice,
+  generateAllFailedMessage
+} from '../lib/ai-fallback';
+import { getProviderDisplayName, isProviderErrorResponse } from '../ai/stageflowConfig';
 // OFFLINE PHASE 4B: Cache AI insights and build offline snapshots
 import { saveAIInsight, loadLastAIInsight, extractSummary } from '../lib/aiOfflineCache';
 import { buildOfflineSnapshot } from '../lib/offlineSnapshot';
@@ -135,6 +143,33 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic
   const { hasProvider: hasProviders } = useAIProviderStatus(user, organization);
+
+  // AI FALLBACK: Track connected providers for fallback chain
+  const [connectedProviders, setConnectedProviders] = useState([]);
+  const [primaryProvider, setPrimaryProvider] = useState(null);
+
+  // AI FALLBACK: Fetch connected providers when organization changes
+  useEffect(() => {
+    if (!organization?.id || !isOnline) {
+      setConnectedProviders([]);
+      return;
+    }
+
+    const loadProviders = async () => {
+      try {
+        const providers = await fetchConnectedProviders(organization.id);
+        setConnectedProviders(providers);
+        // Set primary provider to the first one (most recently added)
+        if (providers.length > 0 && !primaryProvider) {
+          setPrimaryProvider(providers[0].provider_type);
+        }
+      } catch (error) {
+        console.error('[CustomQueryView] Failed to load providers:', error);
+      }
+    };
+
+    loadProviders();
+  }, [organization?.id, isOnline]);
 
   // OFFLINE PHASE 4B: State for offline snapshot and cached insight
   const [offlineSnapshot, setOfflineSnapshot] = useState(null);
@@ -458,12 +493,18 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
           }
         }
 
+        // AI FALLBACK: Check if streamed response is a provider error
+        // This happens when Grok returns 403 - the backend returns an error message as content
+        const hasProviderError = isProviderErrorResponse(accumulatedContent);
+
         // Mark streaming complete and add chart data if present
         setConversationHistory(prev => prev.map(msg =>
           msg.id === aiMessageId
             ? {
                 ...msg,
                 streaming: false,
+                // AI FALLBACK: Mark if this was a provider error (shows retry hint)
+                isProviderError: hasProviderError,
                 // CHART PARITY: Include chart data from streaming endpoint
                 ...(chartData && { chartData }),
                 ...(chartType && { chartType }),
@@ -473,6 +514,11 @@ export const CustomQueryView = ({ deals = [], isOnline: isOnlineProp }) => {
               }
             : msg
         ));
+
+        // AI FALLBACK: If provider error detected, show notification suggesting retry
+        if (hasProviderError && connectedProviders.length > 1) {
+          addNotification('This AI provider is temporarily unavailable. Try again to use another provider.', 'info');
+        }
       } finally {
         // CRITICAL FIX: Always clear timeout to prevent memory leak
         clearTimeout(streamTimeout);
@@ -868,74 +914,41 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
       // PHASE 5.3: Collect and send AI signals with request
       const aiSignals = consumePendingSignals();
 
-      const response = await fetch('/.netlify/functions/ai-assistant', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include', // Use HttpOnly cookies for auth
-        body: JSON.stringify({
-          message: queryText,
-          deals: deals || [],  // MOBILE FIX: Ensure deals is always an array
-          conversationHistory: conversationHistory,
-          aiSignals: aiSignals  // PHASE 5.3: Send behavioral signals
-        })
+      // AI FALLBACK: Use fallback-enabled query that tries multiple providers
+      const data = await runAIQueryWithFallback({
+        message: queryText,
+        deals: deals || [],
+        conversationHistory: conversationHistory,
+        primaryProvider: primaryProvider,
+        organizationId: organization?.id,
+        connectedProviders: connectedProviders,
+        aiSignals: aiSignals
       });
 
       clearTimeout(timeoutId);
 
-      // Handle 401 Unauthorized - session expired (check before parsing JSON)
-      if (response.status === 401) {
-        addNotification('Your session has expired. Please log in again to use AI insights.', 'error');
+      // Handle AI limit reached (propagated from fallback helper)
+      if (data.error === 'AI_LIMIT_REACHED' || data.limitReached) {
+        addNotification(`AI limit reached: ${data.used}/${data.limit} requests used this month. Upgrade to continue.`, 'error');
         setConversationHistory(prev => prev.slice(0, -1));
+        const limitMessage = {
+          role: 'system',
+          content: `AI Limit Reached\n\nYou've used ${data.used} of ${data.limit} monthly AI requests. To continue using AI features, please upgrade your plan.\n\nClick Settings -> Billing to upgrade now.`,
+          isLimit: true
+        };
+        setConversationHistory(prev => [...prev, limitMessage]);
         return;
       }
 
-      // Parse JSON with error handling for empty responses
-      let data;
-      try {
-        const text = await response.text();
-        if (!text || text.trim() === '') {
-          throw new Error('Empty response from AI assistant');
-        }
-        data = JSON.parse(text);
-      } catch (jsonError) {
-        console.error('JSON parse error:', jsonError);
-        throw new Error(`Failed to parse AI response: ${jsonError.message}`);
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get AI response');
-      }
-
-      if (data.error) {
-        if (data.error.includes('No AI provider configured')) {
-          addNotification('Please connect an AI provider first', 'error');
-          setConversationHistory(prev => prev.slice(0, -1));
-          return;
-        }
-        // Handle AI limit reached
-        if (data.error === 'AI_LIMIT_REACHED' || data.limitReached) {
-          addNotification(`AI limit reached: ${data.used}/${data.limit} requests used this month. Upgrade to continue.`, 'error');
-          setConversationHistory(prev => prev.slice(0, -1));
-          // Add system message about limit
-          const limitMessage = {
-            role: 'system',
-            content: `⚠️ AI Limit Reached\n\nYou've used ${data.used} of ${data.limit} monthly AI requests. To continue using AI features, please upgrade your plan.\n\nClick Settings → Billing to upgrade now.`,
-            isLimit: true
-          };
-          setConversationHistory(prev => [...prev, limitMessage]);
-          return;
-        }
-        throw new Error(data.error);
-      }
-
-      // Add AI response to conversation (with optional chart data)
+      // Add AI response to conversation with fallback metadata
       const aiMessage = {
         role: 'assistant',
         content: data.response,
         provider: data.provider || 'AI',
+        // AI FALLBACK: Include fallback metadata for UI display
+        fallbackOccurred: data.fallbackOccurred || false,
+        originalProvider: data.originalProvider,
+        providerTypeUsed: data.providerTypeUsed,
         ...(data.chartData && { chartData: data.chartData }),
         ...(data.chartType && { chartType: data.chartType }),
         ...(data.chartTitle && { chartTitle: data.chartTitle })
@@ -958,9 +971,6 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         });
       }
 
-      // AIDASH-EDGE-01 FIX: Removed reset here - now handled at start of handleQueryStreaming
-      // for manual queries only. This ensures Plan My Day micro-buttons stay visible.
-
     } catch (error) {
       clearTimeout(timeoutId);
       console.error('Error querying AI:', error);
@@ -969,6 +979,11 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
       if (error.name === 'AbortError') {
         addNotification('Request timed out. The AI is taking longer than expected. Please try again.', 'error');
+      } else if (error.isAllProvidersFailed) {
+        // AI FALLBACK: All providers failed - show comprehensive error
+        addNotification(generateAllFailedMessage(error.attemptedProviders), 'error');
+      } else if (error.status === 401) {
+        addNotification('Your session has expired. Please log in again to use AI insights.', 'error');
       } else {
         addNotification(error.message || 'Failed to get AI response. Try again.', 'error');
       }
@@ -1203,6 +1218,15 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                             </span>
                           )}
                         </div>
+                        {/* AI FALLBACK: Show notice when a fallback provider was used */}
+                        {message.fallbackOccurred && message.originalProvider && message.providerTypeUsed && (
+                          <div className="flex items-start gap-2 mb-3 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                            <Info className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-xs text-blue-300/90">
+                              {generateFallbackNotice(message.originalProvider, message.providerTypeUsed)}
+                            </p>
+                          </div>
+                        )}
                         <div className="text-sm text-white/90 leading-relaxed">
                           {/* PHASE 19B: Show summary strip for Plan My Day responses */}
                           {!message.streaming && message.structuredResponse?.response_type === 'plan_my_day' && (

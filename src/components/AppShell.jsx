@@ -1088,9 +1088,12 @@ export const AppProvider = ({ children }) => {
   // PERFORMANCE OPTIMIZATION: Split frequently-changing notifications from stable context
   // notifications array changes every 3 seconds (auto-dismiss), causing unnecessary re-renders
   // Stable values memoized separately to prevent cascade re-renders
+  // CRITICAL FIX: Added setUser and setupOrganization to context
+  // These were missing, causing password reset auto-login to fail
+  // App.jsx ResetPasswordModalContainer needs these to set user after password update
   const stableContextValue = React.useMemo(() => ({
-    user, logout, loading, darkMode, setDarkMode, activeView, setActiveView,
-    addNotification, removeNotification, organization, userRole, orgLoading, orgSetupRetrying,
+    user, setUser, logout, loading, darkMode, setDarkMode, activeView, setActiveView,
+    addNotification, removeNotification, organization, setupOrganization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl, setAvatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
     showResetPassword, setShowResetPassword, resetPasswordSession, setResetPasswordSession,
@@ -1100,7 +1103,8 @@ export const AppProvider = ({ children }) => {
     addNotification, removeNotification, organization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
-    showResetPassword, resetPasswordSession
+    showResetPassword, resetPasswordSession,
+    setupOrganization // Added - stable due to empty deps in useCallback
   ]);
 
   // Add notifications separately to avoid re-renders when they change

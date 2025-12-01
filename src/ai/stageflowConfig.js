@@ -180,10 +180,142 @@ export function formatPercentage(value) {
   return `${Math.round(value)}%`;
 }
 
+/**
+ * Provider Fallback Configuration
+ *
+ * Defines the order in which AI providers should be tried if the primary fails.
+ * The provider IDs must match the provider_type values in the ai_providers table.
+ */
+export const PROVIDER_FALLBACK_ORDER = ['grok', 'claude', 'gpt4o', 'gemini'];
+
+/**
+ * Provider ID mapping to display names
+ * Used for user-friendly messages when showing which provider was used
+ */
+export const PROVIDER_DISPLAY_NAMES = {
+  'xai': 'Grok',
+  'grok': 'Grok',
+  'anthropic': 'Claude',
+  'claude': 'Claude',
+  'openai': 'ChatGPT',
+  'gpt4o': 'ChatGPT',
+  'google': 'Gemini',
+  'gemini': 'Gemini'
+};
+
+/**
+ * Error patterns that indicate a provider-specific failure
+ * These patterns help detect "soft failures" where the API returns 200 but with an error message
+ */
+export const PROVIDER_ERROR_PATTERNS = [
+  "I'm unable to connect to",
+  "API key needs credits or permissions",
+  "Invalid API key",
+  "rate limit exceeded",
+  "quota exceeded",
+  "authentication failed",
+  "unauthorized"
+];
+
+/**
+ * Map provider_type values to internal fallback IDs
+ * The ai_providers table uses 'xai' for Grok, 'openai' for ChatGPT, etc.
+ */
+export const PROVIDER_TYPE_TO_FALLBACK_ID = {
+  'xai': 'grok',
+  'openai': 'gpt4o',
+  'anthropic': 'claude',
+  'google': 'gemini'
+};
+
+/**
+ * Map fallback IDs back to provider_type for API calls
+ */
+export const FALLBACK_ID_TO_PROVIDER_TYPE = {
+  'grok': 'xai',
+  'gpt4o': 'openai',
+  'claude': 'anthropic',
+  'gemini': 'google'
+};
+
+/**
+ * Get an ordered list of providers to try, starting with the primary
+ *
+ * @param {string} primaryProvider - The user's preferred/default provider_type (e.g., 'xai', 'openai')
+ * @param {Array} connectedProviders - Array of connected provider objects from Supabase
+ * @returns {Array} Ordered array of provider_type values to try
+ */
+export function getProviderFallbackChain(primaryProvider, connectedProviders) {
+  if (!connectedProviders || !Array.isArray(connectedProviders)) {
+    return primaryProvider ? [primaryProvider] : [];
+  }
+
+  // Filter to only active/connected providers
+  const activeProviders = connectedProviders.filter(p => p && p.active !== false);
+
+  // Get the set of connected provider_type values
+  const connectedTypes = new Set(activeProviders.map(p => p.provider_type));
+
+  // Build the fallback chain
+  const chain = [];
+
+  // Start with primary if it's connected
+  if (primaryProvider && connectedTypes.has(primaryProvider)) {
+    chain.push(primaryProvider);
+  }
+
+  // Add remaining providers in priority order
+  for (const fallbackId of PROVIDER_FALLBACK_ORDER) {
+    const providerType = FALLBACK_ID_TO_PROVIDER_TYPE[fallbackId];
+    if (providerType && connectedTypes.has(providerType) && !chain.includes(providerType)) {
+      chain.push(providerType);
+    }
+  }
+
+  return chain;
+}
+
+/**
+ * Check if an AI response indicates a provider-specific failure
+ * These are "soft" failures where the API returns 200 but the response is an error message
+ *
+ * @param {string} responseText - The text content of the AI response
+ * @returns {boolean} True if the response appears to be a provider error
+ */
+export function isProviderErrorResponse(responseText) {
+  if (!responseText || typeof responseText !== 'string') {
+    return false;
+  }
+
+  const lowerText = responseText.toLowerCase();
+  return PROVIDER_ERROR_PATTERNS.some(pattern =>
+    lowerText.includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Get the display name for a provider type
+ *
+ * @param {string} providerType - The provider_type value (e.g., 'xai', 'openai')
+ * @returns {string} Human-readable provider name
+ */
+export function getProviderDisplayName(providerType) {
+  return PROVIDER_DISPLAY_NAMES[providerType] || providerType || 'AI';
+}
+
 export default {
   STAGEFLOW_AI_RULES,
   sanitizeAIText,
   parseAIResponseSections,
   formatCurrency,
-  formatPercentage
+  formatPercentage,
+  // Provider fallback exports
+  PROVIDER_FALLBACK_ORDER,
+  PROVIDER_DISPLAY_NAMES,
+  PROVIDER_ERROR_PATTERNS,
+  PROVIDER_TYPE_TO_FALLBACK_ID,
+  FALLBACK_ID_TO_PROVIDER_TYPE,
+  getProviderFallbackChain,
+  isProviderErrorResponse,
+  getProviderDisplayName
 };
