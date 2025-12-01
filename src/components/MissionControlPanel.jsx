@@ -1,25 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Sparkles,
-  Calendar,
   CheckSquare,
   TrendingUp,
   GraduationCap,
-  Award,
-  Clock,
-  AlertTriangle,
   Target,
-  DollarSign,
   RefreshCw,
-  Plus,
-  ChevronRight
+  Plus
 } from 'lucide-react';
 import { useApp } from './AppShell';
 import { CustomQueryView } from './CustomQueryView';
 import { PlanMyDayChecklist } from './PlanMyDayChecklist';
 import { useMissionControlTasks } from '../hooks/useMissionControlTasks';
-import { buildOfflineSnapshot, buildGoalProgress } from '../lib/offlineSnapshot';
-import { formatCurrency, formatPercentage } from '../ai/stageflowConfig';
+import { buildOfflineSnapshot } from '../lib/offlineSnapshot';
+import { formatCurrency } from '../ai/stageflowConfig';
 
 /**
  * MissionControlPanel - Phase 1 Unified AI Panel
@@ -183,69 +177,6 @@ const PerformanceCard = ({ title, current, target, period, daysElapsed, totalDay
 };
 
 /**
- * Coach Card Component - For coaching insights
- */
-const CoachCard = ({ headline, signals = [], suggestions = [] }) => {
-  return (
-    <div className="bg-white/[0.03] backdrop-blur-md border border-white/[0.08] rounded-2xl p-5 shadow-[0_4px_20px_rgba(0,0,0,0.1)]">
-      {/* Headline */}
-      {headline && (
-        <div className="flex items-start gap-3 mb-4 pb-4 border-b border-white/[0.06]">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 flex items-center justify-center flex-shrink-0">
-            <GraduationCap className="w-5 h-5 text-[#0CE3B1]" />
-          </div>
-          <p className="text-sm text-white font-medium leading-relaxed">{headline}</p>
-        </div>
-      )}
-
-      {/* Signals */}
-      {signals.length > 0 && (
-        <div className="mb-4">
-          <h5 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">
-            Signals We See
-          </h5>
-          <ul className="space-y-2">
-            {signals.slice(0, 5).map((signal, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-xs text-white/70">
-                <ChevronRight className="w-3 h-3 text-[#0CE3B1] mt-0.5 flex-shrink-0" />
-                <span>{signal}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Suggestions */}
-      {suggestions.length > 0 && (
-        <div>
-          <h5 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">
-            Coaching Suggestions
-          </h5>
-          <ul className="space-y-2">
-            {suggestions.slice(0, 5).map((suggestion, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-xs text-white/70">
-                <Target className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
-                <span>{suggestion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!headline && signals.length === 0 && suggestions.length === 0 && (
-        <div className="text-center py-8">
-          <GraduationCap className="w-10 h-10 text-white/20 mx-auto mb-3" />
-          <p className="text-sm text-white/40">
-            Run "Plan My Day" to get personalized coaching insights.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-/**
  * Mission Control Task Item Component
  */
 const TaskItem = ({ task, isCompleted, onToggle }) => {
@@ -321,8 +252,7 @@ export const MissionControlPanel = ({
   healthAlert = null,
   orphanedDealIds = new Set(),
   onDismissAlert = () => {},
-  targets = {},
-  coachingData = null
+  targets = {}
 }) => {
   const { user, organization } = useApp();
   const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
@@ -732,38 +662,6 @@ export const MissionControlPanel = ({
           </div>
         )}
 
-        {/* COACH TAB */}
-        {activeTab === 'coach' && (
-          <div className="space-y-5">
-            <CoachCard
-              headline={coachingData?.headline || null}
-              signals={coachingData?.signals || []}
-              suggestions={coachingData?.suggestions || []}
-            />
-
-            {/* Quick coaching tips (always shown) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="w-4 h-4 text-blue-400" />
-                  <h5 className="text-xs font-semibold text-white/70">Pipeline Velocity</h5>
-                </div>
-                <p className="text-xs text-white/50 leading-relaxed">
-                  Deals moving faster through stages typically close at higher rates. Focus on deals that show momentum.
-                </p>
-              </div>
-              <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                  <h5 className="text-xs font-semibold text-white/70">High-Value Focus</h5>
-                </div>
-                <p className="text-xs text-white/50 leading-relaxed">
-                  Deals over $10k that haven't been touched in 14+ days need attention. Don't let them go cold.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

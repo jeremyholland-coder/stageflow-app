@@ -79,13 +79,12 @@ export const DASHBOARD_CARDS = {
     // Only show if user has AI provider
     isAvailable: ({ hasAIProvider, checkingAI }) => hasAIProvider && !checkingAI,
 
-    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, coachingData }) => ({
+    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets }) => ({
       healthAlert,
       orphanedDealIds,
       onDismissAlert,
       deals,
-      targets: targets || {},
-      coachingData: coachingData || null
+      targets: targets || {}
     })
   },
 
