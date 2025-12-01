@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState, useEffect } from 'react';
 import { DollarSign, Target, TrendingUp as TrendingUpIcon, TrendingDown as TrendingDownIcon, XCircle, Minus, Zap } from 'lucide-react';
 import { buildUserPerformanceProfiles, calculateDealConfidence } from '../utils/aiConfidence';
 import { LEAD_STAGES } from '../config/pipelineConfig';
@@ -69,7 +69,46 @@ const StatCard = memo(({
 
 StatCard.displayName = 'StatCard';
 
-export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
+// Skeleton tile for loading state
+const SkeletonCard = memo(() => (
+  <div className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/20 rounded-2xl p-6 animate-pulse">
+    <div className="flex items-center justify-between mb-4">
+      <div className="w-14 h-14 rounded-xl bg-teal-500/10" />
+    </div>
+    <div className="space-y-3">
+      <div className="h-3 bg-gray-700/50 rounded w-16" />
+      <div className="h-8 bg-gray-700/30 rounded w-24" />
+      <div className="h-3 bg-gray-700/20 rounded w-32" />
+    </div>
+  </div>
+));
+
+SkeletonCard.displayName = 'SkeletonCard';
+
+export const DashboardStats = memo(({ deals = [], currentUser = null, loading = false }) => {
+  // PHASE UX-B: Track initial load for skeleton state
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  useEffect(() => {
+    if (!loading && deals !== undefined) {
+      setHasLoadedOnce(true);
+    }
+  }, [loading, deals]);
+
+  // Show skeletons during initial load
+  const showSkeletons = loading || !hasLoadedOnce;
+
+  if (showSkeletons) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        {[1, 2, 3, 4, 5].map(i => <SkeletonCard key={i} />)}
+      </div>
+    );
+  }
+
+  // PHASE UX-A: Detect empty state for friendly messaging
+  const hasDeals = deals && deals.length > 0;
+
   // Memoize expensive calculations
   const stats = useMemo(() => {
     const now = new Date();
@@ -266,11 +305,13 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+      {/* PHASE UX-A: Friendly empty state text when no deals */}
       <StatCard
         icon={Target}
         label="Leads"
         value={`$${stats.leadsTotal.toLocaleString()}`}
-        subValue={`${stats.leadsCount} leads • Avg age: ${stats.avgLeadAge}d`}
+        subValue={hasDeals ? `${stats.leadsCount} leads • Avg age: ${stats.avgLeadAge}d` : 'No leads yet'}
+        extraInfo={!hasDeals ? 'Create your first deal to get started' : null}
         colorClass="text-[#3A86FF]"
         trend={stats.leadsCount > 0 ? 'neutral' : null}
       />
@@ -279,8 +320,8 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         icon={DollarSign}
         label="Active Pipeline"
         value={`$${stats.activePipelineTotal.toLocaleString()}`}
-        subValue={`${stats.activePipelineCount} deals • Avg age: ${stats.avgDealAge}d`}
-        extraInfo={stats.historicalWinRate > 0 ? `Expected close: $${stats.expectedClose.toLocaleString()} (${stats.wonRatePercent}%)` : null}
+        subValue={hasDeals ? `${stats.activePipelineCount} deals • Avg age: ${stats.avgDealAge}d` : 'Create deals to track pipeline'}
+        extraInfo={hasDeals && stats.historicalWinRate > 0 ? `Expected close: $${stats.expectedClose.toLocaleString()} (${stats.wonRatePercent}%)` : null}
         colorClass="text-[#1ABC9C]"
         trend={stats.activePipelineCount > 0 ? 'neutral' : null}
       />
@@ -289,8 +330,8 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         icon={Zap}
         label="Closing Soon"
         value={`$${Math.round(stats.closingSoonTotal).toLocaleString()}`}
-        subValue={`${stats.closingSoonCount} ${stats.closingSoonCount === 1 ? 'deal' : 'deals'} • Next 14 days`}
-        extraInfo={stats.closingSoonCount > 0 ? `Avg confidence: ${stats.avgClosingSoonConfidence}%` : 'AI-powered forecast'}
+        subValue={hasDeals ? `${stats.closingSoonCount} ${stats.closingSoonCount === 1 ? 'deal' : 'deals'} • Next 14 days` : 'Add deals to see AI forecasts'}
+        extraInfo={hasDeals && stats.closingSoonCount > 0 ? `Avg confidence: ${stats.avgClosingSoonConfidence}%` : (hasDeals ? 'AI-powered forecast' : 'Powered by AI insights')}
         colorClass="text-[#F39C12]"
         trend={stats.closingSoonCount > 0 ? 'up' : null}
       />
@@ -299,8 +340,8 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         icon={TrendingUpIcon}
         label="Won/Retention"
         value={`$${stats.wonThisMonthTotal.toLocaleString()}`}
-        subValue={`${stats.wonThisMonthCount} deals • ${stats.wonRatePercent}% win rate`}
-        extraInfo={currentUser && stats.userWonThisMonth > 0 ? `You: $${stats.userWonThisMonth.toLocaleString()} (${stats.userPercentage}%)` : null}
+        subValue={hasDeals ? `${stats.wonThisMonthCount} deals • ${stats.wonRatePercent}% win rate` : 'No wins this month yet'}
+        extraInfo={hasDeals && currentUser && stats.userWonThisMonth > 0 ? `You: $${stats.userWonThisMonth.toLocaleString()} (${stats.userPercentage}%)` : null}
         colorClass="text-[#27AE60]"
         trend={stats.wonTrend !== null ? (stats.wonTrend > 0 ? 'up' : stats.wonTrend < 0 ? 'down' : 'neutral') : null}
         trendValue={stats.wonTrend}
@@ -310,7 +351,7 @@ export const DashboardStats = memo(({ deals = [], currentUser = null }) => {
         icon={XCircle}
         label="Lost This Month"
         value={`$${stats.lostThisMonthTotal.toLocaleString()}`}
-        subValue={`${stats.lostThisMonthCount} deals • ${stats.lostRate}% lost rate`}
+        subValue={hasDeals ? `${stats.lostThisMonthCount} deals • ${stats.lostRate}% lost rate` : 'No losses tracked'}
         colorClass="text-[#E74C3C]"
         trend={stats.lostTrend !== null ? (stats.lostTrend < 0 ? 'up' : stats.lostTrend > 0 ? 'down' : 'neutral') : null}
         trendValue={stats.lostTrend !== null ? Math.abs(stats.lostTrend) : null}

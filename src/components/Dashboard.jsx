@@ -48,7 +48,7 @@ const WelcomeBlock = memo(({ onConnectAI, onCreateDeal, onDismiss }) => {
   ];
 
   return (
-    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.2)] p-8 relative">
+    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.2)] p-8 relative mb-6">
       {/* Dismiss button */}
       <button
         onClick={onDismiss}
@@ -93,6 +93,14 @@ const WelcomeBlock = memo(({ onConnectAI, onCreateDeal, onDismiss }) => {
         ))}
       </div>
 
+      {/* PHASE UX-C: Getting Started Guide */}
+      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 mb-5">
+        <p className="text-white/70 text-sm leading-relaxed">
+          <span className="font-semibold text-white">Get started in 30 seconds:</span> Create a test deal to see your pipeline in action.
+          Try something like <span className="text-[#0CE3B1] font-medium">"Acme Corp"</span> with a value of <span className="text-[#0CE3B1] font-medium">$5,000</span> in the <span className="text-[#0CE3B1] font-medium">Lead Captured</span> stage.
+        </p>
+      </div>
+
       {/* Section 3: CTAs */}
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -112,10 +120,11 @@ const WelcomeBlock = memo(({ onConnectAI, onCreateDeal, onDismiss }) => {
           Create Your First Deal
         </button>
         <button
-          onClick={onDismiss}
-          className="text-white/40 hover:text-white/60 text-sm px-3 py-2 transition-colors duration-200"
+          onClick={onCreateDeal}
+          className="text-[#0CE3B1]/70 hover:text-[#0CE3B1] text-sm px-3 py-2 transition-colors duration-200 underline underline-offset-2"
+          aria-label="See example deal setup"
         >
-          Dismiss this for now
+          Show me how →
         </button>
       </div>
     </div>
@@ -632,25 +641,13 @@ export const Dashboard = () => {
             )}
 
             {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
-            {/* PHASE 19 FIX: Always render container to prevent CLS (Cumulative Layout Shift) */}
+            {/* PHASE UX-B: Always render DashboardStats - it handles its own skeleton/empty states */}
             <div data-tour="dashboard-stats" className="mb-6 min-h-[180px]" style={{ contain: 'layout' }}>
-              {deals && deals.length > 0 ? (
-                <DashboardStats
-                  deals={deals}
-                  currentUser={user}
-                />
-              ) : (
-                /* Empty state placeholder to reserve space - Apple-like content stability */
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 opacity-40">
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <div key={i} className="bg-white/[0.02] backdrop-blur-md border border-white/[0.06] rounded-2xl p-6 h-[150px] flex items-center justify-center shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
-                      <div className="text-center text-white/40 text-sm">
-                        {i === 1 && 'Add deals to see stats'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <DashboardStats
+                deals={deals}
+                currentUser={user}
+                loading={loading}
+              />
             </div>
 
             {/* Dynamic Dashboard Cards - Rendered based on user preferences */}
