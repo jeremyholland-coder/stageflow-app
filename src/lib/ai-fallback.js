@@ -9,8 +9,10 @@
 
 import {
   getProviderFallbackChain,
+  getTaskFallbackOrder,
   isProviderErrorResponse,
-  getProviderDisplayName
+  getProviderDisplayName,
+  FALLBACK_ID_TO_PROVIDER_TYPE
 } from '../ai/stageflowConfig';
 
 /**
@@ -92,13 +94,82 @@ async function makeAIRequest(options) {
 }
 
 /**
+ * Infer task type from message content for task-aware provider routing
+ *
+ * PHASE 18: Enables intelligent provider selection based on task characteristics
+ *
+ * @param {string} message - The user's message
+ * @param {string} quickActionId - Optional quick action identifier
+ * @returns {string} Task type: 'image', 'chart', 'coaching', 'planning', 'analysis', or 'general'
+ */
+function inferTaskType(message, quickActionId = null) {
+  if (!message) return 'general';
+
+  const messageLower = message.toLowerCase();
+
+  // Quick action-based classification (most reliable)
+  if (quickActionId) {
+    // Chart/analytics quick actions
+    const chartActions = ['weekly_trends', 'pipeline_flow', 'at_risk', 'revenue_forecast', 'goal_progress', 'velocity_booster', 'icp_analyzer', 'momentum_insights', 'flow_forecast'];
+    if (chartActions.includes(quickActionId)) {
+      return 'chart';
+    }
+
+    // Planning quick actions
+    if (quickActionId === 'plan_my_day') {
+      return 'planning';
+    }
+
+    // Coaching quick actions
+    const coachingActions = ['deal_doctor', 'qualifier_coach', 'retention_master'];
+    if (coachingActions.includes(quickActionId)) {
+      return 'coaching';
+    }
+  }
+
+  // Image/visual request detection
+  const imageKeywords = ['image', 'graphic', 'slide', 'deck', 'presentation', 'visual summary', 'infographic', 'diagram', 'picture'];
+  if (imageKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'image';
+  }
+
+  // Chart/analytics detection
+  const chartKeywords = ['chart', 'graph', 'trend', 'forecast', 'pipeline flow', 'velocity', 'at risk', 'goal progress', 'weekly', 'monthly', 'distribution', 'breakdown', 'metrics', 'analytics', 'icp'];
+  if (chartKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'chart';
+  }
+
+  // Planning detection (Plan My Day, daily action, etc.)
+  const planningKeywords = ['plan my day', 'daily action', 'today', 'priorities', 'what should i', 'schedule', 'agenda', 'tasks for'];
+  if (planningKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'planning';
+  }
+
+  // Coaching detection
+  const coachingKeywords = ['coach', 'teach', 'help me', 'improve', 'how do i', 'strategy', 'qualification', 'discovery', 'negotiate', 'close', 'objection', 'stuck deal', 'stalled', 'blocked', 'advice', 'tips', 'best practice'];
+  if (coachingKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'coaching';
+  }
+
+  // Analysis detection
+  const analysisKeywords = ['analyze', 'analysis', 'review', 'assess', 'evaluate', 'summary', 'insight', 'pipeline', 'deals'];
+  if (analysisKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'analysis';
+  }
+
+  // Default to general
+  return 'general';
+}
+
+/**
  * Run an AI query with automatic fallback to other connected providers
  *
  * This function:
  * 1. Gets the list of connected providers
- * 2. Builds a fallback chain starting with the primary provider
- * 3. Tries each provider until one succeeds
- * 4. Returns the response with metadata about which provider was used
+ * 2. PHASE 18: Infers task type for intelligent provider routing
+ * 3. Builds a task-aware fallback chain starting with the optimal provider
+ * 4. Tries each provider until one succeeds
+ * 5. Returns the response with metadata about which provider was used
  *
  * @param {Object} options - Query options
  * @param {string} options.message - The user's message/query
@@ -108,12 +179,15 @@ async function makeAIRequest(options) {
  * @param {string} options.organizationId - The organization ID
  * @param {Array} options.connectedProviders - Pre-fetched list of connected providers (optional)
  * @param {Array} options.aiSignals - AI signals for personalization (optional)
+ * @param {string} options.taskType - Explicit task type override (optional)
+ * @param {string} options.quickActionId - Quick action identifier for task inference (optional)
  * @returns {Promise<Object>} Response object with:
  *   - response: The AI response text
  *   - provider: Display name of the provider that responded
  *   - providerTypeUsed: The provider_type that was actually used
  *   - originalProvider: The original/primary provider_type that was attempted first
  *   - fallbackOccurred: Boolean indicating if fallback was needed
+ *   - taskType: The inferred or explicit task type used for routing
  *   - chartData, chartType, chartTitle: Optional chart data
  *   - performanceContext: Optional performance metrics
  */
@@ -125,7 +199,9 @@ export async function runAIQueryWithFallback(options) {
     primaryProvider,
     organizationId,
     connectedProviders: preloadedProviders,
-    aiSignals = []
+    aiSignals = [],
+    taskType: explicitTaskType = null,
+    quickActionId = null
   } = options;
 
   // Get connected providers (use preloaded if available)
@@ -135,13 +211,13 @@ export async function runAIQueryWithFallback(options) {
     throw new Error('No AI provider configured. Please connect an AI provider in Integrations settings.');
   }
 
-  // Determine the primary provider to try first
-  // If no explicit primary, use the first connected provider
-  const effectivePrimary = primaryProvider ||
-    (connectedProviders.length > 0 ? connectedProviders[0].provider_type : null);
+  // PHASE 18: Infer task type for intelligent provider routing
+  const taskType = explicitTaskType || inferTaskType(message, quickActionId);
+  console.debug(`[ai-fallback] Task type inferred: ${taskType}`);
 
-  // Build the fallback chain
-  const fallbackChain = getProviderFallbackChain(effectivePrimary, connectedProviders);
+  // PHASE 18: Build task-aware fallback chain
+  // If task type is provided, use task-specific routing; otherwise use global default
+  const fallbackChain = getProviderFallbackChain(primaryProvider, connectedProviders, taskType);
 
   if (fallbackChain.length === 0) {
     throw new Error('No valid providers in fallback chain. Please check your AI provider configuration.');
@@ -185,6 +261,8 @@ export async function runAIQueryWithFallback(options) {
         originalProvider: originalProvider,
         fallbackOccurred: fallbackOccurred,
         attemptedProviders: attemptedProviders,
+        // PHASE 18: Include task type used for routing
+        taskType: taskType,
         // Override provider display name to match actual provider used
         provider: getProviderDisplayName(providerType)
       };
@@ -251,9 +329,13 @@ export function generateAllFailedMessage(attemptedProviders = []) {
   return "I wasn't able to get a response from any of your connected AI providers. Please check your API keys or try again in a few minutes.";
 }
 
+// PHASE 18: Export inferTaskType for use in other modules
+export { inferTaskType };
+
 export default {
   fetchConnectedProviders,
   runAIQueryWithFallback,
   generateFallbackNotice,
-  generateAllFailedMessage
+  generateAllFailedMessage,
+  inferTaskType
 };

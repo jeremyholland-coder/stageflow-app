@@ -1073,36 +1073,51 @@ const MODEL_TIERS: { [key: string]: number } = {
   'grok-beta': 1
 };
 
-// PHASE 3: Task-specific model preferences
+// PHASE 18: Task-specific model preferences (ENHANCED)
 // Higher score = better fit for the task type
+// Priority: ChatGPT for RevOps, Claude for coaching, Grok/Gemini for visuals
 const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
-  // Chart insights need strong numeric reasoning
+  // Chart insights - ChatGPT excels at structured data, Grok/Gemini for visualization
   'chart_insight': {
-    'openai': 3,      // GPT excels at structured data analysis
-    'anthropic': 3,   // Claude is great with numbers
-    'google': 2,      // Gemini is capable
-    'xai': 1          // Grok is newer, less tested
+    'openai': 4,      // GPT excels at structured data analysis - PRIMARY
+    'google': 3,      // Gemini strong for analytics
+    'anthropic': 2,   // Claude is capable
+    'xai': 3          // Grok good for visual interpretation
   },
-  // Coaching needs long-form reasoning and empathy
+  // Coaching needs long-form reasoning and empathy - Claude is BEST
   'coaching': {
-    'anthropic': 3,   // Claude excels at nuanced, helpful responses
-    'openai': 2,      // GPT is good but more clinical
+    'anthropic': 5,   // Claude excels at nuanced, helpful responses - PRIMARY
+    'openai': 3,      // GPT is good but more clinical
     'google': 2,      // Gemini is capable
-    'xai': 2          // Grok has personality
+    'xai': 2          // Grok has personality but less consistent
   },
-  // Text analysis - any premium model works well
+  // Text analysis / RevOps - ChatGPT is the best all-arounder
   'text_analysis': {
-    'openai': 2,
-    'anthropic': 2,
-    'google': 2,
-    'xai': 2
-  },
-  // Image suitable - for now, still text models (future: route to image APIs)
-  'image_suitable': {
-    'openai': 2,      // Can describe visuals well
-    'anthropic': 2,
+    'openai': 4,      // GPT best for structured RevOps analysis - PRIMARY
+    'anthropic': 3,   // Claude strong second
     'google': 2,
     'xai': 1
+  },
+  // Image suitable - Grok and Gemini excel at visual content
+  'image_suitable': {
+    'xai': 5,         // Grok excellent for image generation - PRIMARY
+    'google': 4,      // Gemini strong for visuals
+    'openai': 2,      // GPT can describe visuals
+    'anthropic': 1    // Claude as text fallback
+  },
+  // Planning tasks (Plan My Day, etc.) - ChatGPT excels
+  'planning': {
+    'openai': 5,      // GPT best for multi-step guidance - PRIMARY
+    'anthropic': 4,   // Claude strong for planning
+    'google': 2,      // Gemini capable
+    'xai': 1          // Grok less reliable for structured tasks
+  },
+  // General Q&A - ChatGPT as default brain
+  'general': {
+    'openai': 4,      // GPT best all-arounder - PRIMARY
+    'anthropic': 3,   // Claude strong second
+    'google': 2,      // Gemini capable
+    'xai': 1          // Grok as creative fallback
   }
 };
 
@@ -1112,28 +1127,40 @@ function getModelTier(modelName: string | null): number {
   return MODEL_TIERS[modelName] || 0;
 }
 
-// PHASE 3: Select the best provider based on model tier AND task type
-function selectBestProvider(providers: any[], taskType: TaskType = 'text_analysis'): any {
+// PHASE 18: Select the best provider based on task type FIRST, then model tier
+// This implements the task-delegation strategy where the optimal provider varies by task
+function selectBestProvider(providers: any[], taskType: TaskType | string = 'text_analysis'): any {
   if (providers.length === 0) return null;
   if (providers.length === 1) return providers[0];
 
-  const taskAffinity = TASK_MODEL_AFFINITY[taskType] || TASK_MODEL_AFFINITY['text_analysis'];
+  // Normalize task type to match affinity keys
+  let normalizedTaskType = taskType;
+  if (taskType === 'plan_my_day') normalizedTaskType = 'planning';
+  if (taskType === 'chart') normalizedTaskType = 'chart_insight';
+  if (taskType === 'image') normalizedTaskType = 'image_suitable';
+  if (taskType === 'analysis') normalizedTaskType = 'text_analysis';
 
-  // Score each provider: (model_tier * 10) + task_affinity
-  // This ensures tier is primary factor, affinity is tie-breaker
+  const taskAffinity = TASK_MODEL_AFFINITY[normalizedTaskType] || TASK_MODEL_AFFINITY['general'] || TASK_MODEL_AFFINITY['text_analysis'];
+
+  // PHASE 18: Score each provider: (task_affinity * 10) + model_tier
+  // This makes task affinity the PRIMARY factor (not just tie-breaker)
+  // Ensures ChatGPT is used for RevOps, Claude for coaching, etc.
   let bestProvider = providers[0];
-  let bestScore = (getModelTier(providers[0].model) * 10) + (taskAffinity[providers[0].provider_type] || 0);
+  let bestScore = ((taskAffinity[providers[0].provider_type] || 0) * 10) + getModelTier(providers[0].model);
 
   for (const provider of providers) {
     const tier = getModelTier(provider.model);
     const affinity = taskAffinity[provider.provider_type] || 0;
-    const score = (tier * 10) + affinity;
+    // Task affinity is now weighted 10x more than model tier
+    const score = (affinity * 10) + tier;
 
     if (score > bestScore) {
       bestProvider = provider;
       bestScore = score;
     }
   }
+
+  console.debug(`[ai-assistant] Task type: ${taskType}, Selected provider: ${bestProvider.provider_type}, Score: ${bestScore}`);
 
   return bestProvider;
 }

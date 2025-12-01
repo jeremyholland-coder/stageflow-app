@@ -185,8 +185,39 @@ export function formatPercentage(value) {
  *
  * Defines the order in which AI providers should be tried if the primary fails.
  * The provider IDs must match the provider_type values in the ai_providers table.
+ *
+ * PHASE 18: Updated to prioritize ChatGPT (best all-arounder for RevOps)
+ * followed by Claude (best coaching), Gemini (strong fallback), Grok (creative specialist)
  */
-export const PROVIDER_FALLBACK_ORDER = ['grok', 'claude', 'gpt4o', 'gemini'];
+export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini', 'grok'];
+
+/**
+ * Task-Type-Based Provider Chains
+ *
+ * Different tasks have different optimal providers based on their strengths:
+ * - ChatGPT (GPT-4o): Best for RevOps analysis, planning, structured tasks
+ * - Claude: Best for coaching, insights, long-context understanding
+ * - Gemini: Strong fallback, good analytics
+ * - Grok: Creative, image generation (future), less reliable for structured RevOps
+ */
+export const TASK_PROVIDER_CHAINS = {
+  // Image/chart/visual generation - Grok excels, then Gemini
+  image: ['grok', 'gemini', 'gpt4o', 'claude'],
+  chart: ['grok', 'gemini', 'gpt4o', 'claude'],
+
+  // Coaching/insight tasks - Claude excels at tone and reasoning
+  coaching: ['claude', 'gpt4o', 'gemini', 'grok'],
+
+  // Planning/analysis tasks - ChatGPT excels at structured output
+  planning: ['gpt4o', 'claude', 'gemini', 'grok'],
+  analysis: ['gpt4o', 'claude', 'gemini', 'grok'],
+
+  // General Q&A - ChatGPT as default brain
+  general: ['gpt4o', 'claude', 'gemini', 'grok'],
+
+  // Default fallback (same as global)
+  default: ['gpt4o', 'claude', 'gemini', 'grok']
+};
 
 /**
  * Provider ID mapping to display names
@@ -239,13 +270,47 @@ export const FALLBACK_ID_TO_PROVIDER_TYPE = {
 };
 
 /**
+ * Get the appropriate fallback order for a given task type
+ *
+ * @param {string} taskType - The type of task (image, chart, coaching, planning, analysis, general)
+ * @returns {Array} Ordered array of fallback IDs for this task type
+ */
+export function getTaskFallbackOrder(taskType) {
+  if (!taskType) return PROVIDER_FALLBACK_ORDER;
+
+  // Normalize task type
+  const normalizedType = taskType.toLowerCase();
+
+  // Map task types to their optimal chains
+  if (normalizedType === 'image' || normalizedType === 'image_suitable') {
+    return TASK_PROVIDER_CHAINS.image;
+  }
+  if (normalizedType === 'chart' || normalizedType === 'chart_insight') {
+    return TASK_PROVIDER_CHAINS.chart;
+  }
+  if (normalizedType === 'coaching') {
+    return TASK_PROVIDER_CHAINS.coaching;
+  }
+  if (normalizedType === 'planning' || normalizedType === 'plan_my_day') {
+    return TASK_PROVIDER_CHAINS.planning;
+  }
+  if (normalizedType === 'analysis' || normalizedType === 'text_analysis') {
+    return TASK_PROVIDER_CHAINS.analysis;
+  }
+
+  // Default to global fallback order
+  return TASK_PROVIDER_CHAINS.default || PROVIDER_FALLBACK_ORDER;
+}
+
+/**
  * Get an ordered list of providers to try, starting with the primary
  *
  * @param {string} primaryProvider - The user's preferred/default provider_type (e.g., 'xai', 'openai')
  * @param {Array} connectedProviders - Array of connected provider objects from Supabase
+ * @param {string} taskType - Optional task type for task-aware provider selection
  * @returns {Array} Ordered array of provider_type values to try
  */
-export function getProviderFallbackChain(primaryProvider, connectedProviders) {
+export function getProviderFallbackChain(primaryProvider, connectedProviders, taskType = null) {
   if (!connectedProviders || !Array.isArray(connectedProviders)) {
     return primaryProvider ? [primaryProvider] : [];
   }
@@ -259,13 +324,18 @@ export function getProviderFallbackChain(primaryProvider, connectedProviders) {
   // Build the fallback chain
   const chain = [];
 
-  // Start with primary if it's connected
-  if (primaryProvider && connectedTypes.has(primaryProvider)) {
+  // PHASE 18: Get task-specific fallback order if taskType provided
+  const fallbackOrder = taskType
+    ? getTaskFallbackOrder(taskType)
+    : PROVIDER_FALLBACK_ORDER;
+
+  // Start with primary if it's connected (unless task routing overrides)
+  if (primaryProvider && connectedTypes.has(primaryProvider) && !taskType) {
     chain.push(primaryProvider);
   }
 
-  // Add remaining providers in priority order
-  for (const fallbackId of PROVIDER_FALLBACK_ORDER) {
+  // Add remaining providers in priority order (task-aware or global)
+  for (const fallbackId of fallbackOrder) {
     const providerType = FALLBACK_ID_TO_PROVIDER_TYPE[fallbackId];
     if (providerType && connectedTypes.has(providerType) && !chain.includes(providerType)) {
       chain.push(providerType);
@@ -311,10 +381,12 @@ export default {
   formatPercentage,
   // Provider fallback exports
   PROVIDER_FALLBACK_ORDER,
+  TASK_PROVIDER_CHAINS,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_ERROR_PATTERNS,
   PROVIDER_TYPE_TO_FALLBACK_ID,
   FALLBACK_ID_TO_PROVIDER_TYPE,
+  getTaskFallbackOrder,
   getProviderFallbackChain,
   isProviderErrorResponse,
   getProviderDisplayName

@@ -410,10 +410,11 @@ export async function calculateGoalProgress(
 }
 
 // ============================================================================
-// TASK TYPE CLASSIFICATION (Phase 3 - Task-Aware Model Selection)
+// TASK TYPE CLASSIFICATION (Phase 3 + Phase 18 - Task-Aware Model Selection)
 // ============================================================================
 
-export type TaskType = 'text_analysis' | 'chart_insight' | 'coaching' | 'image_suitable';
+// PHASE 18: Expanded task types for intelligent provider routing
+export type TaskType = 'text_analysis' | 'chart_insight' | 'coaching' | 'image_suitable' | 'planning' | 'general';
 
 // ============================================================================
 // PHASE 17: STAGEFLOW AI RESPONSE SCHEMA v1
@@ -694,6 +695,9 @@ export function buildPlanMyDayResponse(
  * Determine the task type from user message and quick action ID
  * Used for task-aware AI provider/model selection
  *
+ * PHASE 18: Enhanced with planning detection for intelligent provider routing
+ * Priority order for task matching: quick action > image > planning > chart > coaching > analysis > general
+ *
  * @param message - User's message text
  * @param quickActionId - Optional quick action identifier
  * @returns TaskType classification for the request
@@ -703,16 +707,21 @@ export function determineTaskType(message: string, quickActionId?: string): Task
 
   // Quick action-based classification (most reliable)
   if (quickActionId) {
+    // Planning quick action → planning (ChatGPT primary)
+    if (quickActionId === 'plan_my_day') {
+      return 'planning';
+    }
+
     // Chart/analytics quick actions → chart_insight
     const chartActions = [
       'weekly_trends', 'pipeline_flow', 'at_risk', 'revenue_forecast',
-      'goal_progress', 'velocity_booster', 'icp_analyzer'
+      'goal_progress', 'velocity_booster', 'icp_analyzer', 'momentum_insights', 'flow_forecast'
     ];
     if (chartActions.includes(quickActionId)) {
       return 'chart_insight';
     }
 
-    // Coaching quick actions → coaching
+    // Coaching quick actions → coaching (Claude primary)
     const coachingActions = [
       'deal_doctor', 'qualifier_coach', 'retention_master'
     ];
@@ -723,7 +732,7 @@ export function determineTaskType(message: string, quickActionId?: string): Task
 
   // Message-based classification (fallback heuristics)
 
-  // Image/visual request detection
+  // Image/visual request detection → image_suitable (Grok/Gemini primary)
   const imageKeywords = [
     'image', 'graphic', 'slide', 'deck', 'presentation',
     'visual summary', 'infographic', 'diagram', 'picture'
@@ -732,7 +741,18 @@ export function determineTaskType(message: string, quickActionId?: string): Task
     return 'image_suitable';
   }
 
-  // Chart/analytics detection
+  // PHASE 18: Planning detection → planning (ChatGPT primary)
+  // Plan My Day, daily actions, task prioritization
+  const planningKeywords = [
+    'plan my day', 'daily action', 'what should i do today',
+    'priorities for today', 'my tasks', 'agenda', 'schedule',
+    'what to focus on', 'daily plan', 'action plan'
+  ];
+  if (planningKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'planning';
+  }
+
+  // Chart/analytics detection → chart_insight (ChatGPT/Gemini)
   const chartKeywords = [
     'chart', 'graph', 'trend', 'forecast', 'pipeline flow',
     'velocity', 'at risk', 'goal progress', 'weekly', 'monthly',
@@ -742,18 +762,28 @@ export function determineTaskType(message: string, quickActionId?: string): Task
     return 'chart_insight';
   }
 
-  // Coaching detection
+  // Coaching detection → coaching (Claude primary)
   const coachingKeywords = [
     'coach', 'teach', 'help me', 'improve', 'how do i', 'strategy',
     'qualification', 'discovery', 'negotiate', 'close', 'objection',
-    'stuck deal', 'stalled', 'blocked', 'advice', 'tips', 'best practice'
+    'stuck deal', 'stalled', 'blocked', 'advice', 'tips', 'best practice',
+    'guidance', 'mentor', 'recommend'
   ];
   if (coachingKeywords.some(keyword => messageLower.includes(keyword))) {
     return 'coaching';
   }
 
-  // Default to text_analysis
-  return 'text_analysis';
+  // Analysis detection → text_analysis (ChatGPT primary)
+  const analysisKeywords = [
+    'analyze', 'analysis', 'review', 'assess', 'evaluate',
+    'summary', 'insight', 'pipeline', 'deals'
+  ];
+  if (analysisKeywords.some(keyword => messageLower.includes(keyword))) {
+    return 'text_analysis';
+  }
+
+  // Default to general (ChatGPT as default brain)
+  return 'general';
 }
 
 // ============================================================================
