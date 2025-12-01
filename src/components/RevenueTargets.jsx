@@ -2,12 +2,20 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Target, TrendingUp, Loader2, Users, DollarSign, Calendar, Eye, EyeOff, Save, Plus, AlertCircle, Crown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 
 export const RevenueTargets = ({ organization, userRole, addNotification, onSwitchToBilling }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
+  // Store as strings for controlled input, convert to numbers on submit
   const [orgTargets, setOrgTargets] = useState({
+    annual_target: '',
+    quarterly_target: '',
+    monthly_target: ''
+  });
+  // Validation errors for inline feedback
+  const [orgTargetErrors, setOrgTargetErrors] = useState({
     annual_target: null,
     quarterly_target: null,
     monthly_target: null
@@ -50,11 +58,11 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
           console.warn('Failed to load org targets:', orgResult.error || 'Unknown error');
           // Don't throw - continue with null targets
         } else if (orgResult.targets) {
-          // Map response shape to local state shape
+          // Map response shape to local state shape (convert to strings for controlled inputs)
           setOrgTargets({
-            annual_target: orgResult.targets.yearly,
-            quarterly_target: orgResult.targets.quarterly,
-            monthly_target: orgResult.targets.monthly
+            annual_target: orgResult.targets.yearly != null ? String(orgResult.targets.yearly) : '',
+            quarterly_target: orgResult.targets.quarterly != null ? String(orgResult.targets.quarterly) : '',
+            monthly_target: orgResult.targets.monthly != null ? String(orgResult.targets.monthly) : ''
           });
         }
         // If orgResult.targets is null, keep default empty state
@@ -129,13 +137,44 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
       return;
     }
 
+    // Clear previous errors
+    setOrgTargetErrors({ annual_target: null, quarterly_target: null, monthly_target: null });
+
+    // Validate and convert targets using sanitization helper
+    const annualValue = toNumberOrNull(orgTargets.annual_target);
+    const quarterlyValue = toNumberOrNull(orgTargets.quarterly_target);
+    const monthlyValue = toNumberOrNull(orgTargets.monthly_target);
+
+    // Validate: if user entered something but it's not a valid number, show error
+    let hasErrors = false;
+    const newErrors = { annual_target: null, quarterly_target: null, monthly_target: null };
+
+    if (orgTargets.annual_target && annualValue === null) {
+      newErrors.annual_target = 'Enter a valid number (digits only, optional decimal)';
+      hasErrors = true;
+    }
+    if (orgTargets.quarterly_target && quarterlyValue === null) {
+      newErrors.quarterly_target = 'Enter a valid number (digits only, optional decimal)';
+      hasErrors = true;
+    }
+    if (orgTargets.monthly_target && monthlyValue === null) {
+      newErrors.monthly_target = 'Enter a valid number (digits only, optional decimal)';
+      hasErrors = true;
+    }
+
+    if (hasErrors) {
+      setOrgTargetErrors(newErrors);
+      addNotification('Please fix the invalid target values', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       console.log('[RevenueTargets] Saving org targets:', {
         orgId: organization.id,
-        annual: orgTargets.annual_target,
-        quarterly: orgTargets.quarterly_target,
-        monthly: orgTargets.monthly_target
+        annual: annualValue,
+        quarterly: quarterlyValue,
+        monthly: monthlyValue
       });
 
       // CRITICAL FIX v1.7.89: Use backend endpoint with HttpOnly cookie auth
@@ -149,9 +188,9 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
         },
         body: JSON.stringify({
           organization_id: organization.id,
-          annual_target: orgTargets.annual_target,
-          quarterly_target: orgTargets.quarterly_target,
-          monthly_target: orgTargets.monthly_target
+          annual_target: annualValue,
+          quarterly_target: quarterlyValue,
+          monthly_target: monthlyValue
         })
       });
 
@@ -164,12 +203,12 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
 
       console.log('[RevenueTargets] Save successful:', responseData);
 
-      // Update local state from returned targets to ensure consistency
+      // Update local state from returned targets to ensure consistency (convert to strings)
       if (responseData.targets) {
         setOrgTargets({
-          annual_target: responseData.targets.yearly,
-          quarterly_target: responseData.targets.quarterly,
-          monthly_target: responseData.targets.monthly
+          annual_target: responseData.targets.yearly != null ? String(responseData.targets.yearly) : '',
+          quarterly_target: responseData.targets.quarterly != null ? String(responseData.targets.quarterly) : '',
+          monthly_target: responseData.targets.monthly != null ? String(responseData.targets.monthly) : ''
         });
       }
 
@@ -189,12 +228,12 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
     if (!isAdmin || !organization) return;
     setSaving(true);
     try {
-      // Format targets for the backend
+      // Format targets for the backend, converting string values to numbers
       const targetsToSave = userTargets.map(member => ({
         user_id: member.user_id,
-        annual_target: member.annual_target,
-        quarterly_target: member.quarterly_target,
-        monthly_target: member.monthly_target,
+        annual_target: toNumberOrNull(member.annual_target),
+        quarterly_target: toNumberOrNull(member.quarterly_target),
+        monthly_target: toNumberOrNull(member.monthly_target),
         show_on_dashboard: member.show_on_dashboard,
         visible_to_team: member.visible_to_team,
         is_active: member.is_active,
@@ -358,13 +397,28 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
             <div className="relative">
               <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#6B7280] dark:text-[#9CA3AF]" />
               <input
-                type="number"
-                value={orgTargets.annual_target || ''}
-                onChange={(e) => setOrgTargets(prev => ({ ...prev, annual_target: e.target.value ? parseFloat(e.target.value) : null }))}
+                type="text"
+                inputMode="decimal"
+                value={orgTargets.annual_target}
+                onChange={(e) => {
+                  const sanitized = sanitizeNumberInput(e.target.value);
+                  setOrgTargets(prev => ({ ...prev, annual_target: sanitized }));
+                  // Clear error on change
+                  if (orgTargetErrors.annual_target) {
+                    setOrgTargetErrors(prev => ({ ...prev, annual_target: null }));
+                  }
+                }}
                 placeholder="e.g., 1000000"
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent"
+                aria-invalid={!!orgTargetErrors.annual_target}
+                className={`w-full pl-10 pr-3 py-2 border rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent ${
+                  orgTargetErrors.annual_target ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                }`}
               />
             </div>
+            {orgTargetErrors.annual_target && (
+              <p className="mt-1 text-xs text-red-500">{orgTargetErrors.annual_target}</p>
+            )}
+            <p className="mt-1 text-xs text-[#9CA3AF]">Digits only. We'll handle the math.</p>
           </div>
 
           <div>
@@ -375,13 +429,26 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
             <div className="relative">
               <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#6B7280] dark:text-[#9CA3AF]" />
               <input
-                type="number"
-                value={orgTargets.quarterly_target || ''}
-                onChange={(e) => setOrgTargets(prev => ({ ...prev, quarterly_target: e.target.value ? parseFloat(e.target.value) : null }))}
+                type="text"
+                inputMode="decimal"
+                value={orgTargets.quarterly_target}
+                onChange={(e) => {
+                  const sanitized = sanitizeNumberInput(e.target.value);
+                  setOrgTargets(prev => ({ ...prev, quarterly_target: sanitized }));
+                  if (orgTargetErrors.quarterly_target) {
+                    setOrgTargetErrors(prev => ({ ...prev, quarterly_target: null }));
+                  }
+                }}
                 placeholder="e.g., 250000"
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent"
+                aria-invalid={!!orgTargetErrors.quarterly_target}
+                className={`w-full pl-10 pr-3 py-2 border rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent ${
+                  orgTargetErrors.quarterly_target ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                }`}
               />
             </div>
+            {orgTargetErrors.quarterly_target && (
+              <p className="mt-1 text-xs text-red-500">{orgTargetErrors.quarterly_target}</p>
+            )}
           </div>
 
           <div>
@@ -392,13 +459,26 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
             <div className="relative">
               <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#6B7280] dark:text-[#9CA3AF]" />
               <input
-                type="number"
-                value={orgTargets.monthly_target || ''}
-                onChange={(e) => setOrgTargets(prev => ({ ...prev, monthly_target: e.target.value ? parseFloat(e.target.value) : null }))}
+                type="text"
+                inputMode="decimal"
+                value={orgTargets.monthly_target}
+                onChange={(e) => {
+                  const sanitized = sanitizeNumberInput(e.target.value);
+                  setOrgTargets(prev => ({ ...prev, monthly_target: sanitized }));
+                  if (orgTargetErrors.monthly_target) {
+                    setOrgTargetErrors(prev => ({ ...prev, monthly_target: null }));
+                  }
+                }}
                 placeholder="e.g., 83333"
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent"
+                aria-invalid={!!orgTargetErrors.monthly_target}
+                className={`w-full pl-10 pr-3 py-2 border rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent ${
+                  orgTargetErrors.monthly_target ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                }`}
               />
             </div>
+            {orgTargetErrors.monthly_target && (
+              <p className="mt-1 text-xs text-red-500">{orgTargetErrors.monthly_target}</p>
+            )}
           </div>
         </div>
       </div>
@@ -604,9 +684,13 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
                   <div>
                     <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Annual</label>
                     <input
-                      type="number"
-                      value={member.annual_target || ''}
-                      onChange={(e) => updateUserTarget(member.user_id, 'annual_target', e.target.value ? parseFloat(e.target.value) : null)}
+                      type="text"
+                      inputMode="decimal"
+                      value={member.annual_target != null ? String(member.annual_target) : ''}
+                      onChange={(e) => {
+                        const sanitized = sanitizeNumberInput(e.target.value);
+                        updateUserTarget(member.user_id, 'annual_target', sanitized || null);
+                      }}
                       placeholder="Optional"
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
@@ -614,9 +698,13 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
                   <div>
                     <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Quarterly</label>
                     <input
-                      type="number"
-                      value={member.quarterly_target || ''}
-                      onChange={(e) => updateUserTarget(member.user_id, 'quarterly_target', e.target.value ? parseFloat(e.target.value) : null)}
+                      type="text"
+                      inputMode="decimal"
+                      value={member.quarterly_target != null ? String(member.quarterly_target) : ''}
+                      onChange={(e) => {
+                        const sanitized = sanitizeNumberInput(e.target.value);
+                        updateUserTarget(member.user_id, 'quarterly_target', sanitized || null);
+                      }}
                       placeholder="Optional"
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
@@ -624,9 +712,13 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
                   <div>
                     <label className="block text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Monthly</label>
                     <input
-                      type="number"
-                      value={member.monthly_target || ''}
-                      onChange={(e) => updateUserTarget(member.user_id, 'monthly_target', e.target.value ? parseFloat(e.target.value) : null)}
+                      type="text"
+                      inputMode="decimal"
+                      value={member.monthly_target != null ? String(member.monthly_target) : ''}
+                      onChange={(e) => {
+                        const sanitized = sanitizeNumberInput(e.target.value);
+                        updateUserTarget(member.user_id, 'monthly_target', sanitized || null);
+                      }}
                       placeholder="Optional"
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-[#0D1F2D] text-[#1A1A1A] dark:text-[#E0E0E0] focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />

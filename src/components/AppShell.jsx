@@ -143,6 +143,17 @@ export const AppProvider = ({ children }) => {
     notificationTimeoutsRef.current.set(id, timeoutId);
   }, [getNotificationTimeout]);
 
+  // Remove notification by ID (for explicit dismiss)
+  const removeNotification = useCallback((id) => {
+    // Clear any pending auto-dismiss timeout
+    const timeoutId = notificationTimeoutsRef.current.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      notificationTimeoutsRef.current.delete(id);
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
   // FIX HOOKS: Use useRef for addNotification to prevent dependency changes
   const addNotificationRef = useRef(addNotification);
   useEffect(() => {
@@ -1079,14 +1090,14 @@ export const AppProvider = ({ children }) => {
   // Stable values memoized separately to prevent cascade re-renders
   const stableContextValue = React.useMemo(() => ({
     user, logout, loading, darkMode, setDarkMode, activeView, setActiveView,
-    addNotification, organization, userRole, orgLoading, orgSetupRetrying,
+    addNotification, removeNotification, organization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl, setAvatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
     showResetPassword, setShowResetPassword, resetPasswordSession, setResetPasswordSession,
     VIEWS // Include VIEWS constant for navigation
   }), [
     user, logout, loading, darkMode, activeView,
-    addNotification, organization, userRole, orgLoading, orgSetupRetrying,
+    addNotification, removeNotification, organization, userRole, orgLoading, orgSetupRetrying,
     retryOrganizationSetup, avatarUrl,
     profileFirstName, profileLastName, displayName, setProfileData,
     showResetPassword, resetPasswordSession
@@ -1691,7 +1702,7 @@ export const AuthScreen = () => {
 };
 
 export const AppShell = ({ children }) => {
-  const { user, darkMode, setDarkMode, activeView, setActiveView, logout, notifications, organization, orgLoading, orgSetupRetrying, retryOrganizationSetup, avatarUrl, displayName, addNotification } = useApp();
+  const { user, darkMode, setDarkMode, activeView, setActiveView, logout, notifications, removeNotification, organization, orgLoading, orgSetupRetrying, retryOrganizationSetup, avatarUrl, displayName, addNotification } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [lastResendTime, setLastResendTime] = useState(0);
@@ -2021,26 +2032,46 @@ export const AppShell = ({ children }) => {
           {notifications.map(notif => (
             <div
               key={notif.id}
-              className={`px-6 py-4 rounded-xl shadow-2xl border-2 text-base font-medium backdrop-blur-xl animate-slide-in ${
+              role="alert"
+              className={`px-5 py-4 rounded-2xl shadow-2xl border backdrop-blur-xl text-base font-medium transition-all duration-300 ease-out animate-slide-in ${
                 notif.type === 'error'
-                  ? 'bg-red-50/90 dark:bg-red-900/40 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300'
-                  : 'bg-emerald-50/90 dark:bg-emerald-900/40 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300'
+                  ? 'bg-red-950/80 border-red-500/30 text-red-200'
+                  : notif.type === 'warning'
+                  ? 'bg-amber-950/80 border-amber-500/30 text-amber-200'
+                  : 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200'
               }`}
               style={{
                 boxShadow: notif.type === 'error'
-                  ? '0 20px 60px rgba(231, 76, 60, 0.3)'
-                  : '0 20px 60px rgba(26, 188, 156, 0.3)'
+                  ? '0 18px 45px rgba(239, 68, 68, 0.25), 0 0 0 1px rgba(239, 68, 68, 0.1)'
+                  : notif.type === 'warning'
+                  ? '0 18px 45px rgba(245, 158, 11, 0.25), 0 0 0 1px rgba(245, 158, 11, 0.1)'
+                  : '0 18px 45px rgba(16, 185, 129, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.1)'
               }}
             >
               <div className="flex items-start gap-3">
                 {notif.type === 'error' ? (
-                  <AlertCircle className="w-6 h-6 flex-shrink-0" />
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                ) : notif.type === 'warning' ? (
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                 ) : (
-                  <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
-                <span className="flex-1">{notif.message}</span>
+                <span className="flex-1 text-sm leading-relaxed">{notif.message}</span>
+                <button
+                  onClick={() => removeNotification(notif.id)}
+                  className={`flex-shrink-0 p-1 rounded-lg transition-colors ${
+                    notif.type === 'error'
+                      ? 'hover:bg-red-800/50 text-red-300'
+                      : notif.type === 'warning'
+                      ? 'hover:bg-amber-800/50 text-amber-300'
+                      : 'hover:bg-emerald-800/50 text-emerald-300'
+                  }`}
+                  aria-label="Dismiss notification"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
           ))}

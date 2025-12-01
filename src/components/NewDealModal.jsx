@@ -6,6 +6,7 @@ import { useApp } from './AppShell';
 // FIX CRITICAL #1: Import default pipeline as fallback if pipelineStages fails to load
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates';
 import { sanitizeText } from '../lib/sanitize';
+import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 import { ModalErrorBoundary } from './ErrorBoundaries';
 import { useErrorHandler } from '../lib/error-handler';
 import { useFormValidation } from '../hooks/useFormValidation';
@@ -141,8 +142,10 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
   }, [isOpen]);
 
   const handleFieldChange = (fieldName, value) => {
-    setFormData({ ...formData, [fieldName]: value });
-    validation.handleChange(fieldName, value);
+    // Sanitize numeric fields before storing
+    const sanitizedValue = fieldName === 'value' ? sanitizeNumberInput(value) : value;
+    setFormData({ ...formData, [fieldName]: sanitizedValue });
+    validation.handleChange(fieldName, sanitizedValue);
   };
 
   const handleFieldBlur = (fieldName) => {
@@ -202,11 +205,13 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
       const { success, data } = await handleAsyncOperation(
         async () => {
           // FIX M16: Coerce empty strings to null for optional fields
+          // Use toNumberOrNull for safe numeric conversion (avoids NaN)
+          const dealValue = toNumberOrNull(formData.value);
           const sanitizedData = {
             client: sanitizeText(formData.client),
             email: sanitizeText(formData.email) || null,
             phone: sanitizeText(formData.phone) || null,
-            value: parseFloat(formData.value) || 0,
+            value: dealValue !== null ? dealValue : 0,
             stage: formData.stage,
             status: 'active',
             notes: sanitizeText(formData.notes) || null
@@ -363,15 +368,14 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
               </label>
               <input
                 id="value"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 required
-                min="0"
-                step="0.01"
                 value={formData.value}
                 onChange={(e) => handleFieldChange('value', e.target.value)}
                 onBlur={() => handleFieldBlur('value')}
                 aria-invalid={validation.errors.value ? 'true' : 'false'}
-                aria-describedby={validation.errors.value ? 'value-error' : undefined}
+                aria-describedby={validation.errors.value ? 'value-error' : 'value-hint'}
                 className={`w-full px-4 py-3 bg-gray-800/50 border rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition ${
                   validation.errors.value
                     ? 'border-red-500'
@@ -380,6 +384,9 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
                 placeholder="10000"
               />
               <FieldError error={validation.errors.value} fieldId="value" />
+              {!validation.errors.value && (
+                <p id="value-hint" className="mt-1 text-xs text-gray-400">Digits only. We'll handle the formatting.</p>
+              )}
             </div>
 
             {/* Stage */}

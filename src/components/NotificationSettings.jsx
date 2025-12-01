@@ -1,6 +1,7 @@
 import React, { useState, useEffect, memo } from 'react';
 import { Bell, Mail, Monitor, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences';
+import { GlassCard } from './ui/GlassCard';
 
 /**
  * NotificationSettings Component
@@ -11,21 +12,9 @@ import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
  * - See which notifications are critical vs optional
  */
 
-// UI Components
-const SettingCard = ({ children, className = '' }) => (
-  <div className={`bg-white dark:bg-[#0D1F2D] rounded-2xl p-6 border border-[#E0E0E0] dark:border-gray-700 ${className}`}>
-    {children}
-  </div>
-);
+// UI Components - Using GlassCard from shared UI for consistent glass-like styling
 
-const SectionTitle = ({ children, icon: Icon }) => (
-  <div className="flex items-center gap-2 mb-4">
-    <Icon className="w-5 h-5 text-[#1ABC9C]" />
-    <h3 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0]">{children}</h3>
-  </div>
-);
-
-// Toggle Switch Component
+// Toggle Switch Component - Glass-themed with glow effect
 const Toggle = ({ checked, onChange, disabled = false }) => (
   <button
     type="button"
@@ -34,10 +23,13 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
     disabled={disabled}
     onClick={() => !disabled && onChange(!checked)}
     className={`
-      relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-      focus:outline-none focus:ring-2 focus:ring-[#1ABC9C] focus:ring-offset-2 dark:focus:ring-offset-[#0D1F2D]
+      relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200
+      focus:outline-none focus:ring-2 focus:ring-[#1ABC9C]/50 focus:ring-offset-2 focus:ring-offset-transparent
       ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-      ${checked ? 'bg-[#1ABC9C]' : 'bg-gray-300 dark:bg-gray-600'}
+      ${checked
+        ? 'bg-[#1ABC9C] shadow-lg shadow-[#1ABC9C]/30'
+        : 'bg-white/10 border border-white/10'
+      }
     `}
   >
     <span
@@ -49,7 +41,7 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
   </button>
 );
 
-// Channel Toggle with Label
+// Channel Toggle with Label - Glass-themed pills
 // FIX ISSUE 2: Removed redundant onClick on div - the label naturally triggers checkbox onChange
 // Having both onClick on div AND checkbox onChange caused double-fire, breaking toggle behavior
 const ChannelToggle = ({ icon: Icon, label, checked, onChange, disabled = false }) => (
@@ -63,21 +55,21 @@ const ChannelToggle = ({ icon: Icon, label, checked, onChange, disabled = false 
     />
     <div
       className={`
-        flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
+        flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all
         ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}
         ${checked
-          ? 'bg-[#1ABC9C]/10 text-[#1ABC9C] border border-[#1ABC9C]'
-          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-transparent'
+          ? 'bg-[#1ABC9C]/15 text-[#1ABC9C] border border-[#1ABC9C]/40'
+          : 'bg-white/5 text-slate-500 border border-white/10 hover:border-white/20'
         }
       `}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-3.5 h-3.5" />
       <span>{label}</span>
     </div>
   </label>
 );
 
-// Single Notification Category Row
+// Single Notification Category Row - Glass-themed styling
 const NotificationCategoryRow = ({
   code,
   name,
@@ -88,48 +80,49 @@ const NotificationCategoryRow = ({
   channelInApp,
   channelPush,
   onToggleEnabled,
-  onToggleChannel
+  onToggleChannel,
+  isFirst = false
 }) => (
-  <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
+  <div className={`py-3.5 ${!isFirst ? 'border-t border-white/5' : ''}`}>
     {/* Header Row */}
     <div className="flex items-start justify-between gap-4">
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-[#1A1A1A] dark:text-[#E0E0E0]">{name}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-slate-100">{name}</span>
           {isCritical && (
-            <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs rounded-full">
+            <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 text-xs rounded-full border border-amber-500/20">
               <Shield className="w-3 h-3" />
               Critical
             </span>
           )}
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+        <p className="text-xs text-slate-400 mt-1">{description}</p>
       </div>
-      <Toggle
-        checked={enabled}
-        onChange={onToggleEnabled}
-        disabled={isCritical} // Critical notifications cannot be disabled
-      />
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Channel pills - inline with toggle for cleaner layout */}
+        {enabled && (
+          <div className="flex gap-1.5">
+            <ChannelToggle
+              icon={Mail}
+              label="Email"
+              checked={channelEmail}
+              onChange={(val) => onToggleChannel('channel_email', val)}
+            />
+            <ChannelToggle
+              icon={Monitor}
+              label="In-app"
+              checked={channelInApp}
+              onChange={(val) => onToggleChannel('channel_in_app', val)}
+            />
+          </div>
+        )}
+        <Toggle
+          checked={enabled}
+          onChange={onToggleEnabled}
+          disabled={isCritical} // Critical notifications cannot be disabled
+        />
+      </div>
     </div>
-
-    {/* Channel Selection */}
-    {enabled && (
-      <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100 dark:border-gray-700/50">
-        <ChannelToggle
-          icon={Mail}
-          label="Email"
-          checked={channelEmail}
-          onChange={(val) => onToggleChannel('channel_email', val)}
-        />
-        <ChannelToggle
-          icon={Monitor}
-          label="In-app"
-          checked={channelInApp}
-          onChange={(val) => onToggleChannel('channel_in_app', val)}
-        />
-        {/* Push toggle intentionally hidden - not yet supported */}
-      </div>
-    )}
   </div>
 );
 
@@ -213,56 +206,59 @@ const NotificationSettingsComponent = ({ addNotification }) => {
   // Loading state
   if (loading) {
     return (
-      <SettingCard>
-        <SectionTitle icon={Bell}>Notification Preferences</SectionTitle>
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-[#1ABC9C]" />
-          <span className="ml-2 text-gray-500 dark:text-gray-400">Loading notification settings...</span>
+      <GlassCard
+        title="Activity Notifications"
+        description="Loading notification settings..."
+      >
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-[#1ABC9C]" />
+          <span className="ml-2 text-slate-400 text-sm">Loading...</span>
         </div>
-      </SettingCard>
+      </GlassCard>
     );
   }
 
   // Error state
   if (error && localPrefs.length === 0) {
     return (
-      <SettingCard>
-        <SectionTitle icon={Bell}>Notification Preferences</SectionTitle>
-        <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400">
+      <GlassCard
+        title="Activity Notifications"
+        description="Choose how StageFlow keeps you updated on important activity."
+      >
+        <div className="flex items-center gap-3 p-3 bg-red-500/10 rounded-xl text-red-400 border border-red-500/20">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <div>
-            <p className="font-medium">Failed to load preferences</p>
-            <p className="text-sm opacity-80">{error}</p>
+            <p className="font-medium text-sm">Failed to load preferences</p>
+            <p className="text-xs opacity-80">{error}</p>
           </div>
         </div>
-      </SettingCard>
+      </GlassCard>
     );
   }
 
   return (
-    <SettingCard>
-      <div className="flex items-center justify-between mb-6">
-        <SectionTitle icon={Bell}>Notification Preferences</SectionTitle>
-        {hasChanges && (
-          <span className="text-sm text-amber-600 dark:text-amber-400">Unsaved changes</span>
-        )}
-      </div>
-
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Choose how StageFlow notifies you about important activity. Critical notifications cannot be disabled.
-      </p>
+    <GlassCard
+      title="Activity Notifications"
+      description="Choose how StageFlow keeps you updated on important activity."
+    >
+      {/* Unsaved changes indicator */}
+      {hasChanges && (
+        <div className="mb-4 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
+          <span className="text-xs text-amber-400">You have unsaved changes</span>
+        </div>
+      )}
 
       {/* Error banner if there was a save error */}
       {error && (
-        <div className="flex items-center gap-3 p-3 mb-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-red-600 dark:text-red-400 text-sm">
+        <div className="flex items-center gap-3 p-3 mb-4 bg-red-500/10 rounded-lg text-red-400 text-sm border border-red-500/20">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Notification Categories */}
-      <div className="space-y-3">
-        {localPrefs.map(pref => (
+      <div>
+        {localPrefs.map((pref, index) => (
           <NotificationCategoryRow
             key={pref.code}
             code={pref.code}
@@ -275,32 +271,33 @@ const NotificationSettingsComponent = ({ addNotification }) => {
             channelPush={pref.channel_push}
             onToggleEnabled={(val) => handleToggleEnabled(pref.code, val)}
             onToggleChannel={(key, val) => handleToggleChannel(pref.code, key, val)}
+            isFirst={index === 0}
           />
         ))}
       </div>
 
       {/* Empty state */}
       {localPrefs.length === 0 && !loading && (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-8 text-slate-400">
           <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p>No notification categories available.</p>
+          <p className="text-sm">No notification categories available.</p>
         </div>
       )}
 
       {/* Save Button */}
       {localPrefs.length > 0 && (
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-400">
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
+          <p className="text-xs text-slate-500">
             Push notifications coming soon
           </p>
           <button
             onClick={handleSave}
             disabled={saving || !hasChanges}
             className={`
-              flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all
+              flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all
               ${hasChanges
-                ? 'bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] text-white hover:opacity-90'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                ? 'bg-[#1ABC9C] text-white hover:bg-[#16a085] shadow-lg shadow-[#1ABC9C]/20'
+                : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/10'
               }
               ${saving ? 'opacity-70' : ''}
             `}
@@ -319,7 +316,7 @@ const NotificationSettingsComponent = ({ addNotification }) => {
           </button>
         </div>
       )}
-    </SettingCard>
+    </GlassCard>
   );
 };
 
