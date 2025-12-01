@@ -1229,12 +1229,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
             <div className="flex flex-col items-center justify-center py-8 space-y-6">
 
               {/* STATE_A: No AI Connected - Setup Prompt */}
+              {/* PLAN_MY_DAY_UX: Full-width layout */}
               {activationState.state === 'A' && (
                 <>
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 border border-amber-500/20 flex items-center justify-center">
                     <Settings className="w-7 h-7 text-amber-400" strokeWidth={1.5} />
                   </div>
-                  <div className="text-center max-w-sm space-y-4">
+                  <div className="text-center w-full max-w-lg space-y-4">
                     <p className="text-base text-white/80 font-medium">
                       Connect your AI to unlock coaching
                     </p>
@@ -1253,12 +1254,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
               )}
 
               {/* STATE_B: No Deals - Onboarding Wizard */}
+              {/* PLAN_MY_DAY_UX: Full-width layout */}
               {activationState.state === 'B' && (
                 <>
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
                     <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
                   </div>
-                  <div className="text-center max-w-sm space-y-4">
+                  <div className="text-center w-full max-w-lg space-y-4">
                     <p className="text-base text-white/80 font-medium">
                       Welcome! Let's set you up in 30 seconds.
                     </p>
@@ -1284,12 +1286,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
               )}
 
               {/* STATE_C: Few Deals (<5) - Activation Tasks */}
+              {/* PLAN_MY_DAY_UX: Full-width layout */}
               {activationState.state === 'C' && (
                 <>
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
                     <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
                   </div>
-                  <div className="text-center max-w-sm space-y-4">
+                  <div className="text-center w-full max-w-lg space-y-4">
                     <p className="text-base text-white/80 font-medium">
                       Great start! Here's how to get more value:
                     </p>
@@ -1325,12 +1328,13 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
               )}
 
               {/* STATE_D & E: Has Goals or Fully Activated - Standard Plan My Day */}
+              {/* PLAN_MY_DAY_UX: Full-width layout, no interior window */}
               {(activationState.state === 'D' || activationState.state === 'E') && (
                 <>
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
                     <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
                   </div>
-                  <div className="text-center max-w-sm space-y-4">
+                  <div className="text-center w-full max-w-lg space-y-4">
                     {/* ISSUE 4 FIX: Show different message if Plan My Day was already run today */}
                     {planMyDayRunToday ? (
                       <>
@@ -1362,23 +1366,21 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                 </>
               )}
 
-              {/* APMDOS: Feature Discovery Tips */}
+              {/* PLAN_MY_DAY_UX: Smart Onboarding Helper Tips */}
+              {/* iPhone-style mini tips stacked vertically, dismissed individually */}
               {activationState.tips.length > 0 && (
-                <div className="w-full max-w-sm mt-4">
-                  {activationState.tips.slice(0, 1).map(tip => (
+                <div className="w-full max-w-lg mt-4 space-y-2">
+                  {activationState.tips.map(tip => (
                     <div
                       key={tip.id}
-                      className="flex items-start gap-3 p-3 bg-white/[0.02] rounded-lg border border-white/[0.05]"
+                      className="flex items-start gap-3 p-3 bg-white/[0.02] rounded-xl border border-white/[0.05] transition-all duration-200 hover:bg-white/[0.03]"
                     >
                       <Info className="w-4 h-4 text-[#0CE3B1] flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
-                        <p className="text-xs text-white/60">{tip.text}</p>
+                        <p className="text-xs text-white/60 leading-relaxed">{tip.text}</p>
                         <button
-                          onClick={() => {
-                            tip.dismiss();
-                            // Force re-render by updating a state (optional)
-                          }}
-                          className="text-[10px] text-white/30 hover:text-white/50 mt-1"
+                          onClick={() => tip.dismiss()}
+                          className="text-[10px] text-[#0CE3B1]/60 hover:text-[#0CE3B1] mt-1.5 font-medium transition-colors"
                         >
                           Got it
                         </button>

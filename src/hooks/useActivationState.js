@@ -18,13 +18,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
 // localStorage keys for feature discovery tracking
-const LS_PREFIX = 'sf_feature_seen_';
+// PLAN_MY_DAY_UX: Updated to match exact spec keys (no prefix)
+const LS_PREFIX = ''; // Empty prefix - keys stored directly as specified
 const FEATURE_KEYS = {
-  CREATE_DEAL_KANBAN: 'create_deal_kanban',
-  GOALS_TIP: 'goals_tip',
-  TEAM_INVITE: 'team_invite',
-  CRM_IMPORT: 'crm_import',
-  CONFIDENCE_SCORES: 'confidence_scores'
+  CREATE_DEALS: 'tip_create_deals_dismissed',
+  IMPORT_CLIENTS: 'tip_import_clients_dismissed',
+  GOALS: 'tip_goals_dismissed',
+  TEAM: 'tip_team_dismissed'
 };
 
 /**
@@ -205,38 +205,44 @@ export const useActivationState = ({ user, organization, deals = [], hasAIProvid
     else if (hasFewDeals) primaryState = 'C';
     else if (hasGoals) primaryState = 'D';
 
-    // Feature tips (only show relevant ones user hasn't seen)
+    // PLAN_MY_DAY_UX: Smart Onboarding Helper Tips
+    // iPhone-style mini tips shown based on user's activation state
+    // Each tip is dismissed individually via "Got it" button
     const availableTips = [];
 
-    if (hasDeals && !hasSeenFeature(FEATURE_KEYS.CREATE_DEAL_KANBAN)) {
+    // Create Deals Tip - Show if user has 0 deals
+    if (!hasDeals && !hasSeenFeature(FEATURE_KEYS.CREATE_DEALS)) {
       availableTips.push({
-        id: FEATURE_KEYS.CREATE_DEAL_KANBAN,
-        text: 'You can create a deal inside the Kanban by clicking + inside any stage.',
-        dismiss: () => markFeatureSeen(FEATURE_KEYS.CREATE_DEAL_KANBAN)
+        id: FEATURE_KEYS.CREATE_DEALS,
+        text: 'You can add deals from inside each Kanban column by clicking the + icon.',
+        dismiss: () => markFeatureSeen(FEATURE_KEYS.CREATE_DEALS)
       });
     }
 
-    if (!hasGoals && hasDeals && !hasSeenFeature(FEATURE_KEYS.GOALS_TIP)) {
+    // Import Clients Tip - Show if user has few/no deals (suggests CSV import)
+    if (dealCount < 3 && !hasSeenFeature(FEATURE_KEYS.IMPORT_CLIENTS)) {
       availableTips.push({
-        id: FEATURE_KEYS.GOALS_TIP,
-        text: 'Want better insights? Add your annual, quarterly, and monthly goals in Settings.',
-        dismiss: () => markFeatureSeen(FEATURE_KEYS.GOALS_TIP)
+        id: FEATURE_KEYS.IMPORT_CLIENTS,
+        text: 'Import a CSV of past or current clients to instantly jumpstart your pipeline.',
+        dismiss: () => markFeatureSeen(FEATURE_KEYS.IMPORT_CLIENTS)
       });
     }
 
-    if (!hasTeam && hasDeals && !hasSeenFeature(FEATURE_KEYS.TEAM_INVITE)) {
+    // Set Goals Tip - Show if user has no goals set
+    if (!hasGoals && !hasSeenFeature(FEATURE_KEYS.GOALS)) {
       availableTips.push({
-        id: FEATURE_KEYS.TEAM_INVITE,
-        text: 'You can assign deals to teammates once team members are added.',
-        dismiss: () => markFeatureSeen(FEATURE_KEYS.TEAM_INVITE)
+        id: FEATURE_KEYS.GOALS,
+        text: 'Set your monthly, quarterly, and annual targets for personalized AI coaching.',
+        dismiss: () => markFeatureSeen(FEATURE_KEYS.GOALS)
       });
     }
 
-    if (hasFewDeals && !hasSeenFeature(FEATURE_KEYS.CONFIDENCE_SCORES)) {
+    // Invite Team Tip - Show if user has no team members
+    if (!hasTeam && !hasSeenFeature(FEATURE_KEYS.TEAM)) {
       availableTips.push({
-        id: FEATURE_KEYS.CONFIDENCE_SCORES,
-        text: 'Add confidence scores and expected close dates to your deals for better forecasting.',
-        dismiss: () => markFeatureSeen(FEATURE_KEYS.CONFIDENCE_SCORES)
+        id: FEATURE_KEYS.TEAM,
+        text: 'Invite team members so you can assign deals, track performance, and collaborate.',
+        dismiss: () => markFeatureSeen(FEATURE_KEYS.TEAM)
       });
     }
 
