@@ -1095,31 +1095,22 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         </div>
       )}
 
-      {/* REDESIGNED: Combined Chat Container - Auto-expands for charts, contracts for text */}
-      {/* FIX E1: Increased container size for better readability and more space for results */}
-      {/* PHASE A: Apple-grade glass panel with premium depth */}
+      {/* SIMPLIFIED: Flat layout - no nested cards, maximum viewport for AI content */}
       <div
-        className="relative flex flex-col bg-white/[0.03] dark:bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.25)]"
+        className="relative flex flex-col"
         style={{
-          // E1 FIX: Larger container - 800px base, 1400px with charts
+          // Generous height - fills available space in Mission Control
           maxHeight: hasCharts ? '1400px' : '800px',
           minHeight: conversationHistory.length === 0 ? '280px' : '500px',
           transition: 'max-height 0.4s ease-out, min-height 0.4s ease-out'
         }}
       >
-
-        {/* Chat Header with New Conversation Button */}
+        {/* New Conversation button - subtle, top-right when conversation exists */}
         {conversationHistory.length > 0 && (
-          <div className="flex-shrink-0 px-5 py-3.5 bg-gradient-to-r from-[#0D1419] to-[#0A0F14] border-b border-white/[0.07] flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-[#0CE3B1]" />
-              </div>
-              <p className="text-sm font-semibold text-white/90 tracking-tight">AI Conversation</p>
-            </div>
+          <div className="flex-shrink-0 flex justify-end pb-3">
             <button
               onClick={handleNewConversation}
-              className="flex items-center gap-2 text-xs px-3.5 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl hover:bg-white/[0.08] hover:border-[#0CE3B1]/30 transition-all duration-300 text-white/70 hover:text-[#0CE3B1] shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
+              className="flex items-center gap-2 text-xs px-3 py-1.5 text-white/50 hover:text-[#0CE3B1] transition-colors duration-200"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               New Conversation
@@ -1127,15 +1118,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
           </div>
         )}
 
-        {/* PHASE 3: Metrics Summary Strip - Shows performance stats above conversation */}
-        {performanceMetrics && conversationHistory.length > 0 && (
-          <div className="flex-shrink-0 px-4 pt-3">
-            <MetricsSummaryStrip metrics={performanceMetrics} />
-          </div>
-        )}
-
-        {/* Scrollable Conversation Area - FIX E1: Increased padding for better readability */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
+        {/* Scrollable Conversation Area - Maximum space for AI content */}
+        <div className="flex-1 overflow-y-auto space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
 
           {/* Welcome State - Plan My Day as primary CTA */}
           {conversationHistory.length === 0 && !loading && (
@@ -1331,8 +1315,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
           <div ref={conversationEndRef} />
         </div>
 
-        {/* Fixed Input Area at Bottom - MOBILE: Always visible and accessible */}
-        <div className="flex-shrink-0 p-5 bg-gradient-to-t from-[#0A0F14] via-[#0D1419] to-[#0D1419]/95 border-t border-white/[0.07] sticky bottom-0 z-10">
+        {/* Fixed Input Area at Bottom - Simplified, no heavy borders */}
+        <div className="flex-shrink-0 pt-4 sticky bottom-0 z-10">
           {/* PHASE 5.1: New AI UX Surface - Hero Button + Insight Chips */}
           {/* OFFLINE: Hide quick actions when offline */}
           {/* LAUNCH: Only show when conversation exists (Plan My Day is in welcome state when empty) */}
