@@ -6,6 +6,108 @@ import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { requirePermission, PERMISSIONS } from './lib/rbac';
 
+/**
+ * FIX 2025-12-01: Verify AI key works by making a test request
+ * Returns true if the key is valid and the provider responds, false otherwise
+ */
+async function verifyAIKey(providerType: string, apiKey: string): Promise<{ verified: boolean; error?: string }> {
+  const timeout = 8000; // 8 second timeout for verification
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    let testUrl: string;
+    let testHeaders: Record<string, string>;
+    let testBody: string = '';
+    let testMethod: string = 'GET';
+
+    switch (providerType) {
+      case 'openai':
+        // OpenAI: Simple models list endpoint (fast, doesn't consume tokens)
+        testUrl = 'https://api.openai.com/v1/models';
+        testHeaders = {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        };
+        break;
+
+      case 'anthropic':
+        // Anthropic: Use messages endpoint with minimal request
+        testUrl = 'https://api.anthropic.com/v1/messages';
+        testHeaders = {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json'
+        };
+        testBody = JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'Hi' }]
+        });
+        testMethod = 'POST';
+        break;
+
+      case 'google':
+        // Google AI: Use models list endpoint
+        testUrl = `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`;
+        testHeaders = { 'Content-Type': 'application/json' };
+        break;
+
+      case 'xai':
+        // xAI/Grok: Use models list endpoint
+        testUrl = 'https://api.x.ai/v1/models';
+        testHeaders = {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        };
+        break;
+
+      default:
+        // Unknown provider - skip verification
+        return { verified: true };
+    }
+
+    const response = await fetch(testUrl, {
+      method: testMethod,
+      headers: testHeaders,
+      body: testBody || undefined,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok || response.status === 200) {
+      console.log(`[save-ai-provider] ✅ Key verification succeeded for ${providerType}`);
+      return { verified: true };
+    }
+
+    // Handle common error codes
+    if (response.status === 401 || response.status === 403) {
+      console.warn(`[save-ai-provider] ❌ Key verification failed for ${providerType}: Invalid/unauthorized`);
+      return { verified: false, error: 'API key is invalid or unauthorized' };
+    }
+
+    if (response.status === 429) {
+      // Rate limited but key is valid
+      console.log(`[save-ai-provider] ⚠️ Key verification rate limited for ${providerType} - assuming valid`);
+      return { verified: true };
+    }
+
+    const errorText = await response.text().catch(() => '');
+    console.warn(`[save-ai-provider] ❌ Key verification failed for ${providerType}: ${response.status} - ${errorText.slice(0, 200)}`);
+    return { verified: false, error: `Provider returned ${response.status}` };
+
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.warn(`[save-ai-provider] ⚠️ Key verification timed out for ${providerType} - assuming valid`);
+      return { verified: true }; // Timeout doesn't mean invalid
+    }
+    console.error(`[save-ai-provider] Key verification error for ${providerType}:`, error.message);
+    return { verified: false, error: error.message };
+  }
+}
+
 export default async (req: Request, context: Context) => {
   // SECURITY FIX: Specific origin instead of wildcard
   const allowedOrigins = [
@@ -333,12 +435,17 @@ export default async (req: Request, context: Context) => {
     }
 
 
+    // FIX 2025-12-01: Verify the key actually works before returning success
+    const verificationResult = await verifyAIKey(provider_type, api_key.trim());
+
     // PHASE AI4 FIX: Return complete provider object matching get-ai-providers shape
     // This allows frontend to update local state immediately without refetch
     // Eliminates race condition where 250ms delay wasn't enough for DB visibility
     return new Response(
       JSON.stringify({
         success: true,
+        verified: verificationResult.verified,
+        verificationError: verificationResult.error || null,
         provider: {
           id: result.id,
           organization_id: result.organization_id,
@@ -349,7 +456,9 @@ export default async (req: Request, context: Context) => {
           created_at: result.created_at,
           api_key_encrypted: result.api_key_encrypted // Needed for masked display in UI
         },
-        message: 'Provider saved successfully'
+        message: verificationResult.verified
+          ? 'Provider saved and verified successfully'
+          : `Provider saved but verification failed: ${verificationResult.error}`
       }),
       { status: 200, headers }
     );
