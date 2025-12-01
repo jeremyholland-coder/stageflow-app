@@ -69,13 +69,13 @@ export const TeamDashboard = () => {
       const orgId = member.organization_id;
       setOrganizationId(orgId);
 
-      // Get all team members for this organization
-      // FIX D1: Removed incorrect FK hint that was causing query to return empty results
-      // The FK name 'user_workspaces_user_id_fkey' doesn't exist on team_members table
+      // Get all team members for this organization with user email for display
+      // FIX G1: Join with users table to fetch email for meaningful identity display
+      // Uses same pattern as RevenueTargets.jsx (users:user_id syntax)
       const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
-          .select('user_id, role, created_at')
+          .select('user_id, role, created_at, users:user_id(email)')
           .eq('organization_id', orgId),
         timeoutPromise
       ]);
@@ -133,16 +133,16 @@ export const TeamDashboard = () => {
           const dealsAddedTrend = dealsThisWeek.length >= dealsPreviousWeek.length ? 'up' : 'down';
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
-          // FIX D1: Simplified - no longer fetching user data via join
-          // Display user role and use current user's info when applicable
+          // FIX G1: Use email from users join for meaningful identity display
           const isCurrentUser = member.user_id === user.id;
+          const memberEmail = member.users?.email;
 
-          // For current user, use their actual name
-          // For others, generate a unique identifier since we don't have their profile data
-          const memberIndex = uniqueMembers.indexOf(member);
+          // Determine display name with fallback order:
+          // 1. Current user: full_name from metadata, or email username, or 'You'
+          // 2. Other users: email from join, or last resort 'Team Member'
           const userName = isCurrentUser
             ? (user.user_metadata?.full_name || user.email?.split('@')[0] || 'You')
-            : `Team Member ${memberIndex + 1}`;
+            : (memberEmail || 'Team Member');
 
           return {
             userId: member.user_id,
@@ -478,14 +478,15 @@ export const TeamDashboard = () => {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* PAGINATION FIX: Only show displayedCount members */}
+            {/* FIX G2: Tightened spacing (space-y-3, p-5, mb-4) for Apple-tight layout */}
             {teamMembers.slice(0, displayedCount).map((member) => (
             <div
               key={member.userId}
-              className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-6 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
+              className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-5 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
             >
-              <div className="flex items-start justify-between mb-5">
+              <div className="flex items-start justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-white tracking-tight">
                     {member.name}
@@ -505,7 +506,7 @@ export const TeamDashboard = () => {
                   <p className="text-sm text-white/40">No recent deal activity yet</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
                     <span className="text-sm text-white/50">Deals Added:</span>
                     <span className="font-semibold text-white">

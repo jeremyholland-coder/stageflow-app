@@ -1035,9 +1035,17 @@ export const Settings = () => {
             <NotificationSettings addNotification={addNotification} />
           </Suspense>
 
-          {/* Legacy Weekly Digest Settings */}
-          <SettingCard>
-            <SectionTitle icon={TrendingUp}>Weekly Digest Schedule</SectionTitle>
+          {/* Weekly Digest Settings - Unified visual style with Activity Notifications above */}
+          <div className="bg-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-[#1ABC9C]/10 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-[#1ABC9C]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Weekly Digest Schedule</h3>
+                <p className="text-sm text-slate-400">Control when your summary email of pipeline activity and wins is delivered.</p>
+              </div>
+            </div>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1341,7 +1349,7 @@ export const Settings = () => {
                   </div>
                 )}
             </div>
-          </SettingCard>
+          </div>
         </div>
       )}
 

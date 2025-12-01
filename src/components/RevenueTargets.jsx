@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Target, TrendingUp, Loader2, Users, DollarSign, Calendar, Eye, EyeOff, Save, Plus, AlertCircle, Crown } from 'lucide-react';
+import { Target, TrendingUp, Loader2, Users, DollarSign, Calendar, Eye, EyeOff, Save, Plus, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
@@ -541,54 +541,23 @@ export const RevenueTargets = ({ organization, userRole, addNotification, onSwit
           )}
         </div>
 
+        {/* TODO: Legacy "Team Member Targets" upsell card hidden for launch.
+            Future: move per-user targets to Team tab with accurate plan gating.
+            The upsell messaging was misleading for Pro/demo orgs that already have team members. */}
         {userTargets.length === 0 ? (
-          // No team members - Show upgrade CTA
-          <div className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-xl p-8 border-2 border-dashed border-purple-300 dark:border-purple-700">
+          // No team members - Show neutral empty state (upsell removed for launch)
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-8 border border-gray-200 dark:border-gray-700">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-                <Users className="w-8 h-8 text-white" />
+              <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                <Users className="w-8 h-8 text-gray-400 dark:text-gray-500" />
               </div>
               <div>
-                <h4 className="text-xl font-bold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
-                  Ready to Set Team Revenue Targets?
+                <h4 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
+                  No Team Members Yet
                 </h4>
-                <p className="text-[#6B7280] dark:text-[#9CA3AF] max-w-md mx-auto mb-1">
-                  Upgrade your plan to add team members and set individual revenue targets for each person on your team.
+                <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF] max-w-md mx-auto">
+                  Once you have team members, you can set individual revenue targets for each person here.
                 </p>
-                <p className="text-sm text-[#9CA3AF] dark:text-gray-500">
-                  Track performance, motivate your team, and hit your revenue goals together.
-                </p>
-              </div>
-              <div className="flex items-center justify-center mt-2">
-                <button
-                  onClick={() => {
-                    logger.log('RevenueTargets: Switching to billing tab');
-                    if (onSwitchToBilling) {
-                      onSwitchToBilling();
-                    } else {
-                      console.warn('RevenueTargets: onSwitchToBilling not provided, falling back to URL navigation');
-                      window.location.href = '/?tab=billing';
-                    }
-                  }}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg font-semibold text-base transition shadow-lg hover:shadow-xl"
-                >
-                  <Crown className="w-5 h-5" />
-                  Upgrade to Add Team
-                </button>
-              </div>
-              <div className="mt-4 flex items-center gap-6 text-sm text-[#6B7280] dark:text-[#9CA3AF]">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-[#1ABC9C] rounded-full"></div>
-                  <span>Unlimited team members</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-[#1ABC9C] rounded-full"></div>
-                  <span>Individual targets & tracking</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-[#1ABC9C] rounded-full"></div>
-                  <span>Team performance analytics</span>
-                </div>
               </div>
             </div>
           </div>
