@@ -773,13 +773,14 @@ export const KanbanColumn = memo(({
         </div>
 
         {/* Cards Container with Drop Zone - PREMIUM DESIGN */}
+        {/* FIX: justify-start ensures cards stack from top, not distributed */}
         <div
           data-drop-zone="true"
           data-stage-id={stage.id}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`px-4 pb-4 flex-1 flex flex-col transition-all duration-200 ${
+          className={`px-4 pb-4 flex-1 flex flex-col justify-start transition-all duration-200 ${
             dragOver ? 'bg-teal-500/10 rounded-2xl' : ''
           }`}
           style={{ minHeight: '400px' }}
