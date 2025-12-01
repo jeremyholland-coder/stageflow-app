@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { X, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import { PasswordRequirements } from './PasswordInput';
+import { supabase } from '../lib/supabase';
 
 export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  // HARDENED: Safe close handler - guards against undefined onClose
+  const handleClose = useCallback(() => {
+    if (typeof onClose === 'function') {
+      onClose();
+    }
+  }, [onClose]);
+
+  // HARDENED: Eye toggle handlers using functional updates for reliable state
+  const toggleNewPasswordVisibility = useCallback((e) => {
+    e.preventDefault(); // Prevent any form interaction
+    e.stopPropagation(); // Stop event bubbling
+    setShowNewPassword(prev => !prev);
+  }, []);
+
+  const toggleConfirmPasswordVisibility = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowConfirmPassword(prev => !prev);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -93,35 +114,58 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
         setMessage('Password updated! Please log in with your new password.');
         console.warn('[Password Reset] autoLogin=false - user must log in manually');
         setTimeout(() => {
-          onClose();
+          handleClose();
           // Clear any stale auth state and redirect to login
           window.location.href = '/?message=password_reset_success';
         }, 2000);
         return;
       }
 
-      // SUCCESS with autoLogin: Cookies are set, log user in immediately
+      // SUCCESS with autoLogin: Cookies are set, establish session and log user in
       setMessage('Password updated successfully! Loading your workspace...');
+
+      // CRITICAL FIX: Fetch fresh session from cookies and set in Supabase client
+      // This ensures the client-side Supabase instance has the session for subsequent queries
+      try {
+        const sessionResponse = await fetch('/.netlify/functions/auth-session', {
+          method: 'GET',
+          credentials: 'include'
+        });
+
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          if (sessionData.session?.access_token && sessionData.session?.refresh_token) {
+            // Set session in Supabase client so DB queries work
+            await supabase.auth.setSession({
+              access_token: sessionData.session.access_token,
+              refresh_token: sessionData.session.refresh_token
+            });
+            console.warn('[Password Reset] ✅ Session established in Supabase client');
+          }
+        }
+      } catch (sessionError) {
+        console.warn('[Password Reset] Could not establish client session, will reload:', sessionError);
+      }
 
       // INSTANT LOGIN: Call onSuccess with fresh user data from backend
       // This updates App context immediately - NO page reload!
-      if (onSuccess && data.user) {
+      if (typeof onSuccess === 'function' && data.user) {
         // Give user brief moment to see success message
         setTimeout(() => {
           onSuccess(data.user);
-          onClose();
+          handleClose();
         }, 800);
       } else {
         // Fallback: if onSuccess not provided or no user data, reload
         // Backend set cookies, so reload should pick up the session
         console.warn('[Password Reset] No onSuccess handler or user data, reloading page');
         setTimeout(() => {
-          onClose();
+          handleClose();
           window.location.reload();
         }, 1500);
       }
-    } catch (error) {
-      setError(error.message || 'Failed to reset password');
+    } catch (err) {
+      setError(err.message || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
@@ -142,7 +186,8 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Set New Password</h2>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleClose}
             className="min-w-touch min-h-touch flex items-center justify-center text-gray-300 hover:text-white rounded-lg transition"
             aria-label="Close modal"
           >
@@ -164,7 +209,7 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-300" />
               <input
                 id="new-password"
-                type={showPassword ? "text" : "password"}
+                type={showNewPassword ? "text" : "password"}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password"
@@ -175,12 +220,14 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
               />
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition w-11 h-11 flex items-center justify-center rounded-lg"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                tabIndex={-1}
+                onClick={toggleNewPasswordVisibility}
+                onMouseDown={(e) => e.preventDefault()}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition w-11 h-11 flex items-center justify-center rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                aria-label={showNewPassword ? "Hide password" : "Show password"}
+                aria-pressed={showNewPassword}
+                tabIndex={0}
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showNewPassword ? <EyeOff className="w-5 h-5 pointer-events-none" /> : <Eye className="w-5 h-5 pointer-events-none" />}
               </button>
             </div>
           </div>
@@ -204,12 +251,14 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
               />
               <button
                 type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition w-11 h-11 flex items-center justify-center rounded-lg"
+                onClick={toggleConfirmPasswordVisibility}
+                onMouseDown={(e) => e.preventDefault()}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition w-11 h-11 flex items-center justify-center rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                tabIndex={-1}
+                aria-pressed={showConfirmPassword}
+                tabIndex={0}
               >
-                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showConfirmPassword ? <EyeOff className="w-5 h-5 pointer-events-none" /> : <Eye className="w-5 h-5 pointer-events-none" />}
               </button>
             </div>
           </div>
@@ -243,7 +292,7 @@ export const ResetPasswordModal = ({ isOpen, onClose, session, onSuccess }) => {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 px-4 py-3 border border-gray-700 text-gray-300 hover:text-white rounded-xl hover:bg-gray-800/50 transition min-h-touch"
               disabled={loading}
             >
