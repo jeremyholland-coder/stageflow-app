@@ -1122,27 +1122,31 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         {/* Scrollable Conversation Area - FIX E1: Increased padding for better readability */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
 
-          {/* Welcome State - Clean and minimal */}
+          {/* Welcome State - Plan My Day as primary CTA */}
           {conversationHistory.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center py-8 space-y-6">
-              {/* Premium glass icon container with gradient */}
-              <div className="relative">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/5 border border-[#0CE3B1]/20 flex items-center justify-center shadow-[0_8px_32px_rgba(12,227,177,0.15)]">
-                  <Sparkles className="w-10 h-10 text-[#0CE3B1]" strokeWidth={1.5} />
-                </div>
-                <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/10 to-transparent blur-xl -z-10" />
+            <div className="flex flex-col items-center justify-center py-10 space-y-6">
+              {/* Compact icon */}
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0CE3B1]/15 to-[#0CE3B1]/5 border border-[#0CE3B1]/15 flex items-center justify-center">
+                <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
               </div>
 
-              {/* Title & Description - Apple-style minimal with breathing room */}
-              <div className="text-center max-w-md space-y-2">
-                <h3 className="text-2xl font-semibold text-white tracking-tight">
-                  StageFlow AI
-                </h3>
-                <p className="text-sm text-white/60 leading-relaxed">
-                  AI-powered pipeline insights
+              {/* Heading and Plan My Day CTA */}
+              <div className="text-center max-w-sm space-y-4">
+                <p className="text-base text-white/80 font-medium">
+                  Start your day with a quick plan.
                 </p>
-                <p className="text-xs text-white/40 mt-3 pt-2 border-t border-white/[0.05]">
-                  Ask me anything about your deals
+
+                {/* Primary CTA: Plan My Day - only show when AI is available */}
+                {hasProviders && isOnline && (
+                  <PlanMyDayButton
+                    onClick={() => handleQuickAction('plan_my_day')}
+                    disabled={loading || isSubmitting}
+                    loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                  />
+                )}
+
+                <p className="text-xs text-white/40 pt-2">
+                  Or ask anything about your deals in the chat box below.
                 </p>
               </div>
             </div>
@@ -1307,7 +1311,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         <div className="flex-shrink-0 p-5 bg-gradient-to-t from-[#0A0F14] via-[#0D1419] to-[#0D1419]/95 border-t border-white/[0.07] sticky bottom-0 z-10">
           {/* PHASE 5.1: New AI UX Surface - Hero Button + Insight Chips */}
           {/* OFFLINE: Hide quick actions when offline */}
-          {hasProviders && isOnline && (
+          {/* LAUNCH: Only show when conversation exists (Plan My Day is in welcome state when empty) */}
+          {hasProviders && isOnline && conversationHistory.length > 0 && (
             <div className="mb-4 space-y-4">
               {/* HERO BUTTON: Plan My Day - Primary CTA */}
               <PlanMyDayButton

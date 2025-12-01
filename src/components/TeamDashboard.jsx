@@ -137,10 +137,12 @@ export const TeamDashboard = () => {
           // Display user role and use current user's info when applicable
           const isCurrentUser = member.user_id === user.id;
 
-          // For current user, use their actual name; for others, show role
+          // For current user, use their actual name
+          // For others, generate a unique identifier since we don't have their profile data
+          const memberIndex = uniqueMembers.indexOf(member);
           const userName = isCurrentUser
             ? (user.user_metadata?.full_name || user.email?.split('@')[0] || 'You')
-            : (member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Team Member');
+            : `Team Member ${memberIndex + 1}`;
 
           return {
             userId: member.user_id,
@@ -153,7 +155,9 @@ export const TeamDashboard = () => {
             dealsClosed: wonThisWeek.length,
             dealsClosedValue: wonValue,
             activePipeline,
-            expectedRevenue
+            expectedRevenue,
+            // Track if we have no activity for this user
+            hasNoActivity: memberDeals.length === 0
           };
         })
       );
@@ -383,10 +387,10 @@ export const TeamDashboard = () => {
             <TrendingUp className="w-9 h-9 text-white/40" />
           </div>
           <h3 className="text-xl font-semibold text-white mb-2 tracking-tight">
-            No Pipeline Data Yet
+            No pipeline performance data yet.
           </h3>
           <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
-            Create your first deal to see team performance metrics and trends.
+            Once your team starts closing deals, you'll see trends and performance graphs here.
           </p>
         </div>
       ) : (
@@ -489,37 +493,48 @@ export const TeamDashboard = () => {
                       <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
                     )}
                   </h3>
-                  <p className="text-sm text-white/50 capitalize mt-0.5">{member.role || 'Member'}</p>
+                  <p className="text-sm text-white/50 mt-0.5">
+                    {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                  <span className="text-sm text-white/50">Deals Added:</span>
-                  <span className="font-semibold text-white">
-                    {member.dealsAdded} ({formatCurrency(member.dealsAddedValue)})
-                    {member.dealsAddedTrend === 'up' ? (
-                      <TrendingUp className="inline w-4 h-4 ml-1.5 text-emerald-400" />
-                    ) : (
-                      <TrendingDown className="inline w-4 h-4 ml-1.5 text-rose-400" />
-                    )}
-                  </span>
+              {/* Show metrics or "no activity" message */}
+              {member.hasNoActivity && !member.isCurrentUser ? (
+                <div className="p-4 bg-white/[0.02] rounded-xl text-center">
+                  <p className="text-sm text-white/40">No recent deal activity yet</p>
                 </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                    <span className="text-sm text-white/50">Deals Added:</span>
+                    <span className="font-semibold text-white">
+                      {member.dealsAdded} ({formatCurrency(member.dealsAddedValue)})
+                      {member.dealsAdded > 0 && (
+                        member.dealsAddedTrend === 'up' ? (
+                          <TrendingUp className="inline w-4 h-4 ml-1.5 text-emerald-400" />
+                        ) : (
+                          <TrendingDown className="inline w-4 h-4 ml-1.5 text-rose-400" />
+                        )
+                      )}
+                    </span>
+                  </div>
 
-                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                  <span className="text-sm text-white/50">Deals Closed:</span>
-                  <span className="font-semibold text-white">
-                    {member.dealsClosed} won ({formatCurrency(member.dealsClosedValue)})
-                  </span>
-                </div>
+                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                    <span className="text-sm text-white/50">Deals Closed:</span>
+                    <span className="font-semibold text-white">
+                      {member.dealsClosed} won ({formatCurrency(member.dealsClosedValue)})
+                    </span>
+                  </div>
 
-                <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                  <span className="text-sm text-white/50">Active Pipeline:</span>
-                  <span className="font-semibold text-white">
-                    {formatCurrency(member.activePipeline)} → {formatCurrency(member.expectedRevenue)}
-                  </span>
+                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                    <span className="text-sm text-white/50">Active Pipeline:</span>
+                    <span className="font-semibold text-white">
+                      {formatCurrency(member.activePipeline)} → {formatCurrency(member.expectedRevenue)}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ))}
 

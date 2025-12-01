@@ -8,7 +8,6 @@ import {
   Award,
   Clock,
   AlertTriangle,
-  Percent,
   Target,
   DollarSign,
   RefreshCw,
@@ -41,12 +40,16 @@ import { formatCurrency, formatPercentage } from '../ai/stageflowConfig';
  */
 
 // Tab configuration
+// LAUNCH: Only Today and Coach visible; Mission Control and Performance hidden for now
 const TABS = [
-  { id: 'today', label: 'Today', icon: Calendar },
-  { id: 'mission_control', label: 'Mission Control', icon: CheckSquare },
-  { id: 'performance', label: 'Performance', icon: TrendingUp },
-  { id: 'coach', label: 'Coach', icon: GraduationCap }
+  { id: 'today', label: 'Today', icon: Calendar, visible: true },
+  { id: 'mission_control', label: 'Mission Control', icon: CheckSquare, visible: false },
+  { id: 'performance', label: 'Performance', icon: TrendingUp, visible: false },
+  { id: 'coach', label: 'Coach', icon: GraduationCap, visible: true }
 ];
+
+// Visible tabs for launch
+const VISIBLE_TABS = TABS.filter(tab => tab.visible);
 
 /**
  * Metric Chip Component - Glass pill for key metrics
@@ -83,7 +86,7 @@ const MetricChip = ({ label, value, icon: Icon, color = 'emerald', loading = fal
 };
 
 /**
- * Tab Button Component
+ * Tab Button Component - Subtle pill design for launch
  */
 const TabButton = ({ tab, isActive, onClick }) => {
   const Icon = tab.icon;
@@ -91,16 +94,16 @@ const TabButton = ({ tab, isActive, onClick }) => {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
         isActive
-          ? 'bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white shadow-[0_4px_16px_rgba(12,227,177,0.3)]'
-          : 'text-white/50 hover:text-white hover:bg-white/[0.06]'
+          ? 'bg-white/[0.1] text-white border border-white/[0.15]'
+          : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
       }`}
       aria-selected={isActive}
       role="tab"
     >
-      <Icon className="w-4 h-4" />
-      <span className="hidden sm:inline">{tab.label}</span>
+      <Icon className="w-3.5 h-3.5" />
+      <span>{tab.label}</span>
     </button>
   );
 };
@@ -450,9 +453,9 @@ export const MissionControlPanel = ({
             </div>
           </div>
 
-          {/* Tab Navigation */}
-          <div className="flex items-center gap-1 bg-white/[0.03] rounded-xl p-1 border border-white/[0.06]" role="tablist">
-            {TABS.map(tab => (
+          {/* Tab Navigation - Subtle segmented control */}
+          <div className="flex items-center gap-0.5 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.05]" role="tablist">
+            {VISIBLE_TABS.map(tab => (
               <TabButton
                 key={tab.id}
                 tab={tab}
@@ -463,36 +466,32 @@ export const MissionControlPanel = ({
           </div>
         </div>
 
-        {/* Metric Chips Row */}
-        <div className="flex flex-wrap gap-2.5 mt-4 pt-4 border-t border-white/[0.06]">
+        {/* Metric Chips Row - Slim, non-competing with body */}
+        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-white/[0.04]">
           <MetricChip
-            label="Org Win Rate"
+            label="Win Rate"
             value={metrics.orgWinRate !== null ? `${metrics.orgWinRate}%` : '--'}
             icon={Award}
             color="emerald"
-            loading={!deals || deals.length === 0}
+            loading={false}
           />
           <MetricChip
-            label="Avg Days to Close"
-            value={metrics.avgDaysToClose !== null ? `${metrics.avgDaysToClose}` : '--'}
+            label="Avg Close"
+            value={metrics.avgDaysToClose !== null ? `${metrics.avgDaysToClose}d` : '--'}
             icon={Clock}
             color="blue"
-            loading={!deals || deals.length === 0}
+            loading={false}
           />
           <MetricChip
-            label="High-Value At Risk"
+            label="At Risk"
             value={metrics.highValueAtRisk !== null ? `${metrics.highValueAtRisk}` : '0'}
             icon={AlertTriangle}
             color={metrics.highValueAtRisk > 0 ? 'amber' : 'teal'}
-            loading={!deals || deals.length === 0}
+            loading={false}
           />
-          {metrics.userWinRate !== null && (
-            <MetricChip
-              label="Your Win Rate"
-              value={`${metrics.userWinRate}%`}
-              icon={Percent}
-              color="teal"
-            />
+          {/* Subtle hint when no data */}
+          {(!deals || deals.length === 0) && (
+            <span className="text-[10px] text-white/30 ml-1">No data yet</span>
           )}
         </div>
       </div>

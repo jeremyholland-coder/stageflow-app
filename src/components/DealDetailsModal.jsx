@@ -430,8 +430,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                 <select
                   value={formData.assigned_to}
                   onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
-                  disabled={loadingTeamMembers}
-                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%239CA3AF%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%276 9 12 15 18 9%27/%3E%3C/svg%3E')] bg-[length:1.5em_1.5em] bg-[right_0.5rem_center] bg-no-repeat disabled:opacity-50"
+                  disabled={loadingTeamMembers || teamMembers.length === 0}
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%239CA3AF%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%276 9 12 15 18 9%27/%3E%3C/svg%3E')] bg-[length:1.5em_1.5em] bg-[right_0.5rem_center] bg-no-repeat disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="">Unassigned</option>
                   {teamMembers.map(member => (
@@ -440,9 +440,20 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                     </option>
                   ))}
                 </select>
+                {/* Clear messaging for different states */}
+                {loadingTeamMembers && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Loading team members...
+                  </p>
+                )}
                 {teamMembers.length === 0 && !loadingTeamMembers && (
                   <p className="text-xs text-gray-400 mt-1">
-                    No team members found. Invite team members from Settings.
+                    No team members to assign. Invite team members from Settings to enable assignment.
+                  </p>
+                )}
+                {teamMembers.length > 0 && !loadingTeamMembers && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select a team member to assign this deal.
                   </p>
                 )}
               </div>
