@@ -610,9 +610,12 @@ export const KanbanColumn = memo(({
   );
 
   // NEXT-LEVEL: Use virtual scrolling for large lists (20+ deals)
+  // DEV NOTE (LAYOUT FIX): itemHeight was 310px but actual cards are ~150-220px.
+  // This caused large gaps between cards when virtual scrolling was active.
+  // Reduced to 220px (max card height ~200px + 20px buffer for spacing).
   const useVirtualScrolling = stageDeals.length >= 20;
   const { containerProps, innerProps, visibleItems } = useVirtualScroll(stageDeals, {
-    itemHeight: 310, // Approximate deal card height including margins
+    itemHeight: 220, // Accurate card height: ~200px max + gap buffer
     overscan: 3,     // Render 3 extra items above/below viewport
   });
 
@@ -810,10 +813,13 @@ export const KanbanColumn = memo(({
             </div>
           ) : useVirtualScrolling ? (
             // NEXT-LEVEL: Virtual scrolling for 20+ deals (70% faster rendering)
-            <div {...containerProps} className="space-y-3" style={{ ...containerProps.style, maxHeight: '600px' }}>
+            // DEV NOTE (LAYOUT FIX): Removed space-y-3 (no effect with single child).
+            // Removed paddingBottom:12px (spacing now handled via itemHeight).
+            // Root cause: fixed 310px slots with ~200px cards = 110px gaps.
+            <div {...containerProps} style={{ ...containerProps.style, maxHeight: '600px' }}>
               <div {...innerProps}>
                 {visibleItems.map(({ item: deal, index: idx, style }) => (
-                  <div key={deal.id} style={{ ...style, paddingBottom: '12px' }}>
+                  <div key={deal.id} style={style}>
                     <KanbanCard
                       deal={deal}
                       onSelect={onDealSelected}
@@ -1287,9 +1293,12 @@ export const KanbanBoard = memo(({
           // CRITICAL FIX: Don't use hooks inside loops - create handlers inline
           // Hooks must be called in the same order every render
           return (
+            // DEV NOTE (LAYOUT FIX): Added self-start + h-fit to prevent columns
+            // from stretching to match tallest column. This ensures each column
+            // sizes to its own content, fixing vertical spacing inconsistencies.
             <div
               key={stage.id}
-              className="transition-all duration-200"
+              className="transition-all duration-200 self-start h-fit"
             >
               <KanbanColumn
                 stage={stage}
