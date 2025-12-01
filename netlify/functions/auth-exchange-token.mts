@@ -14,6 +14,8 @@
  * POST /.netlify/functions/auth-exchange-token
  * Body: { access_token, refresh_token }
  * Response: Sets cookies + returns user data
+ *
+ * CRITICAL FIX (2025-12-01): Added CORS headers to ensure Set-Cookie works with credentials: 'include'
  */
 
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
@@ -21,12 +23,45 @@ import { createClient } from '@supabase/supabase-js';
 import { setSessionCookies } from './lib/cookie-auth';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
+// CORS headers for browser requests - CRITICAL for Set-Cookie to work with credentials: 'include'
+const getCorsHeaders = (event: HandlerEvent) => {
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'https://stageflow-rev-ops.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  // Allow Netlify deploy previews
+  const isNetlifyPreview = requestOrigin.includes('.netlify.app') && requestOrigin.includes('stageflow');
+  const corsOrigin = allowedOrigins.includes(requestOrigin) || isNetlifyPreview
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
+  return {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+};
+
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
+  // Get CORS headers for this request
+  const corsHeaders = getCorsHeaders(event);
+
+  // Handle CORS preflight requests
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   // Only allow POST
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -39,7 +74,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     if (!access_token || !refresh_token) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Missing required tokens',
           code: 'MISSING_TOKENS'
@@ -55,7 +90,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       console.error('❌ Missing Supabase configuration');
       return {
         statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Server configuration error',
           code: 'CONFIG_ERROR'
@@ -84,7 +119,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
       return {
         statusCode: 401,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'Invalid or expired tokens',
           code: 'INVALID_TOKENS'
@@ -116,11 +151,10 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     // Return success with user data AND session (needed for password reset)
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
+    // CRITICAL FIX (2025-12-01): Include CORS headers for Set-Cookie to work with credentials: 'include'
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },
@@ -148,7 +182,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: getCorsHeaders(event),
       body: JSON.stringify({
         error: 'Token exchange failed',
         code: 'EXCHANGE_ERROR'

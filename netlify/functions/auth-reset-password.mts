@@ -1,4 +1,4 @@
-import type { Handler } from "@netlify/functions";
+import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { setSessionCookies } from "./lib/cookie-auth";
 
@@ -19,13 +19,50 @@ import { setSessionCookies } from "./lib/cookie-auth";
  * - Validates token before accepting password update
  * - Sets secure HttpOnly cookies (XSS protection)
  * - Logs all operations for audit trail
+ *
+ * CRITICAL FIX (2025-12-01): Added CORS headers to ensure Set-Cookie works with credentials: 'include'
+ * Without these headers, browsers ignore Set-Cookie from fetch responses with credentials mode
  */
 
+// CORS headers for browser requests - CRITICAL for Set-Cookie to work with credentials: 'include'
+const getCorsHeaders = (event: HandlerEvent) => {
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
+    'https://stageflow-rev-ops.netlify.app',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const requestOrigin = event.headers?.origin || '';
+  // Allow Netlify deploy previews
+  const isNetlifyPreview = requestOrigin.includes('.netlify.app') && requestOrigin.includes('stageflow');
+  const corsOrigin = allowedOrigins.includes(requestOrigin) || isNetlifyPreview
+    ? requestOrigin
+    : 'https://stageflow.startupstage.com';
+
+  return {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+};
+
 export const handler: Handler = async (event) => {
+  // Get CORS headers for this request
+  const corsHeaders = getCorsHeaders(event);
+
+  // Handle CORS preflight requests
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   try {
     if (event.httpMethod !== "POST") {
       return {
         statusCode: 405,
+        headers: corsHeaders,
         body: JSON.stringify({ error: "Method not allowed" }),
       };
     }
@@ -44,6 +81,7 @@ export const handler: Handler = async (event) => {
       });
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: !refreshToken
             ? "Session expired. Please request a new password reset link."
@@ -66,6 +104,7 @@ export const handler: Handler = async (event) => {
       console.error('[Password Reset] Missing Supabase configuration');
       return {
         statusCode: 500,
+        headers: corsHeaders,
         body: JSON.stringify({ error: "Server configuration error" }),
       };
     }
@@ -86,6 +125,7 @@ export const handler: Handler = async (event) => {
       });
       return {
         statusCode: 401,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "Invalid or expired recovery token. Please request a new password reset link."
         }),
@@ -111,6 +151,7 @@ export const handler: Handler = async (event) => {
       });
       return {
         statusCode: 401,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "Could not establish session. Your reset link may have expired. Please request a new one."
         }),
@@ -135,6 +176,7 @@ export const handler: Handler = async (event) => {
       });
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: updateError.message || "Failed to update password. Please try again."
         }),
@@ -145,6 +187,7 @@ export const handler: Handler = async (event) => {
       console.error('[Password Reset] ❌ No user returned after password update - this should not happen');
       return {
         statusCode: 500,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "Password update failed to return user data. Please try again."
         }),
@@ -188,6 +231,7 @@ export const handler: Handler = async (event) => {
       // Graceful degradation: tell user to try again
       return {
         statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({
           success: true,
           autoLogin: false,
@@ -218,11 +262,10 @@ export const handler: Handler = async (event) => {
     });
 
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
+    // CRITICAL FIX (2025-12-01): Include CORS headers for Set-Cookie to work with credentials: 'include'
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       multiValueHeaders: {
         'Set-Cookie': cookies
       },
@@ -244,6 +287,7 @@ export const handler: Handler = async (event) => {
     });
     return {
       statusCode: 500,
+      headers: getCorsHeaders(event),
       body: JSON.stringify({
         error: "An unexpected error occurred. Please try again or request a new password reset link.",
         details: process.env.NODE_ENV === 'development' ? err.message : undefined
