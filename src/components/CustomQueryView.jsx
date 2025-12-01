@@ -28,6 +28,39 @@ import { PlanMyDaySummary } from './PlanMyDaySummary';
 // APMDOS: Adaptive Plan My Day Onboarding System
 import { useActivationState, markFeatureSeen } from '../hooks/useActivationState';
 
+// ISSUE 4 FIX: Plan My Day daily limit helpers
+const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
+
+/**
+ * Check if Plan My Day was already run today
+ * @returns {boolean} True if already run today
+ */
+const wasPlanMyDayRunToday = () => {
+  try {
+    const lastRun = localStorage.getItem(PLAN_MY_DAY_STORAGE_KEY);
+    if (!lastRun) return false;
+
+    const lastRunDate = new Date(lastRun);
+    const today = new Date();
+
+    // Compare date only (ignore time)
+    return lastRunDate.toDateString() === today.toDateString();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Mark Plan My Day as run today
+ */
+const markPlanMyDayRun = () => {
+  try {
+    localStorage.setItem(PLAN_MY_DAY_STORAGE_KEY, new Date().toISOString());
+  } catch {
+    // localStorage unavailable - fail silently
+  }
+};
+
 // Metrics Summary Strip Component - Shows key performance stats
 const MetricsSummaryStrip = ({ metrics }) => {
   if (!metrics) return null;
@@ -115,6 +148,9 @@ export const CustomQueryView = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [performanceMetrics, setPerformanceMetrics] = useState(null);
   const conversationEndRef = useRef(null);
+
+  // ISSUE 4 FIX: Track if Plan My Day was already run today
+  const [planMyDayRunToday, setPlanMyDayRunToday] = useState(() => wasPlanMyDayRunToday());
 
   // OFFLINE: Track network status for AI availability
   // Use prop if provided (from parent), otherwise track locally
@@ -541,6 +577,12 @@ export const CustomQueryView = ({
         // AI FALLBACK: If provider error detected, show notification suggesting retry
         if (hasProviderError && connectedProviders.length > 1) {
           addNotification('This AI provider is temporarily unavailable. Try again to use another provider.', 'info');
+        }
+
+        // ISSUE 4 FIX: Mark Plan My Day as run today after successful completion
+        if (lastQuickActionRef.current === 'plan_my_day' && !hasProviderError) {
+          markPlanMyDayRun();
+          setPlanMyDayRunToday(true);
         }
       } finally {
         // CRITICAL FIX: Always clear timeout to prevent memory leak
@@ -1119,15 +1161,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
       )}
 
       {/* SIMPLIFIED: Flat layout - no nested cards, maximum viewport for AI content */}
-      <div
-        className="relative flex flex-col"
-        style={{
-          // Generous height - fills available space in Mission Control
-          maxHeight: hasCharts ? '1400px' : '800px',
-          minHeight: conversationHistory.length === 0 ? '280px' : '500px',
-          transition: 'max-height 0.4s ease-out, min-height 0.4s ease-out'
-        }}
-      >
+      {/* ISSUE 6 FIX: Removed fixed heights to allow natural content sizing and prevent double-scroll */}
+      <div className="relative flex flex-col min-h-[280px]">
         {/* New Conversation button - subtle, top-right when conversation exists */}
         {conversationHistory.length > 0 && (
           <div className="flex-shrink-0 flex justify-end pb-3">
@@ -1272,13 +1307,18 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                         <span>Import more contacts from your CRM</span>
                       </div>
                     </div>
-                    {/* Still show Plan My Day for users with some deals */}
-                    {hasProviders && isOnline && (
+                    {/* ISSUE 4 FIX: Still show Plan My Day for users with some deals, but respect daily limit */}
+                    {hasProviders && isOnline && !planMyDayRunToday && (
                       <PlanMyDayButton
                         onClick={() => handleQuickAction('plan_my_day')}
                         disabled={loading || isSubmitting}
                         loading={loading && lastQuickActionRef.current === 'plan_my_day'}
                       />
+                    )}
+                    {planMyDayRunToday && (
+                      <p className="text-xs text-[#0CE3B1]/70">
+                        ✓ Today's plan is ready — check Tasks tab
+                      </p>
                     )}
                   </div>
                 </>
@@ -1291,15 +1331,29 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                     <Sparkles className="w-7 h-7 text-[#0CE3B1]" strokeWidth={1.5} />
                   </div>
                   <div className="text-center max-w-sm space-y-4">
-                    <p className="text-base text-white/80 font-medium">
-                      Start your day with a quick plan.
-                    </p>
-                    {hasProviders && isOnline && (
-                      <PlanMyDayButton
-                        onClick={() => handleQuickAction('plan_my_day')}
-                        disabled={loading || isSubmitting}
-                        loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-                      />
+                    {/* ISSUE 4 FIX: Show different message if Plan My Day was already run today */}
+                    {planMyDayRunToday ? (
+                      <>
+                        <p className="text-base text-white/80 font-medium">
+                          Today's plan is ready above ↑
+                        </p>
+                        <p className="text-xs text-white/40 pt-2">
+                          Check your Tasks tab or scroll up to see your daily plan.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-base text-white/80 font-medium">
+                          Start your day with a quick plan.
+                        </p>
+                        {hasProviders && isOnline && (
+                          <PlanMyDayButton
+                            onClick={() => handleQuickAction('plan_my_day')}
+                            disabled={loading || isSubmitting}
+                            loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                          />
+                        )}
+                      </>
                     )}
                     <p className="text-xs text-white/40 pt-2">
                       Or ask anything about your deals in the chat box below.
@@ -1508,11 +1562,14 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
           {hasProviders && isOnline && conversationHistory.length > 0 && (
             <div className="mb-4 space-y-4">
               {/* HERO BUTTON: Plan My Day - Primary CTA */}
-              <PlanMyDayButton
-                onClick={() => handleQuickAction('plan_my_day')}
-                disabled={loading || isSubmitting}
-                loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-              />
+              {/* ISSUE 4 FIX: Hide if already run today */}
+              {!planMyDayRunToday && (
+                <PlanMyDayButton
+                  onClick={() => handleQuickAction('plan_my_day')}
+                  disabled={loading || isSubmitting}
+                  loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                />
+              )}
 
               {/* SECONDARY ACTIONS - Extremely subtle text-only buttons */}
               <div className="flex flex-wrap gap-3 justify-center">
