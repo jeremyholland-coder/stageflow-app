@@ -8,7 +8,6 @@ import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates';
 import { sanitizeText } from '../lib/sanitize';
 import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 import { ModalErrorBoundary } from './ErrorBoundaries';
-import { useErrorHandler } from '../lib/error-handler';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { useFocusTrap } from '../lib/accessibility';
 import { getPlanLimits, isOverLimit } from '../config/planLimits';
@@ -63,7 +62,6 @@ const FieldError = ({ error, fieldId }) => {
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated, pipelineStages = [] }) => {
   const { user, organization, addNotification } = useApp();
-  const { handleAsyncOperation } = useErrorHandler(addNotification);
   const [loading, setLoading] = useState(false);
   const [progressMessage, setProgressMessage] = useState(''); // MEDIUM FIX: Show creation progress
 
@@ -152,6 +150,24 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
     validation.handleBlur(fieldName, formData[fieldName]);
   };
 
+  // Helper: Map backend error codes to user-friendly messages
+  const getErrorMessage = (code, hint, fallbackError) => {
+    const errorMessages = {
+      'ENV_CONFIG_ERROR': 'StageFlow needs a quick configuration update. Please contact support or try again in a bit.',
+      'DB_INIT_ERROR': "We're having trouble connecting to the database. Please try again in a moment.",
+      '23503': "We couldn't link this deal to your workspace. Please refresh the page and try again.",
+      '23505': 'This deal looks like a duplicate. Check your existing deals before adding another.',
+      '42501': "You don't have permission to create deals in this workspace. Please check your access or contact an admin.",
+      'PERMISSION_DENIED': "You don't have permission to create deals in this workspace. Please check your access or contact an admin.",
+      'AUTH_REQUIRED': 'Your session has expired. Please refresh the page and log in again.',
+      'TOKEN_EXPIRED': 'Your session has expired. Please refresh the page and log in again.',
+      'UNAUTHORIZED': 'Authentication required. Please refresh and log in again.',
+    };
+
+    // Return mapped message, or use hint if available, or fallback
+    return errorMessages[code] || hint || fallbackError || 'Something went wrong while creating this deal. Please try again.';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -165,8 +181,14 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
       return;
     }
 
-    if (!user || !organization) {
-      addNotification('Authentication required', 'error');
+    // PART A: Enhanced pre-flight validation
+    if (!user) {
+      addNotification('Please log in to create a deal.', 'error');
+      return;
+    }
+
+    if (!organization || !organization.id) {
+      addNotification("We couldn't find your workspace. Please refresh the page and try again.", 'error');
       return;
     }
 
@@ -202,50 +224,81 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
     setProgressMessage('Creating deal...'); // MEDIUM FIX: Progress feedback
 
     try {
-      const { success, data } = await handleAsyncOperation(
-        async () => {
-          // FIX M16: Coerce empty strings to null for optional fields
-          // Use toNumberOrNull for safe numeric conversion (avoids NaN)
-          const dealValue = toNumberOrNull(formData.value);
-          const sanitizedData = {
-            client: sanitizeText(formData.client),
-            email: sanitizeText(formData.email) || null,
-            phone: sanitizeText(formData.phone) || null,
-            value: dealValue !== null ? dealValue : 0,
-            stage: formData.stage,
-            status: 'active',
-            notes: sanitizeText(formData.notes) || null
-          };
+      // FIX M16: Coerce empty strings to null for optional fields
+      // Use toNumberOrNull for safe numeric conversion (avoids NaN)
+      const dealValue = toNumberOrNull(formData.value);
+      const sanitizedData = {
+        client: sanitizeText(formData.client),
+        email: sanitizeText(formData.email) || null,
+        phone: sanitizeText(formData.phone) || null,
+        value: dealValue !== null ? dealValue : 0,
+        stage: formData.stage,
+        status: 'active',
+        notes: sanitizeText(formData.notes) || null
+      };
 
-          // PHASE J: Use auth-aware api-client with Authorization header
-          // Fixes cross-origin cookie issues by sending Bearer token
-          const { data: result } = await api.post('create-deal', {
-            dealData: sanitizedData,
-            organizationId: organization.id
-          });
-
-          if (!result.success && result.error) {
-            throw new Error(result.error);
-          }
-
-          if (!result.deal) {
-            throw new Error('No deal data returned from server');
-          }
-
-          return result.deal;
-        },
-        // FIX PHASE Z2: Remove outer retry - api.post already has network-aware retry logic
-        // Previous double-retry caused up to 9 network calls on failure (3 × 3)
-        { context: { component: 'NewDealModal', action: 'create' } }
-      );
-
-      if (success) {
-        addNotification('Deal created successfully!');
-        onDealCreated(data);
-        onClose();
-        setFormData({ client: '', email: '', phone: '', value: '', stage: getInitialStage(), notes: '' });
-        validation.reset();
+      // PHASE J: Use auth-aware api-client with Authorization header
+      // PART B: Enhanced error handling with structured response parsing
+      let result;
+      try {
+        const response = await api.post('create-deal', {
+          dealData: sanitizedData,
+          organizationId: organization.id
+        });
+        result = response?.data;
+      } catch (networkError) {
+        // Network/connection failure - no JSON response at all
+        console.error('[NewDealModal] Network error:', networkError);
+        addNotification('Connection issue. Please check your internet and try again.', 'error');
+        setLoading(false);
+        setProgressMessage('');
+        return;
       }
+
+      // PART B: Handle three cases - network failure (caught above), JSON with success: false, JSON with success: true
+      if (!result) {
+        // No data returned (shouldn't happen, but defensive)
+        addNotification('No response from server. Please try again.', 'error');
+        setLoading(false);
+        setProgressMessage('');
+        return;
+      }
+
+      if (result.success === false || result.error) {
+        // Structured error from backend - extract code and hint safely
+        const code = result?.code;
+        const hint = result?.hint;
+        const errorMsg = result?.error;
+
+        console.error('[NewDealModal] Create deal failed:', { code, hint, error: errorMsg });
+
+        // Show user-friendly message based on error code
+        const userMessage = getErrorMessage(code, hint, errorMsg);
+        addNotification(userMessage, 'error');
+        setLoading(false);
+        setProgressMessage('');
+        return;
+      }
+
+      if (!result.deal) {
+        // Success: true but no deal data (shouldn't happen, but defensive)
+        addNotification("Deal may have been created, but we couldn't confirm. Please check your pipeline.", 'error');
+        setLoading(false);
+        setProgressMessage('');
+        return;
+      }
+
+      // Success!
+      addNotification('Deal created and added to your pipeline!', 'success');
+      onDealCreated(result.deal);
+      onClose();
+      setFormData({ client: '', email: '', phone: '', value: '', stage: getInitialStage(), notes: '' });
+      validation.reset();
+
+    } catch (unexpectedError) {
+      // Catch-all for any unexpected errors
+      console.error('[NewDealModal] Unexpected error:', unexpectedError);
+      addNotification('An unexpected error occurred. Please try again.', 'error');
     } finally {
       // CRITICAL FIX: Always reset loading state in finally block
       setLoading(false);
