@@ -16,6 +16,28 @@ import { requireAuth } from "./lib/auth-middleware";
  */
 
 export default async (req: Request, context: Context) => {
+  // FIX: Early environment variable validation to catch config issues
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error("[create-deal] CRITICAL: Missing environment variables", {
+      hasSupabaseUrl: !!supabaseUrl,
+      hasServiceRoleKey: !!serviceRoleKey
+    });
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Server configuration error",
+        code: "ENV_CONFIG_ERROR"
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }
+
   // PHASE 10 FIX: Secure CORS with whitelist instead of wildcard
   const allowedOrigins = [
     'https://stageflow.startupstage.com',
@@ -74,6 +96,16 @@ export default async (req: Request, context: Context) => {
     if (!dealData || !organizationId) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing required fields: dealData, organizationId" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    // FIX: Validate organizationId is a valid UUID to catch data corruption early
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(organizationId)) {
+      console.error("[create-deal] Invalid organizationId format:", organizationId);
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid organization ID format" }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -210,7 +242,6 @@ export default async (req: Request, context: Context) => {
       status: sanitizedDeal.status,
       value: sanitizedDeal.value,
       organization_id: sanitizedDeal.organization_id,
-      created_by: sanitizedDeal.created_by,
       hasNotes: !!sanitizedDeal.notes
     });
 
@@ -324,11 +355,16 @@ export default async (req: Request, context: Context) => {
       ? error.message
       : 'An error occurred while creating the deal';
 
+    // FIX: Include diagnostic info in response (safe for client, helps debugging)
     return new Response(
       JSON.stringify({
         success: false,
         error: errorMessage,
-        code: "CREATE_DEAL_ERROR"
+        code: error.code || "CREATE_DEAL_ERROR",
+        // Include hint for common issues (safe to expose)
+        hint: error.hint || (error.code === '23505' ? 'Duplicate entry detected' :
+              error.code === '23503' ? 'Referenced record not found' :
+              error.code === '42501' ? 'Permission denied - check RLS policies' : undefined)
       }),
       { status: 500, headers: corsHeaders }
     );
