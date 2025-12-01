@@ -40,16 +40,11 @@ import { formatCurrency, formatPercentage } from '../ai/stageflowConfig';
  */
 
 // Tab configuration
-// LAUNCH: Only Today and Coach visible; Mission Control and Performance hidden for now
+// LAUNCH: Coach always visible; Tasks tab appears after Plan My Day is run
 const TABS = [
-  { id: 'today', label: 'Today', icon: Calendar, visible: true },
-  { id: 'mission_control', label: 'Mission Control', icon: CheckSquare, visible: false },
-  { id: 'performance', label: 'Performance', icon: TrendingUp, visible: false },
+  { id: 'tasks', label: 'Tasks', icon: CheckSquare, conditionalOnTasks: true },
   { id: 'coach', label: 'Coach', icon: GraduationCap, visible: true }
 ];
-
-// Visible tabs for launch
-const VISIBLE_TABS = TABS.filter(tab => tab.visible);
 
 /**
  * Metric Chip Component - Glass pill for key metrics
@@ -86,19 +81,34 @@ const MetricChip = ({ label, value, icon: Icon, color = 'emerald', loading = fal
 };
 
 /**
- * Tab Button Component - Subtle pill design for launch
+ * Tab Button Component - Glass design with conditional glow effects
+ * - Tasks tab: mint glow when active (appears after Plan My Day)
+ * - Coach tab: blue trust glow when active
  */
 const TabButton = ({ tab, isActive, onClick }) => {
   const Icon = tab.icon;
+  const isCoach = tab.id === 'coach';
+  const isTasks = tab.id === 'tasks';
+
+  // Determine active styling based on tab type
+  const getActiveStyles = () => {
+    if (!isActive) return 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]';
+
+    if (isCoach) {
+      // Blue trust glow for Coach
+      return 'bg-blue-500/15 text-blue-300 border border-blue-400/30 shadow-[0_0_12px_rgba(59,130,246,0.25)]';
+    }
+    if (isTasks) {
+      // Mint glow for Tasks
+      return 'bg-[#0CE3B1]/15 text-[#0CE3B1] border border-[#0CE3B1]/30 shadow-[0_0_12px_rgba(12,227,177,0.25)]';
+    }
+    return 'bg-white/[0.1] text-white border border-white/[0.15]';
+  };
 
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-        isActive
-          ? 'bg-white/[0.1] text-white border border-white/[0.15]'
-          : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
-      }`}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 ${getActiveStyles()}`}
       aria-selected={isActive}
       role="tab"
     >
@@ -315,7 +325,7 @@ export const MissionControlPanel = ({
   coachingData = null
 }) => {
   const { user, organization } = useApp();
-  const [activeTab, setActiveTab] = useState('today');
+  const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
   const [newTaskInput, setNewTaskInput] = useState('');
   const [aiTasks, setAiTasks] = useState([]);
 
@@ -433,6 +443,13 @@ export const MissionControlPanel = ({
   // Check if targets are configured
   const hasTargets = targets.monthlyTarget || targets.quarterlyTarget || targets.annualTarget;
 
+  // Auto-switch to Tasks tab when Plan My Day generates tasks
+  useEffect(() => {
+    if (tasks.length > 0 && activeTab === 'coach') {
+      setActiveTab('tasks');
+    }
+  }, [tasks.length, activeTab]);
+
   return (
     <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.25)] overflow-hidden">
       {/* Header */}
@@ -454,8 +471,13 @@ export const MissionControlPanel = ({
           </div>
 
           {/* Tab Navigation - Subtle segmented control */}
+          {/* Tasks tab only appears after Plan My Day generates tasks */}
           <div className="flex items-center gap-0.5 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.05]" role="tablist">
-            {VISIBLE_TABS.map(tab => (
+            {TABS.filter(tab => {
+              // Tasks tab only visible when there are tasks
+              if (tab.conditionalOnTasks) return tasks.length > 0;
+              return tab.visible !== false;
+            }).map(tab => (
               <TabButton
                 key={tab.id}
                 tab={tab}
@@ -466,40 +488,86 @@ export const MissionControlPanel = ({
           </div>
         </div>
 
-        {/* Metric Chips Row - Slim, non-competing with body */}
-        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-white/[0.04]">
-          <MetricChip
-            label="Win Rate"
-            value={metrics.orgWinRate !== null ? `${metrics.orgWinRate}%` : '--'}
-            icon={Award}
-            color="emerald"
-            loading={false}
-          />
-          <MetricChip
-            label="Avg Close"
-            value={metrics.avgDaysToClose !== null ? `${metrics.avgDaysToClose}d` : '--'}
-            icon={Clock}
-            color="blue"
-            loading={false}
-          />
-          <MetricChip
-            label="At Risk"
-            value={metrics.highValueAtRisk !== null ? `${metrics.highValueAtRisk}` : '0'}
-            icon={AlertTriangle}
-            color={metrics.highValueAtRisk > 0 ? 'amber' : 'teal'}
-            loading={false}
-          />
-          {/* Subtle hint when no data */}
-          {(!deals || deals.length === 0) && (
-            <span className="text-[10px] text-white/30 ml-1">No data yet</span>
-          )}
-        </div>
       </div>
 
-      {/* Tab Content */}
-      <div className="p-6">
-        {/* TODAY TAB */}
-        {activeTab === 'today' && (
+      {/* Tab Content - Expanded padding for larger AI window */}
+      <div className="p-6 pt-8 pb-10">
+        {/* TASKS TAB - Shows AI-generated tasks after Plan My Day */}
+        {activeTab === 'tasks' && tasks.length > 0 && (
+          <div className="space-y-5">
+            {/* Progress header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-white">Today's Tasks</h3>
+                <p className="text-xs text-white/50 mt-0.5">
+                  {stats.completed} of {stats.total} completed ({stats.percentage}%)
+                </p>
+              </div>
+
+              {/* Progress ring */}
+              <div className="relative w-14 h-14">
+                <svg className="w-14 h-14 transform -rotate-90">
+                  <circle
+                    cx="28" cy="28" r="22"
+                    stroke="currentColor" strokeWidth="4" fill="transparent"
+                    className="text-white/[0.06]"
+                  />
+                  <circle
+                    cx="28" cy="28" r="22"
+                    stroke="currentColor" strokeWidth="4" fill="transparent"
+                    strokeDasharray={`${stats.percentage * 1.38} 138`}
+                    strokeLinecap="round"
+                    className="text-[#0CE3B1] transition-all duration-500 drop-shadow-[0_0_8px_rgba(12,227,177,0.5)]"
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                  {stats.percentage}%
+                </span>
+              </div>
+            </div>
+
+            {/* Carry-over tasks */}
+            {carryOverTasks.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Carried Over ({carryOverTasks.length})
+                  </span>
+                  <button
+                    onClick={dismissCarryOver}
+                    className="text-xs text-white/40 hover:text-amber-400 transition-colors"
+                  >
+                    Dismiss all
+                  </button>
+                </div>
+                {carryOverTasks.map(task => (
+                  <TaskItem
+                    key={task.id}
+                    task={task}
+                    isCompleted={isCompleted(task.id)}
+                    onToggle={() => toggleTask(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Main task list */}
+            <div className="space-y-2">
+              {tasks.filter(t => !t.isCarryOver).map(task => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  isCompleted={isCompleted(task.id)}
+                  onToggle={() => toggleTask(task.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* COACH TAB - CustomQueryView with AI conversation */}
+        {activeTab === 'coach' && (
           <CustomQueryView
             deals={deals}
             healthAlert={healthAlert}

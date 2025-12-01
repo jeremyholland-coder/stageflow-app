@@ -10,7 +10,7 @@ import { saveAIInsight, loadLastAIInsight, extractSummary } from '../lib/aiOffli
 import { buildOfflineSnapshot } from '../lib/offlineSnapshot';
 // PHASE 5.1: New AI UX components
 import { PlanMyDayButton } from './PlanMyDayButton';
-import { InsightChip } from './InsightChip';
+// InsightChip removed - using minimal text buttons for secondary actions
 // PHASE 5.2: Execution micro-buttons
 import { ActionMicroButtonGroup } from './ActionMicroButton';
 // PHASE 17: Plan My Day Checklist with persistence
@@ -1321,34 +1321,38 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                 loading={loading && lastQuickActionRef.current === 'plan_my_day'}
               />
 
-              {/* SECONDARY INSIGHT CHIPS (3 max) - Subtle mint-outline buttons */}
-              <div className="flex flex-wrap gap-2 justify-center">
-                <InsightChip
-                  icon={TrendingUp}
-                  label="Weekly Trends"
+              {/* SECONDARY ACTIONS - Extremely subtle text-only buttons */}
+              <div className="flex flex-wrap gap-3 justify-center">
+                <button
                   onClick={() => handleQuickAction('weekly_trends')}
                   disabled={loading || isSubmitting}
-                  loading={loading && lastQuickActionRef.current === 'weekly_trends'}
-                  tooltip="View weekly deal activity trends"
-                />
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="View weekly deal activity trends"
+                >
+                  {loading && lastQuickActionRef.current === 'weekly_trends' ? 'Loading...' : 'Weekly Trends'}
+                </button>
 
-                <InsightChip
-                  icon={Zap}
-                  label="Momentum Insights"
+                <span className="text-white/20">•</span>
+
+                <button
                   onClick={() => handleQuickAction('momentum_insights')}
                   disabled={loading || isSubmitting}
-                  loading={loading && lastQuickActionRef.current === 'momentum_insights'}
-                  tooltip="Identify deals that need momentum attention"
-                />
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Identify deals that need momentum attention"
+                >
+                  {loading && lastQuickActionRef.current === 'momentum_insights' ? 'Loading...' : 'Momentum Insights'}
+                </button>
 
-                <InsightChip
-                  icon={LineChart}
-                  label="Flow & Forecast"
+                <span className="text-white/20">•</span>
+
+                <button
                   onClick={() => handleQuickAction('flow_forecast')}
                   disabled={loading || isSubmitting}
-                  loading={loading && lastQuickActionRef.current === 'flow_forecast'}
-                  tooltip="Pipeline distribution and revenue forecast"
-                />
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Pipeline distribution and revenue forecast"
+                >
+                  {loading && lastQuickActionRef.current === 'flow_forecast' ? 'Loading...' : 'Forecast'}
+                </button>
               </div>
             </div>
           )}

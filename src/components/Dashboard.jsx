@@ -6,7 +6,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook eliminates duplicate code
 import { usePipelineStages } from '../hooks/usePipelineStages'; // NEXT-LEVEL: Shared pipeline loading hook
-import { DashboardStats } from './DashboardStats';
+// DashboardStats removed - statistics bar no longer rendered
 import { KanbanBoard } from './KanbanBoard';
 import { DashboardErrorBoundary, ChartErrorBoundary, ListErrorBoundary, ModalErrorBoundary } from './ErrorBoundaries';
 import { useErrorHandler } from '../lib/error-handler';
@@ -642,19 +642,6 @@ export const Dashboard = () => {
                   onDismiss={handleWelcomeDismiss}
                 />
               )}
-            </ChartErrorBoundary>
-
-            {/* PERFORMANCE METRICS: Stats dashboard for tracking pipeline performance */}
-            {/* PHASE UX-B: Always render DashboardStats - it handles its own skeleton/empty states */}
-            {/* ISSUE 1 FIX: Wrap in ChartErrorBoundary to isolate failures - prevents blank dashboard */}
-            <ChartErrorBoundary chartName="Dashboard Statistics">
-              <div data-tour="dashboard-stats" className="mb-6 min-h-[180px]" style={{ contain: 'layout' }}>
-                <DashboardStats
-                  deals={deals}
-                  currentUser={user}
-                  loading={loading}
-                />
-              </div>
             </ChartErrorBoundary>
 
             {/* Dynamic Dashboard Cards - Rendered based on user preferences */}
