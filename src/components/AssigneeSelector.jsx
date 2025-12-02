@@ -70,11 +70,13 @@ export const AssigneeSelector = memo(({
         return;
       }
 
-      // Fetch profiles for all members
+      // Fetch user profiles for all members
+      // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
+      // profiles table (only has avatar_url, first_name, last_name)
       const userIds = members.map(m => m.user_id);
       const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, email, raw_user_meta_data')
+        .from('user_profiles')
+        .select('id, email, full_name')
         .in('id', userIds);
 
       if (profilesError) throw profilesError;
@@ -84,7 +86,7 @@ export const AssigneeSelector = memo(({
 
       const formattedMembers = members.map(m => {
         const profile = profileMap.get(m.user_id);
-        const fullName = profile?.raw_user_meta_data?.full_name;
+        const fullName = profile?.full_name;
         const email = profile?.email;
 
         return {

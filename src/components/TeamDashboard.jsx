@@ -98,17 +98,19 @@ export const TeamDashboard = () => {
       }
 
       // Fetch profile data separately for all member user_ids
+      // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
+      // profiles table (only has avatar_url, first_name, last_name)
       const userIds = members.map(m => m.user_id);
       const { data: profiles, error: profilesError } = await Promise.race([
         supabase
-          .from('profiles')
-          .select('id, email, raw_user_meta_data')
+          .from('user_profiles')
+          .select('id, email, full_name')
           .in('id', userIds),
         timeoutPromise
       ]);
 
       if (profilesError) {
-        console.error('[TeamDashboard] Error fetching profiles:', profilesError);
+        console.error('[TeamDashboard] Error fetching user_profiles:', profilesError);
         // Continue without profile data - we'll use fallbacks
       }
 
@@ -188,12 +190,13 @@ export const TeamDashboard = () => {
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
           // FIX 2025-12-02: Improved name resolution with better fallback chain
+          // Now using user_profiles view which has full_name directly (not raw_user_meta_data)
           const isCurrentUser = member.user_id === user.id;
           const memberEmail = member.profiles?.email;
-          const memberFullName = member.profiles?.raw_user_meta_data?.full_name;
+          const memberFullName = member.profiles?.full_name;
 
           // Determine display name with fallback order:
-          // 1. Full name from user metadata (raw_user_meta_data)
+          // 1. Full name from user_profiles view
           // 2. Email username (before @)
           // 3. Full email address
           // 4. Role-based fallback (e.g., "Team Owner", "Team Member")
@@ -213,7 +216,7 @@ export const TeamDashboard = () => {
             // This can happen with seeded/demo users or orphaned records
             const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member';
             userName = `Team ${roleLabel}`;
-            logger.warn('[TeamDashboard] Member without profile:', member.user_id?.substring(0, 8));
+            logger.warn('[TeamDashboard] Member without user_profile:', member.user_id?.substring(0, 8));
           }
 
           return {
