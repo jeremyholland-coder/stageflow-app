@@ -276,11 +276,12 @@ export default async (req: Request, context: Context) => {
       }
     }
 
-    // Fetch user's configured AI providers from database
+    // Fetch organization's AI providers from database
+    // FIX 2025-12-02: Removed created_by filter - use ALL org providers, not just user's
+    // Sort by created_at ascending (first connected = first tried)
     const { data: providers, error: dbError } = await supabase
       .from('ai_providers')
       .select('*')
-      .eq('created_by', user_id)
       .eq('organization_id', organization_id)
       .eq('active', true)
       .order('created_at', { ascending: true });

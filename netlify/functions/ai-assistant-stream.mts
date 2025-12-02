@@ -435,7 +435,7 @@ export default async (req: Request, context: any) => {
       .select('*')
       .eq('organization_id', organizationId)
       .eq('active', true)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true }); // FIX 2025-12-02: First connected = first tried
 
     if (!providers || providers.length === 0) {
       return new Response(JSON.stringify({ error: 'No AI provider configured' }), {

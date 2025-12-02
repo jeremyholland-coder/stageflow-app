@@ -125,32 +125,37 @@ export function classifyError(error: any, statusCode?: number): { shouldFallback
 }
 
 /**
- * Sort providers into the correct fallback order
- * Returns providers in order: openai → anthropic → google → xai
- * Only includes providers that are available
+ * Sort providers for fallback execution
+ *
+ * FIX 2025-12-02: Now respects CONNECTION ORDER (first connected = first tried)
+ * Previously used hardcoded order (openai → anthropic → google → xai)
+ * Now keeps providers in their original order from the database (sorted by created_at)
+ *
+ * @param providers - Providers array (should be pre-sorted by created_at ascending)
+ * @param preferredProvider - Optional provider to try first (user's explicit choice)
  */
 export function sortProvidersForFallback<T extends { provider_type: string }>(
   providers: T[],
   preferredProvider?: string
 ): T[] {
-  // Create a map for O(1) lookup
-  const providerMap = new Map<string, T>();
-  for (const p of providers) {
-    providerMap.set(p.provider_type, p);
+  // If no preferred provider, return providers in their original (connection) order
+  if (!preferredProvider) {
+    return [...providers];
   }
 
-  const sorted: T[] = [];
+  // Find preferred provider
+  const preferredIndex = providers.findIndex(p => p.provider_type === preferredProvider);
 
-  // If there's a preferred provider, put it first
-  if (preferredProvider && providerMap.has(preferredProvider)) {
-    sorted.push(providerMap.get(preferredProvider)!);
-    providerMap.delete(preferredProvider);
+  // If not found, return original order
+  if (preferredIndex === -1) {
+    return [...providers];
   }
 
-  // Add remaining providers in fallback order
-  for (const providerType of PROVIDER_FALLBACK_ORDER) {
-    if (providerMap.has(providerType)) {
-      sorted.push(providerMap.get(providerType)!);
+  // Move preferred provider to front, keep others in original order
+  const sorted: T[] = [providers[preferredIndex]];
+  for (let i = 0; i < providers.length; i++) {
+    if (i !== preferredIndex) {
+      sorted.push(providers[i]);
     }
   }
 

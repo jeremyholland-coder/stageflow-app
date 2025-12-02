@@ -163,13 +163,14 @@ function setCachedPipelineAnalysis(organizationId: string, deals: any[], analysi
 }
 
 // Get all active AI providers for organization
+// FIX 2025-12-02: Sort by created_at ASCENDING (first connected = first tried)
 async function getActiveProviders(organizationId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('ai_providers')
     .select('*')
     .eq('organization_id', organizationId)
     .eq('active', true)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true }); // First connected = first in array
 
   if (error) {
     console.error('Error fetching providers:', error);
