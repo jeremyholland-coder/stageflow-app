@@ -7,7 +7,7 @@ export const DealSchema = z.object({
   phone: z.string().regex(/^[+]?[\d\s()-]+$/, 'Invalid phone number').optional().or(z.literal('')),
   value: z.number().min(0, 'Value must be positive').max(999999999, 'Value too large'),
   stage: z.enum(['lead', 'quote', 'approval', 'invoice', 'onboarding', 'delivery', 'retention']),
-  status: z.enum(['active', 'won', 'lost']),
+  status: z.enum(['active', 'won', 'lost', 'disqualified']),
   notes: z.string().max(5000, 'Notes too long').optional().or(z.literal(''))
 });
 

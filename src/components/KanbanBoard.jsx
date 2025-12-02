@@ -1,5 +1,5 @@
 import React, { useState, useMemo, memo, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
-import { GripVertical, Plus, TrendingUp, AlertCircle, DollarSign, FileText, CheckCircle, Package, Users, Trophy, CheckCircle2, XCircle, Clock, Mail, Edit2, ArrowRight, Inbox } from 'lucide-react';
+import { GripVertical, Plus, TrendingUp, AlertCircle, DollarSign, FileText, CheckCircle, Package, Users, Trophy, CheckCircle2, XCircle, Clock, Mail, Edit2, ArrowRight, Inbox, MoreVertical, Ban, UserCircle } from 'lucide-react';
 import { useApp } from './AppShell';
 import { LostReasonModal } from './LostReasonModal';
 import { StatusChangeConfirmationModal } from './StatusChangeConfirmationModal';
@@ -12,6 +12,8 @@ import { useStageVisibility } from '../hooks/useStageVisibility';
 import { buildUserPerformanceProfiles, calculateDealConfidence, getConfidenceLabel, getConfidenceColor } from '../utils/aiConfidence';
 import { ModalErrorBoundary } from './ErrorBoundaries';
 import { useVirtualScroll } from '../lib/virtual-scroll'; // NEXT-LEVEL: Virtual scrolling for large lists
+import { AssigneeSelector } from './AssigneeSelector';
+import { DisqualifyModal } from './DisqualifyModal';
 
 // PERFORMANCE: Lazy load NewDealModal to avoid duplicate imports
 const NewDealModal = lazy(() => import('./NewDealModal').then(m => ({ default: m.NewDealModal })));
@@ -197,12 +199,27 @@ const STAGE_COLORS = {
 };
 
 // Apple-like KanbanCard with modern, polished aesthetic
-export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3 }) => {
+export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3, organizationId, onDisqualify, onAssignmentChange }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const cardRef = useRef(null);
+  const menuRef = useRef(null);
   const touchCloneRef = useRef(null);
   const touchDataRef = useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMenu]);
 
   // AI-POWERED CONFIDENCE SCORE - Dynamic and personalized per user
   const confidenceScore = useMemo(() => {
@@ -509,6 +526,19 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         </p>
       )}
 
+      {/* Assignee Display - Inline assignment selector */}
+      {organizationId && deal.status === 'active' && (
+        <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+          <AssigneeSelector
+            dealId={deal.id}
+            currentAssigneeId={deal.assigned_to}
+            organizationId={organizationId}
+            onAssignmentChange={(newAssigneeId) => onAssignmentChange?.(deal.id, newAssigneeId)}
+            compact={true}
+          />
+        </div>
+      )}
+
       {/* Contextual Actions (appear on hover) - PREMIUM DESIGN */}
       <div className={`
         absolute bottom-4 right-4
@@ -539,6 +569,42 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         >
           <Edit2 className="w-4 h-4" />
         </button>
+
+        {/* Context menu for additional actions */}
+        {deal.status === 'active' && (
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu(!showMenu);
+              }}
+              className="w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-150 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white"
+              title="More actions"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={showMenu}
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {showMenu && (
+              <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenu(false);
+                    onDisqualify?.(deal);
+                  }}
+                  className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-amber-500/10 transition text-amber-400"
+                  role="menuitem"
+                >
+                  <Ban className="w-4 h-4" />
+                  <span className="text-sm font-medium">Disqualify deal</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Drag Handle (subtle, top-left) - PREMIUM DESIGN */}
@@ -556,7 +622,9 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
     prevProps.deal.status === nextProps.deal.status &&
     prevProps.deal.stage === nextProps.deal.stage &&
     prevProps.deal.lost_reason === nextProps.deal.lost_reason &&
-    prevProps.index === nextProps.index
+    prevProps.deal.assigned_to === nextProps.deal.assigned_to &&
+    prevProps.index === nextProps.index &&
+    prevProps.organizationId === nextProps.organizationId
   );
 });
 
@@ -581,7 +649,10 @@ export const KanbanColumn = memo(({
   onMoveRight,
   onOpenReorderModal,
   userPerformance = new Map(),
-  globalWinRate = 0.3
+  globalWinRate = 0.3,
+  organizationId,
+  onDisqualify,
+  onAssignmentChange
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
@@ -829,6 +900,9 @@ export const KanbanColumn = memo(({
                       isOrphaned={orphanedDealIds.has(deal.id)}
                       userPerformance={userPerformance}
                       globalWinRate={globalWinRate}
+                      organizationId={organizationId}
+                      onDisqualify={onDisqualify}
+                      onAssignmentChange={onAssignmentChange}
                     />
                   </div>
                 ))}
@@ -847,6 +921,9 @@ export const KanbanColumn = memo(({
                   isOrphaned={orphanedDealIds.has(deal.id)}
                   userPerformance={userPerformance}
                   globalWinRate={globalWinRate}
+                  organizationId={organizationId}
+                  onDisqualify={onDisqualify}
+                  onAssignmentChange={onAssignmentChange}
                 />
               ))}
             </div>
@@ -928,12 +1005,15 @@ export const KanbanBoard = memo(({
 
   // CRITICAL FIX: Pre-compute deal stages map BEFORE hooks that depend on it
   // This fixes "Cannot access 'te' before initialization" error
+  // FIX: Filter out disqualified deals from the active Kanban pipeline
   const dealsByStage = useMemo(() => {
     const map = new Map();
     if (!deals || !Array.isArray(deals)) return map;
 
     deals.forEach(deal => {
       if (!deal || !deal.stage) return;
+      // Exclude disqualified deals from the active Kanban
+      if (deal.status === 'disqualified') return;
       if (!map.has(deal.stage)) {
         map.set(deal.stage, []);
       }
@@ -996,6 +1076,10 @@ export const KanbanBoard = memo(({
   const [pendingLostDeal, setPendingLostDeal] = useState(null);
   const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState(null);
+
+  // State for disqualify modal
+  const [showDisqualifyModal, setShowDisqualifyModal] = useState(false);
+  const [pendingDisqualifyDeal, setPendingDisqualifyDeal] = useState(null);
 
   // Track dragging globally
   useEffect(() => {
@@ -1061,6 +1145,42 @@ export const KanbanBoard = memo(({
     setPendingStatusChange(null);
     setShowStatusChangeModal(false);
   }, []); // No dependencies - only updates state
+
+  // Handle disqualify deal request
+  const handleDisqualifyRequest = useCallback((deal) => {
+    if (showDisqualifyModal) return; // Prevent multiple modals
+    setPendingDisqualifyDeal(deal);
+    setShowDisqualifyModal(true);
+  }, [showDisqualifyModal]);
+
+  // Confirm disqualifying a deal
+  const handleDisqualifyConfirm = useCallback(async ({ reasonCategory, reasonLabel, notes }) => {
+    if (!pendingDisqualifyDeal) return;
+
+    await onUpdateDeal(pendingDisqualifyDeal.id, {
+      status: 'disqualified',
+      disqualified_reason_category: reasonCategory,
+      disqualified_reason_notes: notes || null,
+      stage_at_disqualification: pendingDisqualifyDeal.stage,
+      disqualified_at: new Date().toISOString()
+    });
+
+    setPendingDisqualifyDeal(null);
+    setShowDisqualifyModal(false);
+  }, [pendingDisqualifyDeal, onUpdateDeal]);
+
+  // Cancel disqualify
+  const handleDisqualifyCancel = useCallback(() => {
+    setPendingDisqualifyDeal(null);
+    setShowDisqualifyModal(false);
+  }, []);
+
+  // Handle deal assignment change (for optimistic UI in cards)
+  const handleAssignmentChange = useCallback((dealId, newAssigneeId) => {
+    // The AssigneeSelector handles the actual API call
+    // This callback is for parent-level state updates if needed
+    console.log('[KanbanBoard] Assignment changed:', { dealId, newAssigneeId });
+  }, []);
 
   // PERFORMANCE FIX: Memoize handlers to prevent breaking KanbanColumn memoization
   // Handle hide stage request
@@ -1320,6 +1440,9 @@ export const KanbanBoard = memo(({
                 onOpenReorderModal={() => setShowReorderModal(true)}
                 userPerformance={userPerformance}
                 globalWinRate={globalWinRate}
+                organizationId={organization?.id}
+                onDisqualify={handleDisqualifyRequest}
+                onAssignmentChange={handleAssignmentChange}
               />
             </div>
           );
@@ -1354,6 +1477,13 @@ export const KanbanBoard = memo(({
         onClose={() => setShowReorderModal(false)}
         stages={visibleStages}
         onSave={updateStageOrder}
+      />
+
+      <DisqualifyModal
+        isOpen={showDisqualifyModal}
+        onClose={handleDisqualifyCancel}
+        onConfirm={handleDisqualifyConfirm}
+        dealName={pendingDisqualifyDeal?.client || ''}
       />
 
       {/* Webkit Scrollbar Styling */}

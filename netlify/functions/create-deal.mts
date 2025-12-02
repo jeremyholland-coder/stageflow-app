@@ -165,10 +165,14 @@ export default async (req: Request, context: Context) => {
 
     // PHASE K FIX: removed `created_by` - column doesn't exist in deals table
     // The deals table tracks ownership via organization_id, not individual user
+    // FIX: Set assigned_to to the current user to ensure all new deals have an owner
+    // This prevents "Unknown Member" in Team Performance and enables deal assignment
     const sanitizedDeal: Record<string, any> = {
       organization_id: organizationId,
       created: new Date().toISOString(),
       last_activity: new Date().toISOString(),
+      assigned_to: userId, // Default owner is the user creating the deal
+      assigned_at: new Date().toISOString(),
     };
 
     for (const [key, value] of Object.entries(dealData)) {

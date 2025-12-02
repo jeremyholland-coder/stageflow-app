@@ -120,6 +120,13 @@ export const TeamDashboard = () => {
         new Map(membersWithProfiles.map(m => [m.user_id, m])).values()
       );
 
+      // FIX: Find org admin for attributing unassigned deals
+      // This prevents "Unknown Member" row by ensuring all deals belong to a real member
+      const orgAdmin = uniqueMembers.find(m => m.role === 'owner') ||
+                       uniqueMembers.find(m => m.role === 'admin') ||
+                       uniqueMembers[0];
+      const orgAdminId = orgAdmin?.user_id;
+
       // Get all deals for the organization
       // PHASE C FIX (B-DATA-01): Added soft delete filter - was counting deleted deals in metrics
       const { data: allDeals } = await Promise.race([
@@ -142,7 +149,16 @@ export const TeamDashboard = () => {
 
       const memberMetrics = await Promise.all(
         uniqueMembers.map(async (member) => {
-          const memberDeals = allDeals.filter(d => d.created_by === member.user_id);
+          // FIX: Use assigned_to instead of created_by (created_by doesn't exist in schema)
+          // This fixes the "Unknown Member" issue where deals couldn't be attributed to users
+          // Also attribute unassigned deals to the org admin to prevent "Unknown Member" row
+          const memberDeals = allDeals.filter(d => {
+            // Deal is assigned to this member
+            if (d.assigned_to === member.user_id) return true;
+            // Unassigned deals go to the org admin
+            if (!d.assigned_to && member.user_id === orgAdminId) return true;
+            return false;
+          });
 
           const activeDeals = memberDeals.filter(d => d.status === 'active');
           const activePipeline = activeDeals.reduce((sum, d) => sum + (d.value || 0), 0);

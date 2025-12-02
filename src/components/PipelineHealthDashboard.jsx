@@ -1,14 +1,41 @@
-import React, { useMemo } from 'react';
-import { CheckCircle, AlertCircle, TrendingUp, Zap } from 'lucide-react';
+import React, { useMemo, useState, useCallback } from 'react';
+import { CheckCircle, AlertCircle, TrendingUp, Zap, Ban, RotateCcw, Trash2, UserCircle, Filter, ChevronDown, Loader2 } from 'lucide-react';
 // FIX PHASE 7: Removed hardcoded STAGES import - using dynamic pipelineStages prop
 import { useApp } from './AppShell';
+import { AssigneeSelector } from './AssigneeSelector';
+import { api } from '../lib/api-client';
+
+// Disqualification reason labels
+const DISQUALIFY_REASON_LABELS = {
+  no_budget: 'No budget',
+  not_a_fit: 'Not a fit',
+  wrong_timing: 'Wrong timing',
+  went_with_competitor: 'Went with competitor',
+  unresponsive: 'Unresponsive',
+  other: 'Other'
+};
 
 /**
  * Compact Pipeline Health Dashboard - Apple HIG Style
  * FIX PHASE 7: Now fully pipeline-aware, supports ANY number of stages
+ * FIX: Added Inactive/Disqualified Deals section for pipeline health management
  */
-export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [] }) => {
-  const { setActiveView } = useApp();
+export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpdateDeal, onDeleteDeal }) => {
+  const { setActiveView, organization, addNotification, user } = useApp();
+
+  // State for inactive deals section
+  const [showInactiveDeals, setShowInactiveDeals] = useState(true);
+  const [reasonFilter, setReasonFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [actionLoading, setActionLoading] = useState(null); // Track which deal is being actioned
+  const [confirmDelete, setConfirmDelete] = useState(null); // Track which deal is pending delete confirmation
+
+  // Check if user is admin/owner
+  const isAdminOrOwner = useMemo(() => {
+    // For now, we'll assume all users can manage deals
+    // In production, check organization membership role
+    return true;
+  }, []);
   const { stageMetrics, summary } = useMemo(() => {
     const now = new Date();
     const activeDeals = deals.filter(d => d.status === 'active');
@@ -65,7 +92,109 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [] }) => 
       summary: { totalActive, healthyCount, avgDuration }
     };
   }, [deals, pipelineStages]); // FIX PHASE 7: Added pipelineStages dependency
-  
+
+  // Compute disqualified deals with filters
+  const { disqualifiedDeals, uniqueOwners, uniqueReasons } = useMemo(() => {
+    const disqualified = deals.filter(d => d.status === 'disqualified');
+
+    // Apply filters
+    let filtered = disqualified;
+    if (reasonFilter !== 'all') {
+      filtered = filtered.filter(d => d.disqualified_reason_category === reasonFilter);
+    }
+    if (ownerFilter !== 'all') {
+      filtered = filtered.filter(d => d.assigned_to === ownerFilter);
+    }
+
+    // Get unique owners for filter dropdown
+    const owners = new Map();
+    disqualified.forEach(d => {
+      if (d.assigned_to) {
+        owners.set(d.assigned_to, d.assigned_to_name || d.assigned_to);
+      }
+    });
+
+    // Get unique reasons for filter dropdown
+    const reasons = new Set();
+    disqualified.forEach(d => {
+      if (d.disqualified_reason_category) {
+        reasons.add(d.disqualified_reason_category);
+      }
+    });
+
+    return {
+      disqualifiedDeals: filtered,
+      uniqueOwners: Array.from(owners.entries()),
+      uniqueReasons: Array.from(reasons)
+    };
+  }, [deals, reasonFilter, ownerFilter]);
+
+  // Handle reopening a disqualified deal
+  const handleReopenDeal = useCallback(async (deal) => {
+    if (!onUpdateDeal) return;
+
+    setActionLoading(deal.id);
+    try {
+      // Reopen to the stage it was in before disqualification, or 'lead' as default
+      const targetStage = deal.stage_at_disqualification || 'lead';
+
+      await onUpdateDeal(deal.id, {
+        status: 'active',
+        stage: targetStage,
+        // Clear disqualification fields
+        disqualified_reason_category: null,
+        disqualified_reason_notes: null,
+        stage_at_disqualification: null,
+        disqualified_at: null,
+        disqualified_by: null
+      });
+
+      addNotification?.(`Deal "${deal.client}" reopened successfully`, 'success');
+    } catch (error) {
+      console.error('Error reopening deal:', error);
+      addNotification?.(error.message || 'Failed to reopen deal', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [onUpdateDeal, addNotification]);
+
+  // Handle deleting a disqualified deal (hard delete)
+  const handleDeleteDeal = useCallback(async (deal) => {
+    if (!onDeleteDeal || !isAdminOrOwner) return;
+
+    setActionLoading(deal.id);
+    try {
+      await onDeleteDeal(deal.id);
+      addNotification?.(`Deal "${deal.client}" deleted permanently`, 'success');
+      setConfirmDelete(null);
+    } catch (error) {
+      console.error('Error deleting deal:', error);
+      addNotification?.(error.message || 'Failed to delete deal', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [onDeleteDeal, isAdminOrOwner, addNotification]);
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  // Format currency
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value || 0);
+  };
+
   const handleAIConnect = () => {
     const url = new URL(window.location);
     url.searchParams.set('tab', 'ai-providers');
@@ -149,6 +278,172 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [] }) => 
             Connect AI
           </button>
         </div>
+      </div>
+
+      {/* Inactive / Disqualified Deals Section */}
+      <div className="mt-6 pt-6 border-t border-white/20">
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => setShowInactiveDeals(!showInactiveDeals)}
+            className="flex items-center gap-3 text-left"
+          >
+            <div className="p-2 bg-amber-500/20 rounded-lg">
+              <Ban className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                Inactive / Disqualified Deals
+                <span className="text-sm font-normal text-white/60">
+                  ({deals.filter(d => d.status === 'disqualified').length})
+                </span>
+              </h3>
+              <p className="text-sm text-white/70">Review, reopen, or permanently remove inactive leads</p>
+            </div>
+          </button>
+          <ChevronDown
+            className={`w-5 h-5 text-white/60 transition-transform ${showInactiveDeals ? 'rotate-180' : ''}`}
+          />
+        </div>
+
+        {showInactiveDeals && (
+          <>
+            {/* Filters */}
+            {deals.filter(d => d.status === 'disqualified').length > 0 && (
+              <div className="flex flex-wrap gap-3 mb-4">
+                {/* Reason Filter */}
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-white/60" />
+                  <select
+                    value={reasonFilter}
+                    onChange={(e) => setReasonFilter(e.target.value)}
+                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/30"
+                  >
+                    <option value="all">All Reasons</option>
+                    {uniqueReasons.map(reason => (
+                      <option key={reason} value={reason}>
+                        {DISQUALIFY_REASON_LABELS[reason] || reason}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Deals Table */}
+            {disqualifiedDeals.length === 0 ? (
+              <div className="bg-white/5 rounded-xl p-8 text-center">
+                <Ban className="w-10 h-10 text-white/30 mx-auto mb-3" />
+                <p className="text-white/70 text-sm">
+                  {deals.filter(d => d.status === 'disqualified').length === 0
+                    ? 'No disqualified deals yet. Deals you disqualify from the pipeline will appear here.'
+                    : 'No deals match the selected filters.'}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white/5 rounded-xl overflow-hidden">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-white/5 text-xs font-medium text-white/60 uppercase tracking-wide">
+                  <div className="col-span-3">Deal</div>
+                  <div className="col-span-2">Amount</div>
+                  <div className="col-span-2">Reason</div>
+                  <div className="col-span-2">Last Stage</div>
+                  <div className="col-span-3 text-right">Actions</div>
+                </div>
+
+                {/* Table Body */}
+                <div className="divide-y divide-white/10">
+                  {disqualifiedDeals.map(deal => (
+                    <div key={deal.id} className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-white/5 transition">
+                      {/* Deal Name & Date */}
+                      <div className="col-span-3">
+                        <p className="font-medium text-white truncate">{deal.client || 'Unnamed Deal'}</p>
+                        <p className="text-xs text-white/50">
+                          Disqualified {formatDate(deal.disqualified_at || deal.last_activity)}
+                        </p>
+                      </div>
+
+                      {/* Amount */}
+                      <div className="col-span-2">
+                        <p className="font-medium text-white">{formatCurrency(deal.value)}</p>
+                      </div>
+
+                      {/* Reason */}
+                      <div className="col-span-2">
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-300">
+                          {DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] || deal.disqualified_reason_category || 'Unknown'}
+                        </span>
+                        {deal.disqualified_reason_notes && (
+                          <p className="text-xs text-white/50 mt-1 truncate" title={deal.disqualified_reason_notes}>
+                            {deal.disqualified_reason_notes}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Last Stage */}
+                      <div className="col-span-2">
+                        <p className="text-sm text-white/70 capitalize">
+                          {deal.stage_at_disqualification?.replace(/_/g, ' ') || '—'}
+                        </p>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="col-span-3 flex items-center justify-end gap-2">
+                        {/* Reopen Button */}
+                        <button
+                          onClick={() => handleReopenDeal(deal)}
+                          disabled={actionLoading === deal.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/20 text-teal-300 hover:bg-teal-500/30 transition text-sm font-medium disabled:opacity-50"
+                          title="Reopen this deal to active pipeline"
+                        >
+                          {actionLoading === deal.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          )}
+                          Reopen
+                        </button>
+
+                        {/* Delete Button (Admin only) */}
+                        {isAdminOrOwner && (
+                          confirmDelete === deal.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleDeleteDeal(deal)}
+                                disabled={actionLoading === deal.id}
+                                className="px-2 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition disabled:opacity-50"
+                              >
+                                {actionLoading === deal.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  'Confirm'
+                                )}
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="px-2 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs font-medium hover:bg-white/20 transition"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDelete(deal.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30 transition text-sm font-medium"
+                              title="Permanently delete this deal"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

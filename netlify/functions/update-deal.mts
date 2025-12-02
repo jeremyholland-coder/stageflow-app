@@ -112,7 +112,12 @@ export default async (req: Request, context: Context) => {
       "name", "value", "stage", "status", "probability",
       "contact_name", "contact_email", "contact_phone",
       "company", "notes", "expected_close", "last_activity",
-      "lost_reason", "ai_health_score", "ai_health_analysis", "ai_health_updated_at"
+      "lost_reason", "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
+      // Deal assignment fields
+      "assigned_to", "assigned_by", "assigned_at",
+      // Disqualification fields
+      "disqualified_reason_category", "disqualified_reason_notes",
+      "stage_at_disqualification", "disqualified_at", "disqualified_by"
     ];
 
     const sanitizedUpdates: Record<string, any> = {};
