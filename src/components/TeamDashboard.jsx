@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2 } from 'lucide-react';
 import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
@@ -35,6 +35,15 @@ export const TeamDashboard = () => {
   const loadTeamData = useCallback(async () => {
     try {
       setLoading(true);
+
+      // FIX 2025-12-02: Ensure valid session before RLS-protected queries
+      const sessionCheck = await ensureValidSession();
+      if (!sessionCheck.valid) {
+        logger.warn('[TeamDashboard] Session invalid:', sessionCheck.error);
+        // Don't throw - user might just need to refresh, show empty state
+        setLoading(false);
+        return;
+      }
 
       // CRITICAL FIX: Add timeout protection to all queries
       const timeoutPromise = new Promise((_, reject) =>
@@ -178,7 +187,7 @@ export const TeamDashboard = () => {
           const dealsAddedTrend = dealsThisWeek.length >= dealsPreviousWeek.length ? 'up' : 'down';
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
-          // FIX: Use full_name from raw_user_meta_data, then email for meaningful identity display
+          // FIX 2025-12-02: Improved name resolution with better fallback chain
           const isCurrentUser = member.user_id === user.id;
           const memberEmail = member.profiles?.email;
           const memberFullName = member.profiles?.raw_user_meta_data?.full_name;
@@ -187,10 +196,25 @@ export const TeamDashboard = () => {
           // 1. Full name from user metadata (raw_user_meta_data)
           // 2. Email username (before @)
           // 3. Full email address
-          // 4. Last resort: email or 'Unknown Member' (never 'Team Member 1')
-          const userName = isCurrentUser
-            ? (user.user_metadata?.full_name || memberFullName || user.email?.split('@')[0] || 'You')
-            : (memberFullName || memberEmail?.split('@')[0] || memberEmail || 'Unknown Member');
+          // 4. Role-based fallback (e.g., "Team Owner", "Team Member")
+          // 5. Last resort: truncated user_id for debugging (never generic "Unknown Member")
+          let userName;
+          if (isCurrentUser) {
+            userName = user.user_metadata?.full_name
+              || memberFullName
+              || user.email?.split('@')[0]
+              || 'You';
+          } else if (memberFullName) {
+            userName = memberFullName;
+          } else if (memberEmail) {
+            userName = memberEmail.split('@')[0];
+          } else {
+            // FIX: Better fallback for members without profiles
+            // This can happen with seeded/demo users or orphaned records
+            const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member';
+            userName = `Team ${roleLabel}`;
+            logger.warn('[TeamDashboard] Member without profile:', member.user_id?.substring(0, 8));
+          }
 
           return {
             userId: member.user_id,

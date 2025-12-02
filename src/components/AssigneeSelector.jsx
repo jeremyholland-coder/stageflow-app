@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { UserCircle, ChevronDown, Check, Loader2, X, Users } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { useApp } from './AppShell';
 import { api } from '../lib/api-client';
 
@@ -41,6 +41,18 @@ export const AssigneeSelector = memo(({
 
     setLoadingMembers(true);
     try {
+      // FIX 2025-12-02: Ensure valid session before RLS-protected queries
+      // Without this, queries fail with empty results if session is stale
+      const sessionCheck = await ensureValidSession();
+      if (!sessionCheck.valid) {
+        console.warn('[AssigneeSelector] Session invalid:', sessionCheck.error);
+        // If session is truly invalid (not just expired), show appropriate error
+        if (sessionCheck.code === 'SESSION_INVALID' || sessionCheck.code === 'NO_SESSION') {
+          throw new Error('Please log in to view team members');
+        }
+        // For other errors, still try the query (might work with cached session)
+      }
+
       const { data: members, error } = await supabase
         .from('team_members')
         .select('user_id, role, created_at')
@@ -48,6 +60,15 @@ export const AssigneeSelector = memo(({
         .order('created_at', { ascending: true });
 
       if (error) throw error;
+
+      // FIX: Handle empty members gracefully (might indicate RLS issue)
+      if (!members || members.length === 0) {
+        console.warn('[AssigneeSelector] No team members found for org:', organizationId);
+        // Set empty array to prevent infinite retries
+        setTeamMembers([]);
+        setLoadingMembers(false);
+        return;
+      }
 
       // Fetch profiles for all members
       const userIds = members.map(m => m.user_id);
@@ -91,8 +112,12 @@ export const AssigneeSelector = memo(({
       setUserRole(currentUserMember?.role || 'member');
 
     } catch (error) {
-      console.error('Error fetching team members:', error);
-      addNotification?.('Failed to load team members', 'error');
+      console.error('[AssigneeSelector] Error fetching team members:', error);
+      // FIX: More specific error messages based on error type
+      const message = error.message?.includes('log in')
+        ? error.message
+        : 'Failed to load team members. Try refreshing the page.';
+      addNotification?.(message, 'error');
     } finally {
       setLoadingMembers(false);
     }

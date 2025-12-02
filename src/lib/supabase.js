@@ -171,10 +171,122 @@ export const signOut = async () => {
  */
 export const withAuth = async (operation) => {
   const { session, error } = await getSession();
-  
+
   if (error || !session?.user) {
     throw new Error(error?.message || 'Not authenticated');
   }
 
   return await operation(session.user);
+};
+
+/**
+ * FIX 2025-12-02: Ensure valid session before RLS-protected queries
+ *
+ * The client has persistSession: false, so it relies on setSession() being called.
+ * If the session expires or becomes stale, queries fail with RLS errors.
+ * This helper checks for a valid session and refreshes from auth-session if needed.
+ *
+ * @returns {Promise<{valid: boolean, error: string|null}>}
+ */
+let _sessionRefreshPromise = null; // Mutex to prevent concurrent refreshes
+
+export const ensureValidSession = async () => {
+  // Check if we already have a valid session
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (session?.access_token) {
+      // Session exists - check if it's about to expire (within 5 minutes)
+      const expiresAt = session.expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      const isExpiringSoon = expiresAt && (expiresAt - now) < 300;
+
+      if (!isExpiringSoon) {
+        return { valid: true, error: null };
+      }
+      console.log('[Session] Token expiring soon, will refresh');
+    }
+  } catch (e) {
+    console.warn('[Session] getSession() failed:', e.message);
+  }
+
+  // No valid session or expiring soon - try to refresh from auth-session
+  // Use mutex to prevent concurrent refresh attempts
+  if (_sessionRefreshPromise) {
+    console.log('[Session] Refresh already in progress, waiting...');
+    return _sessionRefreshPromise;
+  }
+
+  _sessionRefreshPromise = (async () => {
+    try {
+      console.log('[Session] Fetching session from auth-session...');
+
+      const response = await fetch('/.netlify/functions/auth-session', {
+        method: 'GET',
+        credentials: 'include' // Send HttpOnly cookies
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.warn('[Session] auth-session returned:', response.status, errorData);
+
+        // If retryable (SESSION_ROTATED), try auth-refresh first
+        if (errorData.retryable && errorData.retryHint === 'CALL_AUTH_REFRESH_FIRST') {
+          console.log('[Session] Attempting auth-refresh before retry...');
+          const refreshResponse = await fetch('/.netlify/functions/auth-refresh', {
+            method: 'POST',
+            credentials: 'include'
+          });
+
+          if (refreshResponse.ok) {
+            // Retry auth-session after refresh
+            const retryResponse = await fetch('/.netlify/functions/auth-session', {
+              method: 'GET',
+              credentials: 'include'
+            });
+
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              if (retryData.session?.access_token) {
+                await supabase.auth.setSession({
+                  access_token: retryData.session.access_token,
+                  refresh_token: retryData.session.refresh_token
+                });
+                console.log('[Session] ✓ Session restored after refresh');
+                return { valid: true, error: null };
+              }
+            }
+          }
+        }
+
+        return {
+          valid: false,
+          error: errorData.error || 'Session validation failed',
+          code: errorData.code
+        };
+      }
+
+      const data = await response.json();
+
+      if (data.session?.access_token) {
+        // Set session in client
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token
+        });
+        console.log('[Session] ✓ Session refreshed from cookies');
+        return { valid: true, error: null };
+      }
+
+      return { valid: false, error: 'No session in response' };
+
+    } catch (error) {
+      console.error('[Session] Refresh failed:', error);
+      return { valid: false, error: error.message };
+    } finally {
+      _sessionRefreshPromise = null;
+    }
+  })();
+
+  return _sessionRefreshPromise;
 };
