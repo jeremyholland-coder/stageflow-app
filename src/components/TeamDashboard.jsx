@@ -8,6 +8,109 @@ import { logger } from '../lib/logger';
 // PAGINATION FIX: Page size for team members list
 const TEAM_PAGE_SIZE = 25;
 
+// ============================================================
+// TEAM PAGE DISPLAY HELPERS (Name & Avatar logic)
+// ============================================================
+
+/**
+ * Get display name for a team member with priority:
+ * 1) First Name + Last Initial (e.g., "Jeremy H.")
+ * 2) First Name only (e.g., "Jeremy")
+ * 3) full_name fallback
+ * 4) Full email address
+ * 5) "Team Member" as last resort
+ */
+function getTeamDisplayName(member) {
+  // Get profile data from various possible locations
+  const profile = member.profiles || member.user_profiles || member.profile || {};
+  const profilesData = member.profilesData || {}; // first_name, last_name, avatar_url from profiles table
+
+  // Extract fields (prefer profilesData for first/last, profile for email/full_name)
+  const first = profilesData.first_name?.trim() || profile.first_name?.trim();
+  const last = profilesData.last_name?.trim() || profile.last_name?.trim();
+  const fullName = profile.full_name?.trim();
+  const email = profile.email || member.email;
+
+  // Priority 1: First + last initial
+  if (first && last) {
+    return `${first} ${last.charAt(0).toUpperCase()}.`;
+  }
+
+  // Priority 2: First only
+  if (first) {
+    return first;
+  }
+
+  // Priority 3: full_name fallback
+  if (fullName) {
+    return fullName;
+  }
+
+  // Priority 4: full email
+  if (email) {
+    return email;
+  }
+
+  // Last resort
+  return 'Team Member';
+}
+
+/**
+ * Get avatar initials for a team member (used when avatar_url is missing)
+ * Priority:
+ * 1) First + Last initials (e.g., "JH")
+ * 2) First initial only (e.g., "J")
+ * 3) full_name initials
+ * 4) First character of email
+ * 5) "U" as fallback
+ */
+function getTeamAvatarInitials(member) {
+  // Get profile data from various possible locations
+  const profile = member.profiles || member.user_profiles || member.profile || {};
+  const profilesData = member.profilesData || {};
+
+  const first = profilesData.first_name?.trim() || profile.first_name?.trim();
+  const last = profilesData.last_name?.trim() || profile.last_name?.trim();
+  const fullName = profile.full_name?.trim();
+  const email = profile.email || member.email;
+
+  // Priority 1: First + Last initials
+  if (first && last) {
+    return `${first[0]}${last[0]}`.toUpperCase();
+  }
+
+  // Priority 2: First initial only
+  if (first) {
+    return first[0].toUpperCase();
+  }
+
+  // Priority 3: full_name initials
+  if (fullName) {
+    const parts = fullName.split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
+  }
+
+  // Priority 4: First character of email
+  if (email) {
+    return email[0].toUpperCase();
+  }
+
+  // Fallback
+  return 'U';
+}
+
+/**
+ * Get avatar URL from member profile data
+ */
+function getTeamAvatarUrl(member) {
+  const profilesData = member.profilesData || {};
+  const profile = member.profiles || member.user_profiles || member.profile || {};
+  return profilesData.avatar_url || profile.avatar_url || null;
+}
+
 export const TeamDashboard = () => {
   // CRITICAL FIX: useApp() MUST be called at top of component (React Rules of Hooks)
   // Cannot be called after conditional returns or it will cause "Cannot update component" error
@@ -214,32 +317,54 @@ export const TeamDashboard = () => {
       }
 
       // Fetch profile data separately for all member user_ids
-      // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
-      // profiles table (only has avatar_url, first_name, last_name)
+      // FIX 2025-12-02: Use user_profiles view (has email, full_name) AND
+      // profiles table (has first_name, last_name, avatar_url) for complete data
       const userIds = members.map(m => m.user_id);
-      const { data: profiles, error: profilesError } = await Promise.race([
-        supabase
-          .from('user_profiles')
-          .select('id, email, full_name')
-          .in('id', userIds),
-        timeoutPromise
+
+      // Query both user_profiles view AND profiles table in parallel
+      const [userProfilesResult, profilesTableResult] = await Promise.all([
+        Promise.race([
+          supabase
+            .from('user_profiles')
+            .select('id, email, full_name')
+            .in('id', userIds),
+          timeoutPromise
+        ]),
+        Promise.race([
+          supabase
+            .from('profiles')
+            .select('id, first_name, last_name, avatar_url')
+            .in('id', userIds),
+          timeoutPromise
+        ])
       ]);
 
-      if (profilesError) {
-        console.error('[TeamDashboard] Error fetching user_profiles:', profilesError);
-        // Continue without profile data - we'll use fallbacks
+      const { data: userProfiles, error: userProfilesError } = userProfilesResult;
+      const { data: profilesData, error: profilesTableError } = profilesTableResult;
+
+      if (userProfilesError) {
+        console.error('[TeamDashboard] Error fetching user_profiles:', userProfilesError);
+      }
+      if (profilesTableError) {
+        console.error('[TeamDashboard] Error fetching profiles table:', profilesTableError);
       }
 
-      // Create a map of user_id -> profile for quick lookup
-      const profileMap = new Map();
-      if (profiles) {
-        profiles.forEach(p => profileMap.set(p.id, p));
+      // Create maps for quick lookup
+      const userProfileMap = new Map();
+      if (userProfiles) {
+        userProfiles.forEach(p => userProfileMap.set(p.id, p));
       }
 
-      // Merge profile data into members
+      const profilesDataMap = new Map();
+      if (profilesData) {
+        profilesData.forEach(p => profilesDataMap.set(p.id, p));
+      }
+
+      // Merge profile data into members (both sources)
       const membersWithProfiles = members.map(m => ({
         ...m,
-        profiles: profileMap.get(m.user_id) || null
+        profiles: userProfileMap.get(m.user_id) || null, // email, full_name
+        profilesData: profilesDataMap.get(m.user_id) || null // first_name, last_name, avatar_url
       }));
 
       // QA FIX: Deduplicate members by user_id (handles rare edge case of user in multiple orgs)
@@ -348,7 +473,11 @@ export const TeamDashboard = () => {
             activePipeline,
             expectedRevenue,
             // Track if we have no activity for this user
-            hasNoActivity: memberDeals.length === 0
+            hasNoActivity: memberDeals.length === 0,
+            // Include profile data for display helpers (getTeamDisplayName, getTeamAvatarInitials)
+            profiles: member.profiles, // email, full_name from user_profiles view
+            profilesData: member.profilesData, // first_name, last_name, avatar_url from profiles table
+            email: member.profiles?.email
           };
         })
       );
@@ -684,16 +813,34 @@ export const TeamDashboard = () => {
               className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-5 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
             >
               <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-white tracking-tight">
-                    {member.name}
-                    {member.isCurrentUser && (
-                      <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
+                <div className="flex items-center gap-3">
+                  {/* Avatar with image or initials fallback */}
+                  <div className="relative">
+                    {getTeamAvatarUrl(member) ? (
+                      <img
+                        src={getTeamAvatarUrl(member)}
+                        alt={getTeamDisplayName(member)}
+                        className="w-10 h-10 rounded-full object-cover border border-white/[0.1]"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0CE3B1]/30 to-[#0CE3B1]/10 border border-[#0CE3B1]/20 flex items-center justify-center">
+                        <span className="text-sm font-semibold text-[#0CE3B1]">
+                          {getTeamAvatarInitials(member)}
+                        </span>
+                      </div>
                     )}
-                  </h3>
-                  <p className="text-sm text-white/50 mt-0.5">
-                    {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
-                  </p>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white tracking-tight">
+                      {getTeamDisplayName(member)}
+                      {member.isCurrentUser && (
+                        <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
+                      )}
+                    </h3>
+                    <p className="text-sm text-white/50 mt-0.5">
+                      {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
+                    </p>
+                  </div>
                 </div>
               </div>
 
