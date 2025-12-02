@@ -58,32 +58,59 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   }, [deal]);
 
   // PRO TIER FIX: Fetch team members for deal assignment dropdown
+  // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
+  // broken join to users table with raw_user_meta_data
   useEffect(() => {
     const fetchTeamMembers = async () => {
       if (!isOpen || !organization?.id || !hasPaidPlan) return;
 
       setLoadingTeamMembers(true);
       try {
-        // Get all team members for this organization
+        // Step 1: Get all team members for this organization
         const { data: members, error } = await supabase
           .from('team_members')
-          .select('user_id, users:user_id(email, raw_user_meta_data)')
+          .select('user_id, role')
           .eq('organization_id', organization.id);
 
         if (error) throw error;
 
-        // Format team members for dropdown
-        const formattedMembers = (members || []).map(m => ({
-          id: m.user_id,
-          name: m.users?.raw_user_meta_data?.full_name ||
-                m.users?.email?.split('@')[0] ||
-                'Team Member',
-          email: m.users?.email
-        }));
+        // Handle empty members gracefully
+        if (!members || members.length === 0) {
+          console.warn('[DealDetailsModal] No team members found for org:', organization.id);
+          setTeamMembers([]);
+          setLoadingTeamMembers(false);
+          return;
+        }
+
+        // Step 2: Fetch user profiles from user_profiles view
+        // This view has email and full_name (profiles table does NOT)
+        const userIds = members.map(m => m.user_id);
+        const { data: profiles, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('id, email, full_name')
+          .in('id', userIds);
+
+        if (profilesError) throw profilesError;
+
+        // Step 3: Map profiles to members
+        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+
+        const formattedMembers = members.map(m => {
+          const profile = profileMap.get(m.user_id);
+          const fullName = profile?.full_name;
+          const email = profile?.email;
+
+          return {
+            id: m.user_id,
+            name: fullName || email?.split('@')[0] || 'Team Member',
+            email: email,
+            role: m.role
+          };
+        });
 
         setTeamMembers(formattedMembers);
       } catch (error) {
-        console.error('Error fetching team members:', error);
+        console.error('[DealDetailsModal] Error fetching team members:', error);
       } finally {
         setLoadingTeamMembers(false);
       }

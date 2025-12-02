@@ -108,11 +108,18 @@ export default async (req: Request, context: Context) => {
     }
 
     // STEP 6: Sanitize updates - only allow specific fields
+    // FIX 2025-12-02: Added client, email, phone (frontend field names)
+    // alongside contact_name, contact_email, contact_phone (legacy/alternate names)
     const allowedFields = [
-      "name", "value", "stage", "status", "probability",
-      "contact_name", "contact_email", "contact_phone",
+      // Core deal fields - support both naming conventions
+      "client", "client_name", "name",
+      "email", "contact_email",
+      "phone", "contact_phone",
+      "value", "stage", "status", "probability",
       "company", "notes", "expected_close", "last_activity",
-      "lost_reason", "lost_reason_notes", "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
+      "lost_reason", "lost_reason_notes",
+      // AI health fields
+      "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
       // Deal assignment fields
       "assigned_to", "assigned_by", "assigned_at",
       // Disqualification fields
@@ -122,7 +129,9 @@ export default async (req: Request, context: Context) => {
 
     const sanitizedUpdates: Record<string, any> = {};
     for (const [key, value] of Object.entries(updates)) {
-      if (allowedFields.includes(key)) {
+      // FIX 2025-12-02: Only include allowed fields AND filter out undefined values
+      // Undefined values can break the Supabase JS client
+      if (allowedFields.includes(key) && value !== undefined) {
         sanitizedUpdates[key] = value;
       }
     }
@@ -269,7 +278,8 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[update-deal] Success:", { dealId, stage: updatedDeal.stage });
 
-    return new Response(JSON.stringify({ deal: updatedDeal }), {
+    // FIX 2025-12-02: Include success: true for proper frontend error handling
+    return new Response(JSON.stringify({ success: true, deal: updatedDeal }), {
       status: 200,
       headers: corsHeaders,
     });
