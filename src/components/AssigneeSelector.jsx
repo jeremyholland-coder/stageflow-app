@@ -223,7 +223,9 @@ export const AssigneeSelector = memo(({
   // Compact view for Kanban cards
   if (compact) {
     return (
-      <div className="relative" ref={dropdownRef}>
+      // HOTFIX 2025-12-02: Add z-50 when dropdown is open to escape parent card's stacking context
+      // KanbanCard has transform which creates new stacking context, z-50 elevates above siblings
+      <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
         <button
           onClick={handleToggle}
           disabled={disabled || loading}
@@ -313,7 +315,8 @@ export const AssigneeSelector = memo(({
 
   // Full view for tables/forms
   return (
-    <div className="relative" ref={dropdownRef}>
+    // HOTFIX 2025-12-02: Add z-50 when dropdown is open to escape parent stacking context
+    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
       <button
         onClick={handleToggle}
         disabled={disabled || loading}
