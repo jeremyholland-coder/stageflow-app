@@ -41,7 +41,7 @@
  */
 
 import { fetchWithRetry } from './retry-logic';
-import { supabase } from './supabase';
+import { supabase, ensureValidSession } from './supabase';
 import { parseSupabaseError } from './error-handler';
 import { requestDeduplicator } from './request-deduplicator';
 import { getNetworkAwareRetryConfig, getCurrentNetworkQuality } from './network-quality';
@@ -113,10 +113,15 @@ export class APIClient {
       ...headers,
     };
 
-    // PHASE 4 FIX: Always inject Authorization header if we have a session
-    // This is more reliable than cookies for cross-origin requests
+    // FIX 2025-12-02: Always inject Authorization header if we have a session
+    // With persistSession: false, getSession() returns null unless we refresh from cookies first
+    // ensureValidSession() fetches session from auth-session endpoint and sets it in the client
     if (includeAuth && !finalHeaders['Authorization']) {
       try {
+        // CRITICAL: Must call ensureValidSession() first to populate the client session
+        // from HttpOnly cookies (Phase 3 Cookie-Only Auth has persistSession: false)
+        await ensureValidSession();
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
           finalHeaders['Authorization'] = `Bearer ${session.access_token}`;
@@ -125,11 +130,11 @@ export class APIClient {
           }
         } else {
           if (import.meta.env.DEV) {
-            console.debug('[APIClient] No session available for Authorization header');
+            console.debug('[APIClient] No session available for Authorization header (cookies will be used)');
           }
         }
       } catch (authError) {
-        // Log but don't fail - cookies might still work
+        // Log but don't fail - cookies might still work as fallback
         console.warn('[APIClient] Failed to get session for Authorization header:', authError.message);
       }
     }

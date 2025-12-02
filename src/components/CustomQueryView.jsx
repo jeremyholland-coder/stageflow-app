@@ -47,9 +47,15 @@ const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
  * - retryable: Whether this error can be retried
  */
 const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
-  const errorCode = error?.code || error?.data?.error || error?.message || '';
-  const errorMessage = error?.message || '';
-  const status = error?.status || error?.statusCode || 0;
+  // FIX 2025-12-02: Improved error code extraction to catch all sources
+  const errorCode = error?.code || error?.data?.code || error?.data?.error || error?.message || '';
+  const errorMessage = error?.message || error?.data?.message || '';
+  const status = error?.status || error?.statusCode || error?.data?.status || 0;
+
+  // DEBUG_AI logging (when enabled)
+  if (typeof window !== 'undefined' && window.DEBUG_AI) {
+    console.log('[getErrorGuidance] Classifying error:', { errorCode, errorMessage, status, error });
+  }
 
   // Invalid API key (401/403 from provider)
   if (
@@ -551,14 +557,19 @@ export const CustomQueryView = ({
 
       if (!response.ok) {
         // Handle 401 Unauthorized - session expired
-        if (response.status === 401) {
-          addNotification('Your session has expired. Please log in again to use AI insights.', 'error');
+        // FIX 2025-12-02: Also handle 403 Forbidden
+        if (response.status === 401 || response.status === 403) {
+          addNotification('Your session has expired. Please sign out and sign back in.', 'error');
           // Remove placeholder message
           setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
-          return;
+          // Create error with proper code for getErrorGuidance
+          const sessionError = new Error('Session expired');
+          sessionError.status = response.status;
+          sessionError.code = 'SESSION_ERROR';
+          throw sessionError;
         }
 
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
 
         // Handle AI limit reached
         if (errorData.error === 'AI_LIMIT_REACHED' || errorData.limitReached) {
@@ -574,7 +585,22 @@ export const CustomQueryView = ({
           return;
         }
 
-        throw new Error(errorData.error || 'Stream failed');
+        // FIX 2025-12-02: Handle NO_PROVIDERS (422) with proper error classification
+        if (errorData.error === 'NO_PROVIDERS' || errorData.code === 'NO_PROVIDERS') {
+          // Remove placeholder message
+          setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+          const noProviderError = new Error(errorData.message || 'No AI provider configured');
+          noProviderError.code = 'NO_PROVIDERS';
+          noProviderError.status = response.status;
+          throw noProviderError;
+        }
+
+        // Create error with response data for proper classification
+        const error = new Error(errorData.error || errorData.message || 'Stream failed');
+        error.status = response.status;
+        error.code = errorData.code || errorData.error;
+        error.data = errorData;
+        throw error;
       }
 
       // Read SSE stream with timeout protection

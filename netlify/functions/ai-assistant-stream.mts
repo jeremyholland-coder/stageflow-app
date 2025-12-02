@@ -420,12 +420,15 @@ export default async (req: Request, context: any) => {
     // Get AI providers (TASK 1: Now uses 60s cache)
     const providers = await getProvidersWithCache(supabase, organizationId);
 
+    // FIX 2025-12-02: Return 422 (Unprocessable Entity) for NO_PROVIDERS
+    // Previously returned 200 which confused frontend error handling
     if (!providers || providers.length === 0) {
       return new Response(JSON.stringify({
         error: 'NO_PROVIDERS',
-        message: 'No AI provider configured'
+        code: 'NO_PROVIDERS',
+        message: 'No AI provider configured. Please connect an AI provider in Settings.'
       }), {
-        status: 200,
+        status: 422,
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -618,8 +621,30 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 
   } catch (error: any) {
     console.error('AI Streaming error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+
+    // FIX 2025-12-02: Include proper error codes for frontend classification
+    const errorMessage = error.message || 'AI request failed';
+    let errorCode = 'PROVIDER_ERROR';
+    let status = 500;
+
+    // Classify the error for proper frontend handling
+    if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('401')) {
+      errorCode = 'INVALID_API_KEY';
+      status = 401;
+    } else if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
+      errorCode = 'RATE_LIMITED';
+      status = 429;
+    } else if (errorMessage.includes('timeout')) {
+      errorCode = 'TIMEOUT';
+      status = 504;
+    }
+
+    return new Response(JSON.stringify({
+      error: errorMessage,
+      code: errorCode,
+      message: errorMessage
+    }), {
+      status: status,
       headers: { 'Content-Type': 'application/json' }
     });
   }
