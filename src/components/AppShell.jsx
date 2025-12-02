@@ -675,18 +675,29 @@ export const AppProvider = ({ children }) => {
         }
 
         // SECURITY: Backend-only session check from HttpOnly cookies
-        const sessionPromise = fetch('/.netlify/functions/auth-session', {
-          method: 'GET',
-          credentials: 'include' // Send HttpOnly cookies
-        });
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Auth session check timed out')), AUTH_TIMEOUT)
-        );
+        // FIX 2025-12-02: Add single retry for token rotation race condition
+        const fetchAuthSession = async (attempt = 1) => {
+          const sessionPromise = fetch('/.netlify/functions/auth-session', {
+            method: 'GET',
+            credentials: 'include' // Send HttpOnly cookies
+          });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Auth session check timed out')), AUTH_TIMEOUT)
+          );
 
-        const response = await Promise.race([
-          sessionPromise,
-          timeoutPromise
-        ]);
+          const response = await Promise.race([sessionPromise, timeoutPromise]);
+
+          // Retry once on transient failures (not 401 which means genuinely not logged in)
+          if (!response.ok && response.status !== 401 && attempt === 1) {
+            console.warn('[auth-session] Retrying after transient failure:', response.status);
+            await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay before retry
+            return fetchAuthSession(2);
+          }
+
+          return response;
+        };
+
+        const response = await fetchAuthSession();
 
         // Handle session response
         let user = null;
