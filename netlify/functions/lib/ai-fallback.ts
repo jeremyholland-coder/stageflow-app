@@ -2,12 +2,16 @@
  * AI Provider Fallback Chain
  *
  * Implements automatic failover between AI providers when one fails.
- * Providers are tried in a fixed order: openai → anthropic → google → xai
+ *
+ * NOTE: For task-aware provider SELECTION (not fallback), use lib/select-provider.ts
+ * This file handles FALLBACK logic (what to do when a provider fails).
+ * The canonical provider selection algorithm is in select-provider.ts.
  *
  * @author StageFlow Engineering
  */
 
-// Fixed fallback order as specified
+// DEPRECATED: This constant is kept for backwards compatibility only.
+// New code should use buildFallbackChain from lib/select-provider.ts
 export const PROVIDER_FALLBACK_ORDER = ['openai', 'anthropic', 'google', 'xai'] as const;
 export type ProviderType = typeof PROVIDER_FALLBACK_ORDER[number];
 

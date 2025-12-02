@@ -20,6 +20,10 @@ import {
   updateUserProfileFromSignals,
   buildAdaptationPromptSnippet,
 } from './lib/aiUserProfile';
+// UNIFIED PROVIDER SELECTION: Single source of truth for provider selection
+import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
+// TASK 1: Provider health caching to reduce DB reads
+import { getProvidersWithCache } from './lib/provider-cache';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -52,26 +56,10 @@ const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: numbe
   'image_suitable': { 'openai': 2, 'anthropic': 2, 'google': 2, 'xai': 1 }
 };
 
-// PHASE 3: Select best provider based on tier AND task type
+// PHASE 3 / QA FIX: Provider selection now uses unified selectProvider from lib/select-provider.ts
+// This ensures consistent provider selection logic across all AI endpoints.
 function selectBestProvider(providers: any[], taskType: TaskType = 'text_analysis'): any {
-  if (providers.length === 0) return null;
-  if (providers.length === 1) return providers[0];
-
-  const taskAffinity = TASK_MODEL_AFFINITY[taskType] || TASK_MODEL_AFFINITY['text_analysis'];
-
-  let bestProvider = providers[0];
-  let bestScore = (getModelTier(providers[0].model) * 10) + (taskAffinity[providers[0].provider_type] || 0);
-
-  for (const provider of providers) {
-    const tier = getModelTier(provider.model);
-    const affinity = taskAffinity[provider.provider_type] || 0;
-    const score = (tier * 10) + affinity;
-    if (score > bestScore) {
-      bestProvider = provider;
-      bestScore = score;
-    }
-  }
-  return bestProvider;
+  return unifiedSelectProvider(providers, taskType);
 }
 
 // PHASE 3: Build visual spec instructions for task types
@@ -429,16 +417,14 @@ export default async (req: Request, context: any) => {
       console.error('AI profile fetch/update error (non-fatal):', profileError);
     }
 
-    // Get AI providers
-    const { data: providers } = await supabase
-      .from('ai_providers')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('active', true)
-      .order('created_at', { ascending: true }); // FIX 2025-12-02: First connected = first tried
+    // Get AI providers (TASK 1: Now uses 60s cache)
+    const providers = await getProvidersWithCache(supabase, organizationId);
 
     if (!providers || providers.length === 0) {
-      return new Response(JSON.stringify({ error: 'No AI provider configured' }), {
+      return new Response(JSON.stringify({
+        error: 'NO_PROVIDERS',
+        message: 'No AI provider configured'
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });

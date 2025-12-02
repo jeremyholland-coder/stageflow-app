@@ -5,6 +5,10 @@ import { encrypt } from './lib/encryption';
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { requirePermission, PERMISSIONS } from './lib/rbac';
+// TASK 1: Invalidate provider cache on save
+import { invalidateProviderCache } from './lib/provider-cache';
+// TASK 4: Model validation
+import { validateModel, getDefaultModel } from './lib/ai-models';
 
 /**
  * FIX 2025-12-01: Verify AI key works by making a test request
@@ -303,6 +307,21 @@ export default async (req: Request, context: Context) => {
       );
     }
 
+    // TASK 4: Validate model selection if provided
+    let validatedModel = model;
+    if (model) {
+      const modelValidation = validateModel(provider_type, model);
+      if (!modelValidation.valid) {
+        console.warn(`[save-ai-provider] Invalid model "${model}" for ${provider_type}: ${modelValidation.error}`);
+        // Don't reject - use suggested model instead
+        validatedModel = modelValidation.suggestedModel || getDefaultModel(provider_type);
+        console.log(`[save-ai-provider] Using model "${validatedModel}" instead`);
+      }
+    } else {
+      // No model specified - use default
+      validatedModel = getDefaultModel(provider_type);
+    }
+
     // Encrypt the API key
     let encryptedKey: string;
     try {
@@ -341,13 +360,14 @@ export default async (req: Request, context: Context) => {
     
     if (existing) {
       // CRITICAL FIX: Update with timeout
+      // TASK 4: Use validatedModel instead of raw model
       const { data, error } = await withTimeout(
         supabase
           .from('ai_providers')
           .update({
             api_key_encrypted: encryptedKey,
             display_name: display_name || provider_type,
-            model: model
+            model: validatedModel
             // Note: updated_at column doesn't exist in schema, relying on DB trigger
           })
           .eq('id', existing.id)
@@ -378,13 +398,14 @@ export default async (req: Request, context: Context) => {
       result = data;
     } else {
       
+      // TASK 4: Use validatedModel instead of raw model
       const insertData = {
         created_by: user_id,
         organization_id: organization_id,
         provider_type: provider_type,
         api_key_encrypted: encryptedKey,
         display_name: display_name || provider_type,
-        model: model,
+        model: validatedModel,
         active: true
       };
 
@@ -434,6 +455,8 @@ export default async (req: Request, context: Context) => {
       result = data;
     }
 
+    // TASK 1: Invalidate provider cache so next AI call gets fresh data
+    invalidateProviderCache(organization_id);
 
     // FIX 2025-12-01: Verify the key actually works before returning success
     const verificationResult = await verifyAIKey(provider_type, api_key.trim());

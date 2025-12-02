@@ -6,8 +6,10 @@ import { DealAnalyticsChartLazy as DealAnalyticsChart } from './DealAnalyticsCha
 import { renderMarkdown } from '../lib/format-ai-response.jsx';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook
 // AI FALLBACK: Import fallback utilities for provider resilience
+// QA FIX #5: Now includes retry-enabled version
 import {
   runAIQueryWithFallback,
+  runAIQueryWithRetry,
   fetchConnectedProviders,
   generateFallbackNotice,
   generateAllFailedMessage
@@ -27,9 +29,159 @@ import { PlanMyDayChecklist } from './PlanMyDayChecklist';
 import { PlanMyDaySummary } from './PlanMyDaySummary';
 // APMDOS: Adaptive Plan My Day Onboarding System
 import { useActivationState, markFeatureSeen } from '../hooks/useActivationState';
+// QA FIX #4: AI Usage Limit Visibility
+import { AIUsageIndicator } from './AIUsageIndicator';
+// TASK 3 WIRE-UP: Unified inline error UI for AI failures
+import { AIInlineError } from './AIInlineError';
 
 // ISSUE 4 FIX: Plan My Day daily limit helpers
 const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
+
+/**
+ * QA FIX #2: Map error codes to actionable user guidance
+ *
+ * Returns structured error info with:
+ * - message: User-friendly error text
+ * - action: { label, path?, onClick? } - Navigation or retry action
+ * - severity: 'error' | 'warning' | 'info'
+ * - retryable: Whether this error can be retried
+ */
+const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
+  const errorCode = error?.code || error?.data?.error || error?.message || '';
+  const errorMessage = error?.message || '';
+  const status = error?.status || error?.statusCode || 0;
+
+  // Invalid API key (401/403 from provider)
+  if (
+    errorCode.includes('INVALID_API_KEY') ||
+    errorMessage.includes('Invalid API key') ||
+    errorMessage.includes('invalid api key') ||
+    errorMessage.includes('unauthorized') ||
+    (status === 401 && errorMessage.includes('key'))
+  ) {
+    return {
+      message: 'Your AI provider key appears to be invalid or expired.',
+      action: onNavigate ? {
+        label: 'Update in Settings',
+        onClick: () => onNavigate('SETTINGS')
+      } : null,
+      severity: 'error',
+      retryable: false
+    };
+  }
+
+  // Rate limited (429)
+  if (
+    errorCode.includes('RATE_LIMITED') ||
+    errorMessage.includes('rate limit') ||
+    errorMessage.includes('too many requests') ||
+    status === 429
+  ) {
+    return {
+      message: 'AI provider is temporarily busy. Please wait a moment.',
+      action: onRetry ? {
+        label: 'Try Again',
+        onClick: onRetry
+      } : null,
+      severity: 'warning',
+      retryable: true
+    };
+  }
+
+  // No providers configured
+  if (
+    errorCode.includes('NO_PROVIDERS') ||
+    errorMessage.includes('No AI provider configured') ||
+    errorMessage.includes('No valid providers')
+  ) {
+    return {
+      message: 'No AI provider connected yet.',
+      action: onNavigate ? {
+        label: 'Add Provider',
+        onClick: () => onNavigate('SETTINGS')
+      } : null,
+      severity: 'warning',
+      retryable: false
+    };
+  }
+
+  // AI limit reached
+  if (
+    errorCode.includes('AI_LIMIT_REACHED') ||
+    error?.data?.limitReached
+  ) {
+    const used = error?.data?.used || '?';
+    const limit = error?.data?.limit || '?';
+    return {
+      message: `Monthly AI limit reached (${used}/${limit} requests).`,
+      action: onNavigate ? {
+        label: 'Upgrade Plan',
+        onClick: () => onNavigate('SETTINGS')
+      } : null,
+      severity: 'error',
+      retryable: false
+    };
+  }
+
+  // All providers failed
+  if (
+    errorCode.includes('ALL_PROVIDERS_FAILED') ||
+    error?.isAllProvidersFailed
+  ) {
+    return {
+      message: 'All AI providers are temporarily unavailable.',
+      action: onRetry ? {
+        label: 'Retry',
+        onClick: onRetry
+      } : null,
+      severity: 'warning',
+      retryable: true
+    };
+  }
+
+  // Session/auth expired
+  if (
+    errorCode.includes('SESSION_ERROR') ||
+    errorMessage.includes('session') ||
+    status === 401
+  ) {
+    return {
+      message: 'Your session has expired. Please sign in again.',
+      action: null, // User needs to sign out/in
+      severity: 'error',
+      retryable: false
+    };
+  }
+
+  // Network/timeout errors
+  if (
+    errorMessage.includes('timeout') ||
+    errorMessage.includes('network') ||
+    errorMessage.includes('fetch') ||
+    error?.name === 'AbortError'
+  ) {
+    return {
+      message: 'Request timed out. Please check your connection.',
+      action: onRetry ? {
+        label: 'Retry',
+        onClick: onRetry
+      } : null,
+      severity: 'warning',
+      retryable: true
+    };
+  }
+
+  // Default fallback
+  return {
+    message: errorMessage || 'Something went wrong. Please try again.',
+    action: onRetry ? {
+      label: 'Try Again',
+      onClick: onRetry
+    } : null,
+    severity: 'error',
+    retryable: true
+  };
+};
 
 /**
  * Check if Plan My Day was already run today
@@ -148,6 +300,8 @@ export const CustomQueryView = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [performanceMetrics, setPerformanceMetrics] = useState(null);
   const conversationEndRef = useRef(null);
+  // TASK 3 WIRE-UP: Inline error state for AI failures (replaces toast notifications)
+  const [inlineError, setInlineError] = useState(null);
 
   // ISSUE 4 FIX: Track if Plan My Day was already run today
   const [planMyDayRunToday, setPlanMyDayRunToday] = useState(() => wasPlanMyDayRunToday());
@@ -345,6 +499,8 @@ export const CustomQueryView = ({
     setQuery('');
     setIsSubmitting(true);
     setLoading(true);
+    // TASK 3 WIRE-UP: Clear any previous inline error when starting new request
+    setInlineError(null);
 
     // Add user message immediately
     const userMessage = { role: 'user', content: currentQuery };
@@ -604,7 +760,15 @@ export const CustomQueryView = ({
         return withoutPlaceholder;
       });
 
-      addNotification(error.message || 'AI request failed. Try again.', 'error');
+      // TASK 3 WIRE-UP: Use inline error instead of toast for AI failures
+      const guidance = getErrorGuidance(error, {
+        onRetry: () => {
+          setInlineError(null); // Clear error before retry
+          handleQueryStreaming(currentQuery);
+        },
+        onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+      });
+      setInlineError(guidance);
     } finally {
       setLoading(false);
       setIsSubmitting(false);
@@ -955,6 +1119,8 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
     // Execute query immediately WITHOUT populating input field
     setIsSubmitting(true);
     setLoading(true);
+    // TASK 3 WIRE-UP: Clear any previous inline error when starting new request
+    setInlineError(null);
 
     // Add user message to conversation immediately
     const userMessage = { role: 'user', content: queryText };
@@ -979,8 +1145,9 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
       // PHASE 5.3: Collect and send AI signals with request
       const aiSignals = consumePendingSignals();
 
-      // AI FALLBACK: Use fallback-enabled query that tries multiple providers
-      const data = await runAIQueryWithFallback({
+      // QA FIX #5: Use retry-enabled query with automatic backoff
+      // AI FALLBACK: Tries multiple providers with automatic retry on transient failures
+      const data = await runAIQueryWithRetry({
         message: queryText,
         deals: deals || [],
         conversationHistory: conversationHistory,
@@ -988,6 +1155,15 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         organizationId: organization?.id,
         connectedProviders: connectedProviders,
         aiSignals: aiSignals
+      }, {
+        onRetryStart: (attempt) => {
+          // Update placeholder message to show retry status
+          setConversationHistory(prev => prev.map(msg =>
+            msg.role === 'assistant' && msg.content === ''
+              ? { ...msg, content: `Retrying (attempt ${attempt + 1})...` }
+              : msg
+          ));
+        }
       });
 
       clearTimeout(timeoutId);
@@ -1042,16 +1218,15 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
       setConversationHistory(prev => prev.slice(0, -1));
 
-      if (error.name === 'AbortError') {
-        addNotification('Request timed out. The AI is taking longer than expected. Please try again.', 'error');
-      } else if (error.isAllProvidersFailed) {
-        // AI FALLBACK: All providers failed - show comprehensive error
-        addNotification(generateAllFailedMessage(error.attemptedProviders), 'error');
-      } else if (error.status === 401) {
-        addNotification('Your session has expired. Please log in again to use AI insights.', 'error');
-      } else {
-        addNotification(error.message || 'Failed to get AI response. Try again.', 'error');
-      }
+      // TASK 3 WIRE-UP: Use inline error instead of toast for AI failures
+      const guidance = getErrorGuidance(error, {
+        onRetry: () => {
+          setInlineError(null); // Clear error before retry
+          handleQuickAction(actionType);
+        },
+        onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+      });
+      setInlineError(guidance);
     } finally {
       setLoading(false);
       setIsSubmitting(false);
@@ -1609,10 +1784,25 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
             </div>
           )}
 
+          {/* TASK 3 WIRE-UP: Inline error display for AI failures */}
+          {inlineError && (
+            <AIInlineError
+              message={inlineError.message}
+              action={inlineError.action}
+              severity={inlineError.severity}
+              onDismiss={() => setInlineError(null)}
+              className="mb-3"
+            />
+          )}
+
           <div className="relative">
             <textarea
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                // Clear inline error when user starts typing
+                if (inlineError) setInlineError(null);
+              }}
               onKeyDown={handleKeyPress}
               placeholder={
                 !isOnline
@@ -1641,6 +1831,16 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
               )}
             </button>
           </div>
+
+          {/* QA FIX #4: AI Usage Limit Indicator */}
+          {organization?.id && (
+            <div className="flex justify-end mt-2">
+              <AIUsageIndicator
+                organizationId={organization.id}
+                onNavigate={(view) => setActiveView && setActiveView(VIEWS?.[view])}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

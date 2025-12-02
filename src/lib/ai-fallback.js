@@ -4,6 +4,8 @@
  * Implements frontend fallback when the primary AI provider fails.
  * Only uses providers that the user has explicitly connected.
  *
+ * QA FIX #5: Now includes retry with backoff for transient errors.
+ *
  * @module ai-fallback
  */
 
@@ -14,6 +16,8 @@ import {
   getProviderDisplayName,
   FALLBACK_ID_TO_PROVIDER_TYPE
 } from '../ai/stageflowConfig';
+// QA FIX #5: Import retry utilities
+import { withRetry, isRetryableError } from './ai-retry';
 
 /**
  * Fetch the list of connected AI providers for an organization
@@ -332,9 +336,57 @@ export function generateAllFailedMessage(attemptedProviders = []) {
 // PHASE 18: Export inferTaskType for use in other modules
 export { inferTaskType };
 
+/**
+ * QA FIX #5: Run AI query with automatic retry for transient failures
+ *
+ * Wraps runAIQueryWithFallback with retry logic:
+ * - Retries up to 2 times total (1 retry after initial failure)
+ * - Uses 1s initial delay with exponential backoff
+ * - Only retries on transient errors (network, timeout, 429)
+ * - Does NOT retry on auth errors or invalid API keys
+ *
+ * @param {Object} options - Same options as runAIQueryWithFallback
+ * @param {Object} retryOptions - Optional retry configuration
+ * @param {Function} retryOptions.onRetryStart - Callback when retry starts: (attempt) => void
+ * @returns {Promise<Object>} Response with { ...result, retryAttempts }
+ */
+export async function runAIQueryWithRetry(options, retryOptions = {}) {
+  const { onRetryStart = null } = retryOptions;
+
+  const result = await withRetry(
+    () => runAIQueryWithFallback(options),
+    {
+      maxAttempts: 2,
+      initialDelayMs: 1000,
+      maxDelayMs: 3000,
+      onRetry: (attempt, error, delayMs) => {
+        console.log(`[ai-fallback] Retrying after ${delayMs}ms (attempt ${attempt})...`);
+        if (onRetryStart) {
+          onRetryStart(attempt);
+        }
+      },
+      shouldRetry: isRetryableError
+    }
+  );
+
+  if (result.success) {
+    return {
+      ...result.data,
+      retryAttempts: result.attempts
+    };
+  }
+
+  // Re-throw the error for the caller to handle
+  const error = result.error;
+  error.retryAttempts = result.attempts;
+  error.wasRetried = result.attempts > 1;
+  throw error;
+}
+
 export default {
   fetchConnectedProviders,
   runAIQueryWithFallback,
+  runAIQueryWithRetry,
   generateFallbackNotice,
   generateAllFailedMessage,
   inferTaskType

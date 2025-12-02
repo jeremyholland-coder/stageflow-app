@@ -23,6 +23,10 @@ import {
   PROVIDER_NAMES,
   logProviderAttempt
 } from './lib/ai-fallback';
+// UNIFIED PROVIDER SELECTION: Single source of truth for provider selection
+import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
+// TASK 1: Provider health caching to reduce DB reads
+import { getProvidersWithCache, invalidateProviderCache } from './lib/provider-cache';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -163,21 +167,11 @@ function setCachedPipelineAnalysis(organizationId: string, deals: any[], analysi
 }
 
 // Get all active AI providers for organization
+// TASK 1: Now uses 60s cache to reduce DB reads
 // FIX 2025-12-02: Sort by created_at ASCENDING (first connected = first tried)
 async function getActiveProviders(organizationId: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('ai_providers')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .eq('active', true)
-    .order('created_at', { ascending: true }); // First connected = first in array
-
-  if (error) {
-    console.error('Error fetching providers:', error);
-    return [];
-  }
-
-  return data || [];
+  // Use cached providers (60s TTL) to avoid hitting DB on every AI call
+  return await getProvidersWithCache(supabase, organizationId);
 }
 
 // Analyze deals and create RICH context for AI
@@ -1136,42 +1130,12 @@ function getModelTier(modelName: string | null): number {
   return MODEL_TIERS[modelName] || 0;
 }
 
-// PHASE 18: Select the best provider based on task type FIRST, then model tier
-// This implements the task-delegation strategy where the optimal provider varies by task
+// PHASE 18 / QA FIX: Provider selection now uses unified selectProvider from lib/select-provider.ts
+// This ensures consistent provider selection logic across all AI endpoints.
+// See lib/select-provider.ts for the canonical task-affinity scoring algorithm.
 function selectBestProvider(providers: any[], taskType: TaskType | string = 'text_analysis'): any {
-  if (providers.length === 0) return null;
-  if (providers.length === 1) return providers[0];
-
-  // Normalize task type to match affinity keys
-  let normalizedTaskType = taskType;
-  if (taskType === 'plan_my_day') normalizedTaskType = 'planning';
-  if (taskType === 'chart') normalizedTaskType = 'chart_insight';
-  if (taskType === 'image') normalizedTaskType = 'image_suitable';
-  if (taskType === 'analysis') normalizedTaskType = 'text_analysis';
-
-  const taskAffinity = TASK_MODEL_AFFINITY[normalizedTaskType] || TASK_MODEL_AFFINITY['general'] || TASK_MODEL_AFFINITY['text_analysis'];
-
-  // PHASE 18: Score each provider: (task_affinity * 10) + model_tier
-  // This makes task affinity the PRIMARY factor (not just tie-breaker)
-  // Ensures ChatGPT is used for RevOps, Claude for coaching, etc.
-  let bestProvider = providers[0];
-  let bestScore = ((taskAffinity[providers[0].provider_type] || 0) * 10) + getModelTier(providers[0].model);
-
-  for (const provider of providers) {
-    const tier = getModelTier(provider.model);
-    const affinity = taskAffinity[provider.provider_type] || 0;
-    // Task affinity is now weighted 10x more than model tier
-    const score = (affinity * 10) + tier;
-
-    if (score > bestScore) {
-      bestProvider = provider;
-      bestScore = score;
-    }
-  }
-
-  console.debug(`[ai-assistant] Task type: ${taskType}, Selected provider: ${bestProvider.provider_type}, Score: ${bestScore}`);
-
-  return bestProvider;
+  // Delegate to the unified provider selection module
+  return unifiedSelectProvider(providers, taskType);
 }
 
 // PHASE 3: Build visual spec instructions for image-suitable or chart tasks
