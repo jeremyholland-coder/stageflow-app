@@ -402,6 +402,8 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
   };
 
   // PREMIUM GLASS DESIGN - Modern deal card with teal accents
+  // LAYOUT FIX: Consistent card height (168px) ensures uniform spacing across all columns
+  // This matches virtual scroll itemHeight (180px = 168px card + 12px gap from space-y-3)
   return (
     <div
       ref={cardRef}
@@ -425,6 +427,7 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         transition-all duration-200 ease-out
         bg-gradient-to-br from-gray-900 to-black
         border border-teal-500/30
+        min-h-[168px]
         ${isOrphaned
           ? 'ring-4 ring-amber-400/50 shadow-[0_0_24px_rgba(251,191,36,0.4)] animate-pulse-slow'
           : 'shadow-lg shadow-black/20'
@@ -685,10 +688,30 @@ export const KanbanColumn = memo(({
     Icon = STAGE_ID_ICONS[stage.id];
   }
   
-  const stageDeals = useMemo(
-    () => deals.filter(d => d.stage === stage.id),
-    [deals, stage.id]
-  );
+  // SORTING FIX: Filter deals for this stage, then sort by:
+  // 1. Confidence/probability DESC (highest first)
+  // 2. Alphabetical by client name ASC (A-Z)
+  const stageDeals = useMemo(() => {
+    const filtered = deals.filter(d => d.stage === stage.id);
+
+    // Sort: confidence DESC, then client name ASC
+    return filtered.sort((a, b) => {
+      // Calculate confidence scores for sorting
+      // Using the same calculateDealConfidence function used for display
+      const confA = calculateDealConfidence(a, userPerformance, globalWinRate);
+      const confB = calculateDealConfidence(b, userPerformance, globalWinRate);
+
+      // Primary sort: confidence DESC (higher probability first)
+      if (confB !== confA) {
+        return confB - confA;
+      }
+
+      // Secondary sort: alphabetical by client name ASC
+      const nameA = (a.client || '').toLowerCase();
+      const nameB = (b.client || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }, [deals, stage.id, userPerformance, globalWinRate]);
 
   const totalValue = useMemo(
     () => stageDeals.reduce((sum, d) => sum + (Number(d.value) || 0), 0),
