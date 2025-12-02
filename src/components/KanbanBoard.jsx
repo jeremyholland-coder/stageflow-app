@@ -11,7 +11,8 @@ import { ReorderStagesModal } from './ReorderStagesModal';
 import { useStageVisibility } from '../hooks/useStageVisibility';
 import { buildUserPerformanceProfiles, calculateDealConfidence, getConfidenceLabel, getConfidenceColor } from '../utils/aiConfidence';
 import { ModalErrorBoundary } from './ErrorBoundaries';
-import { useVirtualScroll } from '../lib/virtual-scroll'; // NEXT-LEVEL: Virtual scrolling for large lists
+// REMOVED: Virtual scrolling - using pure natural stacking for uniform layout (Option A)
+// import { useVirtualScroll } from '../lib/virtual-scroll';
 import { AssigneeSelector } from './AssigneeSelector';
 import { DisqualifyModal } from './DisqualifyModal';
 
@@ -718,16 +719,9 @@ export const KanbanColumn = memo(({
     [stageDeals]
   );
 
-  // NEXT-LEVEL: Use virtual scrolling for large lists (20+ deals)
-  // KANBAN SPACING FIX: itemHeight must match actual card height + 12px gap
-  // Standard rendering uses space-y-3 (12px gap) between cards
-  // Card content is ~168px (p-5 padding + header + confidence bar)
-  // itemHeight = 168 + 12 = 180px for consistent 12px gaps
-  const useVirtualScrolling = stageDeals.length >= 20;
-  const { containerProps, innerProps, visibleItems } = useVirtualScroll(stageDeals, {
-    itemHeight: 180, // Card height (~168px) + 12px gap to match space-y-3
-    overscan: 3,     // Render 3 extra items above/below viewport
-  });
+  // OPTION A: Pure Natural Stacking - NO virtual scroll
+  // All columns use identical space-y-3 (12px gap) natural stacking
+  // This ensures uniform layout matching Lead Captured + Lead Qualified
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -921,33 +915,10 @@ export const KanbanColumn = memo(({
                 {dragOver ? 'Drop deal here!' : 'Drag a deal here or click + to add'}
               </p>
             </div>
-          ) : useVirtualScrolling ? (
-            // NEXT-LEVEL: Virtual scrolling for 20+ deals (70% faster rendering)
-            // DEV NOTE (LAYOUT FIX): Removed space-y-3 (no effect with single child).
-            // Removed paddingBottom:12px (spacing now handled via itemHeight).
-            // Root cause: fixed 310px slots with ~200px cards = 110px gaps.
-            <div {...containerProps} style={{ ...containerProps.style, maxHeight: '600px' }}>
-              <div {...innerProps}>
-                {visibleItems.map(({ item: deal, index: idx, style }) => (
-                  <div key={deal.id} style={style}>
-                    <KanbanCard
-                      deal={deal}
-                      onSelect={onDealSelected}
-                      index={idx}
-                      isDarkMode={isDarkMode}
-                      isOrphaned={orphanedDealIds.has(deal.id)}
-                      userPerformance={userPerformance}
-                      globalWinRate={globalWinRate}
-                      organizationId={organizationId}
-                      onDisqualify={onDisqualify}
-                      onAssignmentChange={onAssignmentChange}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
           ) : (
-            // Standard rendering for <20 deals
+            // OPTION A: Pure Natural Stacking for ALL columns
+            // Identical to Lead Captured + Lead Qualified - no virtual scroll
+            // Cards take natural height, space-y-3 provides uniform 12px gaps
             <div className="space-y-3">
               {stageDeals.map((deal, idx) => (
                 <KanbanCard
