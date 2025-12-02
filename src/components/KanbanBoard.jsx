@@ -226,6 +226,10 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
     return calculateDealConfidence(deal, userPerformance, globalWinRate);
   }, [deal, userPerformance, globalWinRate]);
 
+  // Status flags for lost vs disqualified (mutually exclusive)
+  const isLost = deal.status === 'lost';
+  const isDisqualified = deal.status === 'disqualified';
+
   // Desktop drag handlers
   const handleDragStart = (e) => {
     e.dataTransfer.effectAllowed = 'move';
@@ -475,7 +479,7 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
           </div>
 
           {/* Progress Bar with Gradient - PREMIUM DESIGN */}
-          <div className="w-full h-2 rounded-full overflow-hidden bg-gray-800">
+          <div className="w-full h-1.5 rounded-full overflow-hidden bg-gray-800">
             <div
               className={`
                 h-full rounded-full
@@ -519,12 +523,23 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         </div>
       )}
 
-      {/* Lost Reason - PREMIUM DESIGN */}
-      {deal.lost_reason && (
+      {/* Lost Reason – only for truly lost deals */}
+      {isLost && deal.lost_reason && (
         <p className="text-sm truncate mb-3 text-red-400">
-          {deal.lost_reason}
+          {deal.lost_reason === 'other' && deal.lost_reason_notes
+            ? deal.lost_reason_notes
+            : deal.lost_reason}
         </p>
       )}
+
+      {/* Disqualified Reason – only for disqualified leads */}
+      {isDisqualified &&
+        (deal.disqualified_reason_notes || deal.disqualified_reason_category) && (
+          <p className="text-sm truncate mb-3 text-red-400">
+            {deal.disqualified_reason_notes ||
+              deal.disqualified_reason_category.replace(/_/g, ' ')}
+          </p>
+        )}
 
       {/* Assignee Display - Inline assignment selector */}
       {organizationId && deal.status === 'active' && (

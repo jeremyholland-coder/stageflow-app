@@ -112,7 +112,7 @@ export default async (req: Request, context: Context) => {
       "name", "value", "stage", "status", "probability",
       "contact_name", "contact_email", "contact_phone",
       "company", "notes", "expected_close", "last_activity",
-      "lost_reason", "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
+      "lost_reason", "lost_reason_notes", "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
       // Deal assignment fields
       "assigned_to", "assigned_by", "assigned_at",
       // Disqualification fields
@@ -172,10 +172,68 @@ export default async (req: Request, context: Context) => {
       }
     }
 
-    // STEP 7: Track stage changes for history
+    // STEP 7: Validate lost/disqualified mutual exclusivity
+    // Lost and Disqualified are STRICTLY mutually exclusive states
+    const status = sanitizedUpdates.status || existingDeal.status;
+
+    if (status === 'lost') {
+      // Lost deals must have a lost reason
+      const hasLostReason = !!sanitizedUpdates.lost_reason;
+      const hasLostNotes = sanitizedUpdates.lost_reason === 'other'
+        ? !!sanitizedUpdates.lost_reason_notes
+        : true;
+
+      if (sanitizedUpdates.status === 'lost' && (!hasLostReason || !hasLostNotes)) {
+        return new Response(
+          JSON.stringify({
+            error: "Lost deals must have a lost reason. If 'Other' is selected, notes are required."
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Clear any disqualified fields to keep the model clean
+      sanitizedUpdates.disqualified_reason_category = null;
+      sanitizedUpdates.disqualified_reason_notes = null;
+      sanitizedUpdates.stage_at_disqualification = null;
+      sanitizedUpdates.disqualified_at = null;
+      sanitizedUpdates.disqualified_by = null;
+    }
+
+    if (status === 'disqualified') {
+      // Disqualified deals must have a disqualified reason
+      const hasDisqReason = !!sanitizedUpdates.disqualified_reason_notes ||
+                            !!sanitizedUpdates.disqualified_reason_category;
+
+      if (sanitizedUpdates.status === 'disqualified' && !hasDisqReason) {
+        return new Response(
+          JSON.stringify({
+            error: "Disqualified deals must include a disqualification reason."
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Clear any lost fields to keep them mutually exclusive
+      sanitizedUpdates.lost_reason = null;
+      sanitizedUpdates.lost_reason_notes = null;
+    }
+
+    // For active/won/etc., clear both sets of reason fields
+    if (status !== 'lost' && status !== 'disqualified') {
+      sanitizedUpdates.lost_reason = null;
+      sanitizedUpdates.lost_reason_notes = null;
+      sanitizedUpdates.disqualified_reason_category = null;
+      sanitizedUpdates.disqualified_reason_notes = null;
+      sanitizedUpdates.stage_at_disqualification = null;
+      sanitizedUpdates.disqualified_at = null;
+      sanitizedUpdates.disqualified_by = null;
+    }
+
+    // STEP 8: Track stage changes for history
     const stageChanged = sanitizedUpdates.stage && sanitizedUpdates.stage !== existingDeal.stage;
 
-    // STEP 8: Perform the update
+    // STEP 9: Perform the update
     const { data: updatedDeal, error: updateError } = await supabase
       .from("deals")
       .update(sanitizedUpdates)
@@ -192,7 +250,7 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // STEP 9: Record stage history if stage changed
+    // STEP 10: Record stage history if stage changed
     if (stageChanged) {
       try {
         await supabase.from("deal_stage_history").insert({
