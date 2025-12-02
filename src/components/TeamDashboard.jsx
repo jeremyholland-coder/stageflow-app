@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, ensureValidSession } from '../lib/supabase';
-import { Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2 } from 'lucide-react';
+import { Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2, Pencil, X, Check } from 'lucide-react';
 import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
 import { logger } from '../lib/logger';
@@ -25,12 +25,125 @@ export const TeamDashboard = () => {
   const [displayedCount, setDisplayedCount] = useState(TEAM_PAGE_SIZE);
   const [totalMemberCount, setTotalMemberCount] = useState(0);
 
+  // User Goals State
+  const [userTargets, setUserTargets] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editingGoals, setEditingGoals] = useState(null); // userId being edited
+  const [goalValues, setGoalValues] = useState({ monthly: '', quarterly: '', annual: '' });
+  const [savingGoals, setSavingGoals] = useState(false);
+
   // PHASE 20: Incremental rendering - render first batch immediately, rest via idle callbacks
   const INITIAL_RENDER_COUNT = 10;
   const BATCH_SIZE = 10;
 
   // PRO TIER FIX: Check if user has a paid plan that unlocks team features
   const hasPaidPlan = contextOrganization?.plan && ['startup', 'growth', 'pro'].includes(contextOrganization.plan.toLowerCase());
+
+  // Fetch user targets for the organization
+  const fetchUserTargets = useCallback(async (orgId) => {
+    try {
+      const response = await fetch('/.netlify/functions/user-targets-get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organization_id: orgId })
+      });
+
+      if (!response.ok) {
+        console.warn('[TeamDashboard] Failed to fetch user targets:', response.status);
+        return;
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        setUserTargets(result.targets || {});
+        setIsAdmin(result.is_admin || false);
+      }
+    } catch (error) {
+      console.error('[TeamDashboard] Error fetching user targets:', error);
+    }
+  }, []);
+
+  // Save user targets
+  const saveUserTargets = useCallback(async (userId, targets) => {
+    if (!organizationId) return false;
+
+    setSavingGoals(true);
+    try {
+      const response = await fetch('/.netlify/functions/user-targets-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          organization_id: organizationId,
+          user_targets: [{
+            user_id: userId,
+            monthly_target: targets.monthly || null,
+            quarterly_target: targets.quarterly || null,
+            annual_target: targets.annual || null
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        console.error('[TeamDashboard] Failed to save user targets:', response.status);
+        return false;
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        // Update local state
+        setUserTargets(prev => ({
+          ...prev,
+          [userId]: {
+            monthly_target: targets.monthly || null,
+            quarterly_target: targets.quarterly || null,
+            annual_target: targets.annual || null
+          }
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[TeamDashboard] Error saving user targets:', error);
+      return false;
+    } finally {
+      setSavingGoals(false);
+    }
+  }, [organizationId]);
+
+  // Start editing goals for a member
+  const startEditingGoals = useCallback((userId) => {
+    const targets = userTargets[userId] || {};
+    setGoalValues({
+      monthly: targets.monthly_target || '',
+      quarterly: targets.quarterly_target || '',
+      annual: targets.annual_target || ''
+    });
+    setEditingGoals(userId);
+  }, [userTargets]);
+
+  // Cancel editing
+  const cancelEditingGoals = useCallback(() => {
+    setEditingGoals(null);
+    setGoalValues({ monthly: '', quarterly: '', annual: '' });
+  }, []);
+
+  // Confirm save goals
+  const confirmSaveGoals = useCallback(async () => {
+    if (!editingGoals) return;
+
+    const success = await saveUserTargets(editingGoals, {
+      monthly: goalValues.monthly ? parseFloat(goalValues.monthly) : null,
+      quarterly: goalValues.quarterly ? parseFloat(goalValues.quarterly) : null,
+      annual: goalValues.annual ? parseFloat(goalValues.annual) : null
+    });
+
+    if (success) {
+      setEditingGoals(null);
+      setGoalValues({ monthly: '', quarterly: '', annual: '' });
+    }
+  }, [editingGoals, goalValues, saveUserTargets]);
 
   const loadTeamData = useCallback(async () => {
     try {
@@ -77,6 +190,9 @@ export const TeamDashboard = () => {
       setOrganization(member.organizations);
       const orgId = member.organization_id;
       setOrganizationId(orgId);
+
+      // Fetch user targets for goals display
+      fetchUserTargets(orgId);
 
       // Get all team members for this organization (simple query - no joins)
       const { data: members, error: membersError } = await Promise.race([
@@ -300,7 +416,7 @@ export const TeamDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty deps - all state setters are stable
+  }, [fetchUserTargets]); // fetchUserTargets is stable (no deps)
 
   // Load team data on mount
   useEffect(() => {
@@ -617,6 +733,111 @@ export const TeamDashboard = () => {
                   </div>
                 </div>
               )}
+
+              {/* Revenue Goals Section */}
+              <div className="mt-4 pt-4 border-t border-white/[0.05]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-sky-400" />
+                    <span className="text-sm font-medium text-white/70">Revenue Goals</span>
+                  </div>
+                  {isAdmin && editingGoals !== member.userId && (
+                    <button
+                      onClick={() => startEditingGoals(member.userId)}
+                      className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+                      title="Edit goals"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-white/40 hover:text-white/70" />
+                    </button>
+                  )}
+                </div>
+
+                {editingGoals === member.userId ? (
+                  // Editing mode
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Monthly</label>
+                        <input
+                          type="number"
+                          value={goalValues.monthly}
+                          onChange={(e) => setGoalValues(prev => ({ ...prev, monthly: e.target.value }))}
+                          placeholder="0"
+                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Quarterly</label>
+                        <input
+                          type="number"
+                          value={goalValues.quarterly}
+                          onChange={(e) => setGoalValues(prev => ({ ...prev, quarterly: e.target.value }))}
+                          placeholder="0"
+                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Annual</label>
+                        <input
+                          type="number"
+                          value={goalValues.annual}
+                          onChange={(e) => setGoalValues(prev => ({ ...prev, annual: e.target.value }))}
+                          placeholder="0"
+                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={cancelEditingGoals}
+                        className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
+                        disabled={savingGoals}
+                      >
+                        <X className="w-4 h-4 text-white/50" />
+                      </button>
+                      <button
+                        onClick={confirmSaveGoals}
+                        disabled={savingGoals}
+                        className="p-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 transition-colors"
+                      >
+                        {savingGoals ? (
+                          <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4 text-sky-400" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // Display mode
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                      <p className="text-xs text-white/40 mb-0.5">Monthly</p>
+                      <p className="text-sm font-medium text-white">
+                        {userTargets[member.userId]?.monthly_target
+                          ? formatCurrency(userTargets[member.userId].monthly_target)
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                      <p className="text-xs text-white/40 mb-0.5">Quarterly</p>
+                      <p className="text-sm font-medium text-white">
+                        {userTargets[member.userId]?.quarterly_target
+                          ? formatCurrency(userTargets[member.userId].quarterly_target)
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                      <p className="text-xs text-white/40 mb-0.5">Annual</p>
+                      <p className="text-sm font-medium text-white">
+                        {userTargets[member.userId]?.annual_target
+                          ? formatCurrency(userTargets[member.userId].annual_target)
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
 

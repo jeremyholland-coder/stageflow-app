@@ -1184,12 +1184,18 @@ export const KanbanBoard = memo(({
     setShowDisqualifyModal(false);
   }, []);
 
-  // Handle deal assignment change (for optimistic UI in cards)
+  // Handle deal assignment change - update local deals state after AssigneeSelector API call
+  // FIX 2025-12-02: Previously just logged, now updates deals state so UI reflects assignment
   const handleAssignmentChange = useCallback((dealId, newAssigneeId) => {
-    // The AssigneeSelector handles the actual API call
-    // This callback is for parent-level state updates if needed
     console.log('[KanbanBoard] Assignment changed:', { dealId, newAssigneeId });
-  }, []);
+
+    // Update the deal's assigned_to in parent state
+    // Note: AssigneeSelector already made the API call to assign-deals
+    // This call updates local state and syncs via update-deal endpoint
+    if (onUpdateDeal && dealId) {
+      onUpdateDeal(dealId, { assigned_to: newAssigneeId });
+    }
+  }, [onUpdateDeal]);
 
   // PERFORMANCE FIX: Memoize handlers to prevent breaking KanbanColumn memoization
   // Handle hide stage request
