@@ -405,6 +405,10 @@ export function getCorsHeaders(eventHeaders: Record<string, string | undefined>)
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    // FIX 2025-12-02: Prevent browser caching of auth responses
+    // Stale cached responses cause 401s after token rotation
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache'
   };
 }

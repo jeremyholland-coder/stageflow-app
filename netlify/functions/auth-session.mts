@@ -36,7 +36,7 @@ function debugLog(...args: any[]) {
 }
 
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
-  // CRITICAL FIX: Add CORS headers (was completely missing)
+  // CRITICAL FIX: Add CORS headers with Cache-Control (prevents post-rotation failures)
   const corsHeaders = getCorsHeaders(event.headers as Record<string, string | undefined>);
 
   // Handle CORS preflight
@@ -134,9 +134,10 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // APPROACH 2: If setSession failed or no refresh token, try getUser() directly
+    // CRITICAL FIX: Pass token EXPLICITLY - global headers may have stale token after rotation
     if (!finalUser) {
-      debugLog('Trying getUser() directly');
-      const { data: userData, error: userError } = await supabase.auth.getUser();
+      debugLog('Trying getUser() with explicit token');
+      const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
 
       if (!userError && userData?.user) {
         debugLog('getUser() succeeded');
@@ -177,13 +178,21 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     // All approaches failed - session is truly invalid
     if (!finalUser) {
       console.error('[auth-session] All validation approaches failed');
+      // CRITICAL FIX: If we had a refresh token but it failed, the token may have been
+      // rotated elsewhere (another tab/device). Signal that a full re-auth is needed.
+      // If no refresh token existed, this is a clean "not authenticated" state.
+      const hadRefreshToken = !!refreshToken;
       return {
         statusCode: 401,
         headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Invalid or expired session',
-          code: 'SESSION_INVALID',
-          retryable: false
+          error: hadRefreshToken
+            ? 'Session expired or rotated. Please refresh the page.'
+            : 'Not authenticated',
+          code: hadRefreshToken ? 'SESSION_ROTATED' : 'SESSION_INVALID',
+          // Signal frontend: if SESSION_ROTATED, try calling auth-refresh first then retry
+          retryable: hadRefreshToken,
+          retryHint: hadRefreshToken ? 'CALL_AUTH_REFRESH_FIRST' : null
         })
       };
     }
