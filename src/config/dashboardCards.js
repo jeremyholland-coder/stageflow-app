@@ -37,10 +37,11 @@ export const DASHBOARD_CARDS = {
     description: 'Track progress toward personal and team goals',
     component: RevenueTargetsWidget,
     icon: Target,
-    defaultVisible: true,
+    defaultVisible: false,
 
-    // Always available (component self-hides if no targets)
-    isAvailable: () => true,
+    // HOTFIX 2025-12-02: Revenue targets only accessible via Team page and AI chat
+    // Not shown on main Dashboard to reduce visual clutter
+    isAvailable: () => false,
 
     getProps: ({ organization, user }) => ({
       organization,
@@ -54,11 +55,12 @@ export const DASHBOARD_CARDS = {
     description: 'AI-powered probability of hitting revenue goals',
     component: GoalForecastWidget,
     icon: Zap,
-    defaultVisible: true,
+    defaultVisible: false,
     requiresFeature: 'Revenue targets set',
 
-    // Show if user has targets set (component self-hides if not)
-    isAvailable: () => true,
+    // HOTFIX 2025-12-02: Goal forecast only accessible via Team page and AI chat
+    // Not shown on main Dashboard - was causing "Unable to load goal forecast" errors
+    isAvailable: () => false,
 
     getProps: ({ organization, user, deals }) => ({
       organization,
@@ -120,10 +122,11 @@ export const getCardConfig = (cardId) => DASHBOARD_CARDS[cardId];
  * Get all card IDs in default order
  * NOTE: dashboard_stats is rendered directly in Dashboard.jsx, not via card system
  * This prevents duplicate metric rows (FIX B1)
+ *
+ * HOTFIX 2025-12-02: Removed goal_forecast and revenue_targets from default order
+ * These are accessible via Team page and AI chat, not main Dashboard
  */
 export const getDefaultCardOrder = () => [
-  'goal_forecast',
-  'revenue_targets',
   'ai_insights',
   'pipeline_health'
 ];

@@ -123,7 +123,27 @@ const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
     };
   }
 
-  // All providers failed
+  // HOTFIX 2025-12-02: Session/auth expired - check BEFORE ALL_PROVIDERS_FAILED
+  // to ensure auth issues show correct message, not "AI providers unavailable"
+  if (
+    errorCode.includes('SESSION_ERROR') ||
+    errorCode.includes('AUTH_REQUIRED') ||
+    errorCode.includes('SESSION_INVALID') ||
+    errorCode.includes('NO_SESSION') ||
+    errorMessage.includes('session') ||
+    errorMessage.includes('Authentication required') ||
+    status === 401 ||
+    status === 403
+  ) {
+    return {
+      message: 'Your session has expired. Please sign in again.',
+      action: null, // User needs to sign out/in
+      severity: 'error',
+      retryable: false
+    };
+  }
+
+  // All providers failed (only after ruling out auth issues)
   if (
     errorCode.includes('ALL_PROVIDERS_FAILED') ||
     error?.isAllProvidersFailed
@@ -136,20 +156,6 @@ const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
       } : null,
       severity: 'warning',
       retryable: true
-    };
-  }
-
-  // Session/auth expired
-  if (
-    errorCode.includes('SESSION_ERROR') ||
-    errorMessage.includes('session') ||
-    status === 401
-  ) {
-    return {
-      message: 'Your session has expired. Please sign in again.',
-      action: null, // User needs to sign out/in
-      severity: 'error',
-      retryable: false
     };
   }
 

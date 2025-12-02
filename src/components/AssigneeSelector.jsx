@@ -255,7 +255,7 @@ export const AssigneeSelector = memo(({
         </button>
 
         {isOpen && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="absolute top-full left-0 mt-1 w-56 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-[60] overflow-hidden">
             {loadingMembers ? (
               <div className="p-4 text-center">
                 <Loader2 className="w-5 h-5 animate-spin text-teal-400 mx-auto" />
@@ -349,7 +349,7 @@ export const AssigneeSelector = memo(({
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-[60] overflow-hidden">
           {loadingMembers ? (
             <div className="p-6 text-center">
               <Loader2 className="w-6 h-6 animate-spin text-teal-400 mx-auto" />

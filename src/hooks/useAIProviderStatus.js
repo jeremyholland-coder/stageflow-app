@@ -86,18 +86,22 @@ export function useAIProviderStatus(user, organization, options = {}) {
       if (abortSignal?.aborted) return;
 
       if (!response.ok) {
-        // Handle auth errors - preserve cache
+        // HOTFIX 2025-12-02: Handle auth errors - preserve cache, don't trigger AI outage banner
+        // Auth errors (401/403) are session issues, NOT "no AI providers" issues
         if (response.status === 401 || response.status === 403) {
-          console.debug('[useAIProviderStatus] Auth error, preserving cache');
+          console.debug('[useAIProviderStatus] Auth error (session issue), preserving cache');
           const cachedData = localStorage.getItem(cacheKey);
           if (cachedData) {
             try {
               const { hasProvider: cachedValue } = JSON.parse(cachedData);
               setHasProvider(cachedValue);
             } catch (e) {
-              // Can't recover, keep current state
+              // Can't recover - preserve current state (don't set to false)
+              // This prevents showing "no provider" banner for auth issues
             }
           }
+          // Important: Still set checking=false so UI doesn't show loading forever
+          setChecking(false);
           return;
         }
         throw new Error(`Failed to fetch providers: ${response.status}`);
