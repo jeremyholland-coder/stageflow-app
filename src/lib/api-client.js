@@ -113,14 +113,27 @@ export class APIClient {
       ...headers,
     };
 
-    // FIX 2025-12-02: Always inject Authorization header if we have a session
+    // FIX 2025-12-03: Always inject Authorization header if we have a session
     // With persistSession: false, getSession() returns null unless we refresh from cookies first
     // ensureValidSession() fetches session from auth-session endpoint and sets it in the client
+    // CRITICAL HOTFIX: Actually check the result from ensureValidSession and handle failures
     if (includeAuth && !finalHeaders['Authorization']) {
       try {
         // CRITICAL: Must call ensureValidSession() first to populate the client session
         // from HttpOnly cookies (Phase 3 Cookie-Only Auth has persistSession: false)
-        await ensureValidSession();
+        const sessionResult = await ensureValidSession();
+
+        // FIX 2025-12-03: Check if session is valid before proceeding
+        // Previously, we ignored the return value and continued without auth
+        if (sessionResult && !sessionResult.valid) {
+          console.warn('[APIClient] Session invalid:', sessionResult.error, sessionResult.code);
+          // If session is invalid but not retryable, log warning but continue
+          // The request might still work with cookies as fallback
+          // But if the code indicates session was rotated, we should signal this
+          if (sessionResult.code === 'SESSION_ROTATED' || sessionResult.code === 'SESSION_INVALID') {
+            console.warn('[APIClient] Session expired/rotated - request may fail. User may need to refresh page.');
+          }
+        }
 
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
@@ -129,9 +142,13 @@ export class APIClient {
             console.debug('[APIClient] Injected Authorization header');
           }
         } else {
-          if (import.meta.env.DEV) {
-            console.debug('[APIClient] No session available for Authorization header (cookies will be used)');
-          }
+          // FIX 2025-12-03: More specific warning about missing session
+          console.warn('[APIClient] No session available for Authorization header. Session result:', {
+            valid: sessionResult?.valid,
+            error: sessionResult?.error,
+            code: sessionResult?.code
+          });
+          // Cookies will be used as fallback, but this may fail for cross-origin requests
         }
       } catch (authError) {
         // Log but don't fail - cookies might still work as fallback

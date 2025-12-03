@@ -180,15 +180,21 @@ export const withAuth = async (operation) => {
 };
 
 /**
- * FIX 2025-12-02: Ensure valid session before RLS-protected queries
+ * FIX 2025-12-03: Ensure valid session before RLS-protected queries
  *
  * The client has persistSession: false, so it relies on setSession() being called.
  * If the session expires or becomes stale, queries fail with RLS errors.
  * This helper checks for a valid session and refreshes from auth-session if needed.
  *
- * @returns {Promise<{valid: boolean, error: string|null}>}
+ * CRITICAL HOTFIX: Returns structured result that api-client MUST check
+ * - { valid: true } - Session is valid, Authorization header can be set
+ * - { valid: false, error, code } - Session invalid, caller should handle
+ *
+ * @returns {Promise<{valid: boolean, error: string|null, code: string|null}>}
  */
 let _sessionRefreshPromise = null; // Mutex to prevent concurrent refreshes
+let _lastRefreshAttempt = 0; // Throttle refresh attempts
+const REFRESH_THROTTLE_MS = 2000; // Minimum 2 seconds between refresh attempts
 
 export const ensureValidSession = async () => {
   // Check if we already have a valid session
@@ -202,12 +208,19 @@ export const ensureValidSession = async () => {
       const isExpiringSoon = expiresAt && (expiresAt - now) < 300;
 
       if (!isExpiringSoon) {
-        return { valid: true, error: null };
+        return { valid: true, error: null, code: null };
       }
       console.log('[Session] Token expiring soon, will refresh');
     }
   } catch (e) {
     console.warn('[Session] getSession() failed:', e.message);
+  }
+
+  // FIX 2025-12-03: Throttle refresh attempts to prevent hammering server
+  const now = Date.now();
+  if (now - _lastRefreshAttempt < REFRESH_THROTTLE_MS) {
+    console.log('[Session] Throttled - too soon since last refresh attempt');
+    return { valid: false, error: 'Refresh throttled', code: 'THROTTLED' };
   }
 
   // No valid session or expiring soon - try to refresh from auth-session
@@ -217,13 +230,18 @@ export const ensureValidSession = async () => {
     return _sessionRefreshPromise;
   }
 
+  _lastRefreshAttempt = now;
+
   _sessionRefreshPromise = (async () => {
     try {
       console.log('[Session] Fetching session from auth-session...');
 
       const response = await fetch('/.netlify/functions/auth-session', {
         method: 'GET',
-        credentials: 'include' // Send HttpOnly cookies
+        credentials: 'include', // Send HttpOnly cookies
+        headers: {
+          'Cache-Control': 'no-cache' // FIX 2025-12-03: Prevent cached 401 responses
+        }
       });
 
       if (!response.ok) {
@@ -253,16 +271,17 @@ export const ensureValidSession = async () => {
                   refresh_token: retryData.session.refresh_token
                 });
                 console.log('[Session] ✓ Session restored after refresh');
-                return { valid: true, error: null };
+                return { valid: true, error: null, code: null };
               }
             }
           }
         }
 
+        // FIX 2025-12-03: Return structured error for api-client to check
         return {
           valid: false,
           error: errorData.error || 'Session validation failed',
-          code: errorData.code
+          code: errorData.code || 'SESSION_INVALID'
         };
       }
 
@@ -275,14 +294,15 @@ export const ensureValidSession = async () => {
           refresh_token: data.session.refresh_token
         });
         console.log('[Session] ✓ Session refreshed from cookies');
-        return { valid: true, error: null };
+        return { valid: true, error: null, code: null };
       }
 
-      return { valid: false, error: 'No session in response' };
+      // FIX 2025-12-03: Handle case where response is 200 but no session
+      return { valid: false, error: 'No session in response', code: 'NO_SESSION' };
 
     } catch (error) {
       console.error('[Session] Refresh failed:', error);
-      return { valid: false, error: error.message };
+      return { valid: false, error: error.message, code: 'REFRESH_ERROR' };
     } finally {
       _sessionRefreshPromise = null;
     }

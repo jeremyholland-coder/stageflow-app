@@ -91,9 +91,10 @@ export default async (req: Request, context: Context) => {
     }
 
     // STEP 5: Verify deal belongs to organization
+    // FIX 2025-12-03: Added 'status' to select - needed for lost/disqualified validation
     const { data: existingDeal, error: dealCheckError } = await supabase
       .from("deals")
-      .select("id, organization_id, stage")
+      .select("id, organization_id, stage, status")
       .eq("id", dealId)
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
@@ -252,10 +253,36 @@ export default async (req: Request, context: Context) => {
       .single();
 
     if (updateError) {
-      console.error("[update-deal] Update failed:", updateError);
+      console.error("[update-deal] Update failed:", {
+        code: updateError.code,
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        dealId,
+        organizationId,
+        updateKeys: Object.keys(sanitizedUpdates)
+      });
+
+      // FIX 2025-12-03: Classify Supabase errors properly
+      // Return 400 for client errors, 500 only for true server errors
+      const isClientError =
+        updateError.code === '23505' || // Unique constraint violation
+        updateError.code === '23503' || // Foreign key violation
+        updateError.code === '23502' || // Not null violation
+        updateError.code === '22P02' || // Invalid text representation
+        updateError.code === '22001' || // String data too long
+        updateError.code?.startsWith('22') || // Data exception
+        updateError.code?.startsWith('23'); // Integrity constraint violation
+
+      const statusCode = isClientError ? 400 : 500;
+
       return new Response(
-        JSON.stringify({ error: "Failed to update deal", details: updateError.message }),
-        { status: 500, headers: corsHeaders }
+        JSON.stringify({
+          error: "Failed to update deal",
+          details: updateError.message,
+          code: updateError.code || 'UPDATE_ERROR'
+        }),
+        { status: statusCode, headers: corsHeaders }
       );
     }
 
@@ -285,28 +312,50 @@ export default async (req: Request, context: Context) => {
     });
 
   } catch (error: any) {
-    console.error("[update-deal] Error:", {
+    // FIX 2025-12-03: Enhanced error logging for debugging production issues
+    console.error("[update-deal] Error caught:", {
       message: error.message,
       code: error.code,
       name: error.name,
-      statusCode: error.statusCode
+      statusCode: error.statusCode,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n') // First 3 lines of stack
     });
 
-    // Comprehensive auth error detection (matches create-deal and auth-middleware patterns)
-    const isAuthError = error.statusCode === 401 ||
-                        error.statusCode === 403 ||
-                        error.name === 'UnauthorizedError' ||
-                        error.name === 'TokenExpiredError' ||
-                        error.name === 'InvalidTokenError' ||
-                        error.code === 'UNAUTHORIZED' ||
-                        error.code === 'TOKEN_EXPIRED' ||
-                        error.message?.includes("auth") ||
-                        error.message?.includes("unauthorized") ||
-                        error.message?.includes("token") ||
-                        error.message?.includes("cookie") ||
-                        error.message?.includes("Authentication");
+    // FIX 2025-12-03: More comprehensive auth error detection
+    // Check multiple properties since error structure may vary between auth-errors.ts and runtime errors
+    const errorMessage = error.message?.toLowerCase() || '';
+    const errorName = error.name || '';
+    const errorCode = error.code || '';
+
+    const isAuthError =
+      // Status code checks
+      error.statusCode === 401 ||
+      error.statusCode === 403 ||
+      // Custom error class names from auth-errors.ts
+      errorName === 'UnauthorizedError' ||
+      errorName === 'TokenExpiredError' ||
+      errorName === 'InvalidTokenError' ||
+      errorName === 'ForbiddenError' ||
+      errorName === 'OrganizationAccessError' ||
+      // Error codes
+      errorCode === 'UNAUTHORIZED' ||
+      errorCode === 'TOKEN_EXPIRED' ||
+      errorCode === 'INVALID_TOKEN' ||
+      errorCode === 'AUTH_REQUIRED' ||
+      errorCode === 'NO_SESSION' ||
+      errorCode === 'SESSION_INVALID' ||
+      errorCode === 'SESSION_ROTATED' ||
+      // Message content checks (case-insensitive)
+      errorMessage.includes('auth') ||
+      errorMessage.includes('unauthorized') ||
+      errorMessage.includes('token') ||
+      errorMessage.includes('cookie') ||
+      errorMessage.includes('session') ||
+      errorMessage.includes('not authenticated') ||
+      errorMessage.includes('login');
 
     if (isAuthError) {
+      console.warn("[update-deal] Auth error detected, returning 401");
       return new Response(
         JSON.stringify({
           error: error.message || "Authentication required",
@@ -317,14 +366,16 @@ export default async (req: Request, context: Context) => {
     }
 
     // PHASE E FIX: Return error with CORS headers (createErrorResponse doesn't include CORS)
-    const errorMessage = typeof error.message === 'string'
+    const safeErrorMessage = typeof error.message === 'string'
       ? error.message
       : 'An error occurred while updating the deal';
 
+    console.error("[update-deal] Non-auth error, returning 500:", safeErrorMessage);
+
     return new Response(
       JSON.stringify({
-        error: errorMessage,
-        code: "UPDATE_DEAL_ERROR"
+        error: safeErrorMessage,
+        code: error.code || "UPDATE_DEAL_ERROR"
       }),
       { status: 500, headers: corsHeaders }
     );
