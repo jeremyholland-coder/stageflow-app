@@ -41,7 +41,7 @@
  */
 
 import { fetchWithRetry } from './retry-logic';
-import { supabase, ensureValidSession } from './supabase';
+import { supabase, ensureValidSession, handleSessionInvalid } from './supabase';
 import { parseSupabaseError } from './error-handler';
 import { requestDeduplicator } from './request-deduplicator';
 import { getNetworkAwareRetryConfig, getCurrentNetworkQuality } from './network-quality';
@@ -126,18 +126,35 @@ export class APIClient {
         // from HttpOnly cookies (Phase 3 Cookie-Only Auth has persistSession: false)
         const sessionResult = await ensureValidSession();
 
-        // FIX 2025-12-03: Check if session is valid before proceeding
-        // Track session validation status for better error handling downstream
+        // FIX 2025-12-03: HARD STOP on session errors - don't proceed with API calls
+        // This prevents cascading 500 errors and misleading "AI providers unavailable" messages
         if (sessionResult && !sessionResult.valid) {
+          const isHardSessionError = [
+            'SESSION_INVALID',
+            'SESSION_ROTATED',
+            'NO_SESSION',
+            'REFRESH_ERROR'
+          ].includes(sessionResult.code);
+
+          if (isHardSessionError) {
+            console.warn('[APIClient] HARD SESSION FAILURE - stopping API call:', sessionResult.code);
+
+            // Sign out and redirect to login
+            // Use setTimeout to allow this function to return before redirect
+            setTimeout(() => handleSessionInvalid(), 0);
+
+            // Throw immediately - do NOT proceed with the fetch
+            const sessionError = new Error('Your session has expired. Please sign in again.');
+            sessionError.code = 'SESSION_ERROR';
+            sessionError.status = 401;
+            sessionError.userMessage = 'Your session has expired. Please sign in again.';
+            throw sessionError;
+          }
+
+          // For throttled or other temporary issues, log but continue
           sessionValidationFailed = true;
           sessionErrorCode = sessionResult.code;
-          console.warn('[APIClient] Session invalid:', sessionResult.error, sessionResult.code);
-          // If session is invalid but not retryable, log warning but continue
-          // The request might still work with cookies as fallback
-          // But if the code indicates session was rotated, we should signal this
-          if (sessionResult.code === 'SESSION_ROTATED' || sessionResult.code === 'SESSION_INVALID') {
-            console.warn('[APIClient] Session expired/rotated - request may fail. User may need to refresh page.');
-          }
+          console.warn('[APIClient] Session validation issue (non-fatal):', sessionResult.error, sessionResult.code);
         }
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -147,19 +164,33 @@ export class APIClient {
             console.debug('[APIClient] Injected Authorization header');
           }
         } else {
-          // FIX 2025-12-03: More specific warning about missing session
-          console.warn('[APIClient] No session available for Authorization header. Session result:', {
-            valid: sessionResult?.valid,
-            error: sessionResult?.error,
-            code: sessionResult?.code
-          });
-          // Cookies will be used as fallback, but this may fail for cross-origin requests
+          // FIX 2025-12-03: No session after validation passed means hard failure
+          console.error('[APIClient] No session available after ensureValidSession succeeded - treating as SESSION_ERROR');
+
+          setTimeout(() => handleSessionInvalid(), 0);
+
+          const sessionError = new Error('Your session has expired. Please sign in again.');
+          sessionError.code = 'SESSION_ERROR';
+          sessionError.status = 401;
+          sessionError.userMessage = 'Your session has expired. Please sign in again.';
+          throw sessionError;
         }
       } catch (authError) {
-        // Log but don't fail - cookies might still work as fallback
-        sessionValidationFailed = true;
-        sessionErrorCode = 'SESSION_ERROR';
-        console.warn('[APIClient] Failed to get session for Authorization header:', authError.message);
+        // FIX 2025-12-03: If it's already a SESSION_ERROR, re-throw it
+        if (authError.code === 'SESSION_ERROR') {
+          throw authError;
+        }
+
+        // For other auth errors, treat as session failure
+        console.error('[APIClient] Auth error during session validation:', authError.message);
+
+        setTimeout(() => handleSessionInvalid(), 0);
+
+        const sessionError = new Error('Your session has expired. Please sign in again.');
+        sessionError.code = 'SESSION_ERROR';
+        sessionError.status = 401;
+        sessionError.userMessage = 'Your session has expired. Please sign in again.';
+        throw sessionError;
       }
     }
 

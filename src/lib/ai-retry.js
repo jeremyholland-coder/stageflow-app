@@ -10,15 +10,22 @@
 
 /**
  * Errors that should NOT be retried
+ * FIX 2025-12-03: Added more session-related error codes
  */
 const NON_RETRYABLE_ERRORS = [
   'INVALID_API_KEY',
   'NO_PROVIDERS',
   'AI_LIMIT_REACHED',
   'SESSION_ERROR',
+  'SESSION_INVALID',
+  'SESSION_EXPIRED',
+  'NO_SESSION',
+  'AUTH_REQUIRED',
   'unauthorized',
   'Unauthorized',
   'invalid api key',
+  'session has expired',
+  'Please sign in',
 ];
 
 /**

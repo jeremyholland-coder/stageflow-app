@@ -9,10 +9,11 @@ export const ERROR_CODES = {
   // Network errors
   NETWORK_ERROR: 'NETWORK_ERROR',
   TIMEOUT: 'TIMEOUT',
-  
+
   // Authentication errors
   AUTH_REQUIRED: 'AUTH_REQUIRED',
   SESSION_EXPIRED: 'SESSION_EXPIRED',
+  SESSION_ERROR: 'SESSION_ERROR', // FIX 2025-12-03: Canonical code for session failures
   INVALID_TOKEN: 'INVALID_TOKEN',
   
   // Permission errors
@@ -332,7 +333,22 @@ export async function retryOperation(operation, options = {}) {
     maxDelay = 10000,
     backoffFactor = 2,
     shouldRetry = (error) => {
-      return error.code === ERROR_CODES.NETWORK_ERROR || 
+      // FIX 2025-12-03: NEVER retry session/auth errors - these require user action
+      const isAuthError =
+        error.code === ERROR_CODES.SESSION_ERROR ||
+        error.code === ERROR_CODES.SESSION_EXPIRED ||
+        error.code === ERROR_CODES.AUTH_REQUIRED ||
+        error.code === ERROR_CODES.INVALID_TOKEN ||
+        error.code === 'SESSION_ERROR' || // Handle string code from api-client
+        error.status === 401 ||
+        error.status === 403;
+
+      if (isAuthError) {
+        return false; // Do NOT retry auth errors
+      }
+
+      // Only retry transient errors
+      return error.code === ERROR_CODES.NETWORK_ERROR ||
              error.code === ERROR_CODES.SERVER_ERROR ||
              error.code === ERROR_CODES.TIMEOUT;
     }

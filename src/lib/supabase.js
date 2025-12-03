@@ -100,14 +100,48 @@ if (typeof window !== 'undefined' && supabase) {
 
 // App constants
 export const STORAGE_KEY = 'stageflow_preferences';
-export const VIEWS = { 
-  DASHBOARD: 'dashboard', 
-  ANALYTICS: 'analytics', 
-  SETTINGS: 'settings', 
-  TEAM: 'team', 
-  INTEGRATIONS: 'integrations', 
-  REPORTS: 'reports' 
+export const VIEWS = {
+  DASHBOARD: 'dashboard',
+  ANALYTICS: 'analytics',
+  SETTINGS: 'settings',
+  TEAM: 'team',
+  INTEGRATIONS: 'integrations',
+  REPORTS: 'reports'
 };
+
+/**
+ * FIX 2025-12-03: Handle invalid session by signing out and redirecting to login
+ *
+ * Call this when SESSION_ERROR is detected to cleanly log the user out
+ * and redirect them to the login page. This prevents cascading auth failures.
+ */
+export async function handleSessionInvalid() {
+  console.warn('[Auth] handleSessionInvalid called - signing out and redirecting');
+
+  try {
+    // Sign out from Supabase client (clears any local state)
+    const client = getSupabaseClient();
+    if (client) {
+      await client.auth.signOut();
+    }
+  } catch (e) {
+    console.warn('[Auth] Error during signOut:', e.message);
+  }
+
+  // Clear auth-related cookies via auth-logout endpoint
+  try {
+    await fetch('/.netlify/functions/auth-logout', {
+      method: 'POST',
+      credentials: 'include'
+    });
+  } catch (e) {
+    console.warn('[Auth] Error calling auth-logout:', e.message);
+  }
+
+  // Redirect to login page
+  // Use replace to prevent back button from returning to a broken state
+  window.location.replace('/login');
+}
 
 /**
  * Get current session (uses Supabase native method)
