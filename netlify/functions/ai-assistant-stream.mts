@@ -25,6 +25,15 @@ import {
 import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
 import { getProvidersWithCache } from './lib/provider-cache';
+// FIX 2025-12-03: Import fallback utilities for proper provider failover
+import {
+  sortProvidersForFallback,
+  classifyError,
+  logProviderAttempt,
+  FALLBACK_TRIGGERS,
+  PROVIDER_NAMES,
+  ProviderType
+} from './lib/ai-fallback';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -476,19 +485,10 @@ export default async (req: Request, context: any) => {
 
     // PHASE 3: Determine task type for smart provider selection
     const taskType = determineTaskType(message);
-    const selectedProvider = selectBestProvider(providers, taskType);
 
-    // Decrypt API key
-    let apiKey: string;
-    try {
-      if (isLegacyEncryption(selectedProvider.api_key_encrypted)) {
-        apiKey = decryptLegacy(selectedProvider.api_key_encrypted);
-      } else {
-        apiKey = decrypt(selectedProvider.api_key_encrypted);
-      }
-    } catch (error: any) {
-      throw new Error('Invalid API key encryption');
-    }
+    // FIX 2025-12-03: Sort providers for fallback - best provider first, then others
+    const bestProvider = selectBestProvider(providers, taskType);
+    const sortedProviders = sortProvidersForFallback(providers, bestProvider?.provider_type);
 
     // Analyze pipeline (simplified for streaming)
     const pipelineContext = analyzeDealsPipeline(deals);
@@ -512,6 +512,8 @@ export default async (req: Request, context: any) => {
         let textStreamCompleted = false;
         // PHASE 17: Accumulate response text for structured parsing
         let accumulatedResponse = '';
+        // FIX 2025-12-03: Track which provider succeeded for logging
+        let successfulProvider: string | null = null;
 
         // STREAM-01 FIX: Helper to safely enqueue with basic backpressure check
         const safeEnqueue = (data: Uint8Array) => {
@@ -527,19 +529,45 @@ export default async (req: Request, context: any) => {
           }
         };
 
-        try {
-          // Stream based on provider type (using enrichedContext with visual instructions)
-          // PHASE 19 FIX: Capture accumulated response for structured parsing
-          if (selectedProvider.provider_type === 'openai') {
-            accumulatedResponse = await streamOpenAI(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
-            textStreamCompleted = true;
-          } else if (selectedProvider.provider_type === 'anthropic') {
-            accumulatedResponse = await streamAnthropic(apiKey, message, enrichedContext, selectedProvider.model, conversationHistory, controller);
-            textStreamCompleted = true;
-          } else {
-            // CRITICAL-02 FIX: For Gemini/Grok, use non-streaming fallback
-            // Generate a single response and send it as one SSE event
-            const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. ${enrichedContext}.
+        // FIX 2025-12-03: FALLBACK LOOP - try providers in order until one succeeds
+        const providerErrors: Array<{ provider: string; errorType: string; message: string }> = [];
+
+        for (const currentProvider of sortedProviders) {
+          const providerType = currentProvider.provider_type as ProviderType;
+
+          // Decrypt API key for this provider
+          let apiKey: string;
+          try {
+            if (isLegacyEncryption(currentProvider.api_key_encrypted)) {
+              apiKey = decryptLegacy(currentProvider.api_key_encrypted);
+            } else {
+              apiKey = decrypt(currentProvider.api_key_encrypted);
+            }
+          } catch (decryptError: any) {
+            logProviderAttempt('streaming', providerType, 'failed', 'KEY_DECRYPT_FAILED');
+            providerErrors.push({ provider: providerType, errorType: 'KEY_DECRYPT_FAILED', message: 'Failed to decrypt API key' });
+            continue; // Try next provider
+          }
+
+          logProviderAttempt('streaming', providerType, 'attempting');
+
+          try {
+            // Stream based on provider type (using enrichedContext with visual instructions)
+            if (currentProvider.provider_type === 'openai') {
+              accumulatedResponse = await streamOpenAI(apiKey, message, enrichedContext, currentProvider.model || 'gpt-4o-mini', conversationHistory, controller);
+              textStreamCompleted = true;
+              successfulProvider = providerType;
+              logProviderAttempt('streaming', providerType, 'success');
+              break; // Success! Exit the loop
+            } else if (currentProvider.provider_type === 'anthropic') {
+              accumulatedResponse = await streamAnthropic(apiKey, message, enrichedContext, currentProvider.model || 'claude-3-5-sonnet-20241022', conversationHistory, controller);
+              textStreamCompleted = true;
+              successfulProvider = providerType;
+              logProviderAttempt('streaming', providerType, 'success');
+              break; // Success! Exit the loop
+            } else {
+              // CRITICAL-02 FIX: For Gemini/Grok, use non-streaming fallback
+              const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. ${enrichedContext}.
 
 YOUR CORE VALUES: Partnership over transaction. Professionalism over pressure. Momentum over manipulation. Relationship development over pure follow-up.
 
@@ -547,108 +575,151 @@ FORBIDDEN: Never use money-hungry phrases, hard-selling verbs (push, hammer, pre
 
 Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean text with NO markdown syntax (##, ***, ---). Use plain text for emphasis. Suggest constructive next steps, not demands.`;
 
-            let providerName = 'AI';
-            let responseText = '';
+              let providerName = PROVIDER_NAMES[providerType] || 'AI';
+              let responseText = '';
 
-            if (selectedProvider.provider_type === 'google') {
-              // Gemini non-streaming fallback
-              providerName = 'Gemini';
-              const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedProvider.model || 'gemini-1.5-pro'}:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [
-                    { role: 'user', parts: [{ text: systemPrompt + '\n\nUser: ' + message }] }
-                  ],
-                  generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-                })
-              });
-              if (!geminiResponse.ok) throw new Error(`Gemini API error: ${geminiResponse.status}`);
-              const geminiData = await geminiResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-              responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate response.';
-            } else if (selectedProvider.provider_type === 'xai') {
-              // Grok non-streaming fallback
-              providerName = 'Grok';
-              const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body: JSON.stringify({
-                  model: selectedProvider.model || 'grok-beta',
-                  messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: message }
-                  ],
-                  temperature: 0.7, max_tokens: 500
-                })
-              });
-              // CRITICAL FIX A2: Handle Grok 403 permission errors gracefully
-              if (!grokResponse.ok) {
-                if (grokResponse.status === 403) {
-                  responseText = "I'm unable to connect to Grok right now. This usually means your xAI API key needs credits or permissions. Please check your xAI account at console.x.ai to verify your API key has available credits.";
-                  safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
-                  textStreamCompleted = true;
-                  // Increment usage and close stream gracefully
-                  await supabase.rpc('increment_ai_usage', { org_id: organizationId });
-                  controller.close();
-                  return;
+              if (currentProvider.provider_type === 'google') {
+                // Gemini non-streaming fallback
+                const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentProvider.model || 'gemini-1.5-pro'}:generateContent?key=${apiKey}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [
+                      { role: 'user', parts: [{ text: systemPrompt + '\n\nUser: ' + message }] }
+                    ],
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+                  })
+                });
+                if (!geminiResponse.ok) {
+                  // FIX 2025-12-03: Better error classification for Google
+                  const { errorType } = classifyError({ message: `Gemini API error: ${geminiResponse.status}` }, geminiResponse.status);
+                  throw { message: `Gemini API error: ${geminiResponse.status}`, status: geminiResponse.status, errorType };
                 }
-                throw new Error(`Grok API error: ${grokResponse.status}`);
+                const geminiData = await geminiResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+                responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate response.';
+              } else if (currentProvider.provider_type === 'xai') {
+                // Grok non-streaming fallback
+                const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                  body: JSON.stringify({
+                    model: currentProvider.model || 'grok-beta',
+                    messages: [
+                      { role: 'system', content: systemPrompt },
+                      { role: 'user', content: message }
+                    ],
+                    temperature: 0.7, max_tokens: 500
+                  })
+                });
+                if (!grokResponse.ok) {
+                  // FIX 2025-12-03: Better error classification for XAI
+                  const { errorType } = classifyError({ message: `Grok API error: ${grokResponse.status}` }, grokResponse.status);
+                  throw { message: `Grok API error: ${grokResponse.status}`, status: grokResponse.status, errorType };
+                }
+                const grokData = await grokResponse.json() as { choices?: { message?: { content?: string } }[] };
+                responseText = grokData.choices?.[0]?.message?.content || 'Unable to generate response.';
+              } else {
+                throw new Error(`Unsupported provider type: ${currentProvider.provider_type}`);
               }
-              const grokData = await grokResponse.json() as { choices?: { message?: { content?: string } }[] };
-              responseText = grokData.choices?.[0]?.message?.content || 'Unable to generate response.';
-            } else {
-              throw new Error(`Unsupported provider type: ${selectedProvider.provider_type}`);
+
+              // Send the complete response as a single SSE event
+              safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
+              textStreamCompleted = true;
+              successfulProvider = providerType;
+              accumulatedResponse = responseText;
+              logProviderAttempt('streaming', providerType, 'success');
+              break; // Success! Exit the loop
+            }
+          } catch (providerError: any) {
+            // FIX 2025-12-03: Classify the error and decide whether to fallback
+            const statusCode = providerError?.status || providerError?.statusCode;
+            const { shouldFallback, errorType } = classifyError(providerError, statusCode);
+
+            logProviderAttempt('streaming', providerType, 'failed', errorType);
+            providerErrors.push({
+              provider: providerType,
+              errorType,
+              message: providerError?.message || 'Unknown error'
+            });
+
+            console.log(`[ai-stream-fallback] Provider ${providerType} failed with ${errorType}, trying next...`);
+
+            // If this is a user error (not provider error), don't fallback - fail immediately
+            if (!shouldFallback) {
+              console.log(`[ai-stream-fallback] Not falling back - user error: ${errorType}`);
+              safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: providerError?.message || errorType })}\n\n`));
+              controller.close();
+              return;
             }
 
-            // Send the complete response as a single SSE event
-            safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
-            textStreamCompleted = true;
-            // PHASE 17: Store for structured parsing
-            accumulatedResponse = responseText;
+            // Continue to next provider
           }
-
-          // CHART PARITY: Send chart data as final SSE event AFTER text stream completes
-          // STREAM-02 FIX: Only send chart if text streaming completed successfully
-          if (textStreamCompleted && chartType && deals.length > 0) {
-            try {
-              const chartData = await calculateChartData(chartType, deals, organizationId, supabase);
-              if (chartData && chartData.length > 0) {
-                // Send chart event with type, title, and data
-                safeEnqueue(encoder.encode(`event: chart\ndata: ${JSON.stringify({
-                  chartType,
-                  chartTitle,
-                  chartData
-                })}\n\n`));
-              }
-            } catch (chartError) {
-              console.error('Chart calculation error:', chartError);
-              // Don't fail the stream if chart calculation fails
-            }
-          }
-
-          // PHASE 17: Send structured response for Plan My Day
-          // This provides checklist data for the PlanMyDayChecklist component
-          if (textStreamCompleted && isPlanMyDay && accumulatedResponse) {
-            try {
-              const structuredResponse = buildPlanMyDayResponse(accumulatedResponse, deals);
-              safeEnqueue(encoder.encode(`event: structured\ndata: ${JSON.stringify(structuredResponse)}\n\n`));
-            } catch (structuredError) {
-              console.error('Structured response error:', structuredError);
-              // Don't fail the stream if structured parsing fails
-            }
-          }
-
-          // Increment AI usage after stream completes
-          await supabase.rpc('increment_ai_usage', {
-            org_id: organizationId
-          });
-
-          controller.close();
-        } catch (error: any) {
-          console.error('Streaming error:', error);
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
-          controller.close();
         }
+
+        // FIX 2025-12-03: If ALL providers failed, send error
+        if (!textStreamCompleted) {
+          console.error('[ai-stream-fallback] All providers failed:', providerErrors);
+          const providerNames = providerErrors.map(e => PROVIDER_NAMES[e.provider as ProviderType] || e.provider).join(', ');
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify({
+            error: 'ALL_PROVIDERS_FAILED',
+            message: `All AI providers failed (${providerNames}). Please try again or check your API keys.`,
+            errors: providerErrors
+          })}\n\n`));
+          controller.close();
+          return;
+        }
+
+        // CHART PARITY: Send chart data as final SSE event AFTER text stream completes
+        // STREAM-02 FIX: Only send chart if text streaming completed successfully
+        if (textStreamCompleted && chartType && deals.length > 0) {
+          try {
+            const chartData = await calculateChartData(chartType, deals, organizationId, supabase);
+            if (chartData && chartData.length > 0) {
+              // Send chart event with type, title, and data
+              safeEnqueue(encoder.encode(`event: chart\ndata: ${JSON.stringify({
+                chartType,
+                chartTitle,
+                chartData
+              })}\n\n`));
+            }
+          } catch (chartError) {
+            console.error('Chart calculation error:', chartError);
+            // Don't fail the stream if chart calculation fails
+          }
+        }
+
+        // PHASE 17: Send structured response for Plan My Day
+        // This provides checklist data for the PlanMyDayChecklist component
+        if (textStreamCompleted && isPlanMyDay && accumulatedResponse) {
+          try {
+            const structuredResponse = buildPlanMyDayResponse(accumulatedResponse, deals);
+            safeEnqueue(encoder.encode(`event: structured\ndata: ${JSON.stringify(structuredResponse)}\n\n`));
+          } catch (structuredError) {
+            console.error('Structured response error:', structuredError);
+            // Don't fail the stream if structured parsing fails
+          }
+        }
+
+        // Increment AI usage after stream completes
+        // FIX 2025-12-03: Use direct UPDATE instead of RPC (RPC may not exist in all environments)
+        try {
+          const { error: incrementError } = await supabase
+            .from('organizations')
+            .update({
+              ai_requests_used_this_month: (orgData?.ai_requests_used_this_month || 0) + 1
+            })
+            .eq('id', organizationId);
+
+          if (incrementError) {
+            console.error('[ai-stream] Failed to increment AI usage:', incrementError);
+          } else {
+            console.log('[ai-stream] AI usage incremented for org:', organizationId);
+          }
+        } catch (usageError) {
+          console.error('[ai-stream] Error tracking AI usage:', usageError);
+        }
+
+        controller.close();
       }
     });
 

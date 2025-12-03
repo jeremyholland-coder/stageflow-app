@@ -64,56 +64,111 @@ export interface FallbackResult<T> {
 }
 
 /**
+ * Extract HTTP status code from error message
+ * FIX 2025-12-03: Better status code extraction for Anthropic/Google errors
+ *
+ * Patterns handled:
+ * - "OpenAI API error: 429"
+ * - "Anthropic API error: 401"
+ * - "Gemini API error: 403"
+ * - "Grok API error: 500"
+ * - "Error: 429 Too Many Requests"
+ * - HTTP status code in error.status or error.statusCode
+ */
+function extractStatusCode(error: any, providedStatusCode?: number): number | undefined {
+  // Use provided status code first
+  if (providedStatusCode) return providedStatusCode;
+
+  // Check error object properties
+  if (error?.status) return error.status;
+  if (error?.statusCode) return error.statusCode;
+  if (error?.response?.status) return error.response.status;
+
+  // Extract from error message patterns
+  const message = error?.message || '';
+
+  // Pattern: "API error: 429" or "error: 401"
+  const apiErrorMatch = message.match(/(?:api\s*)?error:\s*(\d{3})/i);
+  if (apiErrorMatch) return parseInt(apiErrorMatch[1], 10);
+
+  // Pattern: "status 429" or "status: 429"
+  const statusMatch = message.match(/status[:\s]+(\d{3})/i);
+  if (statusMatch) return parseInt(statusMatch[1], 10);
+
+  // Pattern: "429 Too Many Requests" or "401 Unauthorized"
+  const httpStatusMatch = message.match(/\b(4\d{2}|5\d{2})\b/);
+  if (httpStatusMatch) return parseInt(httpStatusMatch[1], 10);
+
+  return undefined;
+}
+
+/**
  * Classify an error to determine if fallback should trigger
+ * FIX 2025-12-03: Enhanced error classification for Anthropic & Google
  */
 export function classifyError(error: any, statusCode?: number): { shouldFallback: boolean; errorType: string } {
   const message = error?.message?.toLowerCase() || '';
 
+  // FIX 2025-12-03: Extract status code from error message if not provided
+  const extractedStatusCode = extractStatusCode(error, statusCode);
+
   // Network errors - always fallback
-  if (message.includes('network') || message.includes('fetch') || message.includes('econnrefused')) {
+  if (message.includes('network') || message.includes('fetch') || message.includes('econnrefused') || message.includes('enotfound')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.NETWORK_ERROR };
   }
 
   // Timeout - always fallback
-  if (message.includes('timeout') || message.includes('timed out')) {
+  if (message.includes('timeout') || message.includes('timed out') || message.includes('etimedout')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.TIMEOUT };
   }
 
-  // HTTP status-based classification
-  if (statusCode) {
+  // HTTP status-based classification (now using extracted status code)
+  if (extractedStatusCode) {
     // 5xx server errors - fallback
-    if (statusCode >= 500) {
+    if (extractedStatusCode >= 500) {
       return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.PROVIDER_5XX };
     }
 
     // 429 rate limit - fallback
-    if (statusCode === 429) {
+    if (extractedStatusCode === 429) {
       return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.RATE_LIMIT };
     }
 
     // 401/403 - key issues, skip provider but continue to next
-    if (statusCode === 401 || statusCode === 403) {
+    if (extractedStatusCode === 401 || extractedStatusCode === 403) {
       return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.PERMISSION_DENIED };
     }
 
-    // 400 - usually user input issues, don't fallback
-    if (statusCode === 400) {
-      if (message.includes('too long') || message.includes('token')) {
+    // 400 - usually user input issues, don't fallback (except for some cases)
+    if (extractedStatusCode === 400) {
+      if (message.includes('too long') || message.includes('token') || message.includes('context_length')) {
         return { shouldFallback: false, errorType: NO_FALLBACK_ERRORS.PROMPT_TOO_LONG };
       }
       if (message.includes('content') && message.includes('policy')) {
         return { shouldFallback: false, errorType: NO_FALLBACK_ERRORS.CONTENT_POLICY };
       }
+      // FIX 2025-12-03: For other 400 errors, try fallback (could be provider-specific format issue)
+      return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INTERNAL_ERROR };
     }
   }
 
-  // Provider-specific error patterns
-  if (message.includes('rate limit') || message.includes('quota')) {
+  // Provider-specific error patterns (message-based)
+  if (message.includes('rate limit') || message.includes('quota') || message.includes('too many requests')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.RATE_LIMIT };
   }
 
-  if (message.includes('overloaded') || message.includes('capacity')) {
+  if (message.includes('overloaded') || message.includes('capacity') || message.includes('busy')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.MODEL_OVERLOADED };
+  }
+
+  // FIX 2025-12-03: Anthropic-specific error patterns
+  if (message.includes('invalid x-api-key') || message.includes('invalid api key') || message.includes('authentication')) {
+    return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INVALID_KEY };
+  }
+
+  // FIX 2025-12-03: Google/Gemini-specific error patterns
+  if (message.includes('api key not valid') || message.includes('api_key_invalid')) {
+    return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INVALID_KEY };
   }
 
   if (message.includes('invalid') && message.includes('key')) {
@@ -122,6 +177,15 @@ export function classifyError(error: any, statusCode?: number): { shouldFallback
 
   if (message.includes('decryption') || message.includes('decrypt')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INVALID_KEY };
+  }
+
+  // FIX 2025-12-03: Permission/billing errors
+  if (message.includes('permission denied') || message.includes('forbidden') || message.includes('not authorized')) {
+    return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.PERMISSION_DENIED };
+  }
+
+  if (message.includes('billing') || message.includes('payment') || message.includes('insufficient')) {
+    return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.PERMISSION_DENIED };
   }
 
   // Default: assume it's an infrastructure error, fallback
@@ -291,6 +355,18 @@ export async function runWithFallback<T, P extends { provider_type: string }>(
   // All providers failed
   console.error(`[ai-fallback] All providers failed for ${operation}:`,
     errors.map(e => `${e.provider}: ${e.errorType}`).join(', '));
+
+  // DIAGNOSTIC LOG C: Fallback result summary (no secrets)
+  console.log('[AI][FallbackResult]', {
+    operation,
+    totalProvidersTried: errors.length,
+    triedProviders: errors.map(e => ({
+      providerType: e.provider,
+      errorType: e.errorType,
+      httpStatus: e.statusCode ?? null,
+      errorMessage: e.message?.substring(0, 100) // Truncated, no secrets
+    }))
+  });
 
   return {
     success: false,

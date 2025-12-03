@@ -1161,15 +1161,45 @@ A chart visualization will be displayed alongside your response. Keep your text 
 
 // Route to appropriate AI provider
 async function callAIProvider(provider: any, message: string, context: any, conversationHistory: any[] = [], taskType: TaskType = 'text_analysis'): Promise<any> {
+  // DIAGNOSTIC LOG A: Provider selection metadata (no secrets)
+  const encryptedKey = provider.api_key_encrypted || '';
+  console.log('[AI][ProviderSelect]', {
+    providerType: provider.provider_type,
+    model: provider.model,
+    hasEncryptedKey: !!encryptedKey,
+    encryptedKeyLength: encryptedKey.length,
+    encryptedKeyFormat: encryptedKey.split(':').length === 3 ? 'GCM' :
+                        encryptedKey.split(':').length === 2 ? 'CBC' : 'UNKNOWN'
+  });
+
   // Support both GCM (new) and CBC (legacy) encryption formats
   let apiKey: string;
+  let decryptError: Error | null = null;
   try {
     if (isLegacyEncryption(provider.api_key_encrypted)) {
       apiKey = decryptLegacy(provider.api_key_encrypted);
     } else {
       apiKey = decrypt(provider.api_key_encrypted);
     }
+
+    // DIAGNOSTIC LOG B: Decryption result metadata (no actual key!)
+    console.log('[AI][KeyDecrypt]', {
+      providerType: provider.provider_type,
+      model: provider.model,
+      decryptedKeyLength: apiKey ? apiKey.length : null,
+      decryptedKeyPrefix: apiKey ? apiKey.substring(0, 3) + '***' : null, // Only first 3 chars for format validation
+      decryptError: null
+    });
   } catch (error: any) {
+    decryptError = error;
+    // DIAGNOSTIC LOG B: Decryption failure metadata
+    console.log('[AI][KeyDecrypt]', {
+      providerType: provider.provider_type,
+      model: provider.model,
+      decryptedKeyLength: null,
+      decryptedKeyPrefix: null,
+      decryptError: error?.name || error?.message?.substring(0, 50)
+    });
     console.error('Failed to decrypt API key:', error);
     throw new Error('Invalid API key encryption. Please re-save your AI provider configuration.');
   }
@@ -1497,17 +1527,23 @@ export default async (req: Request, context: any) => {
     const aiResponse = fallbackResult.result;
 
     // CRITICAL: Increment AI usage counter for organization (revenue tracking!)
+    // FIX 2025-12-03: Use direct UPDATE instead of RPC (RPC may not exist in all environments)
     try {
-      const { error: incrementError } = await supabase.rpc('increment_ai_usage', {
-        org_id: organizationId
-      });
+      const { error: incrementError } = await supabase
+        .from('organizations')
+        .update({
+          ai_requests_used_this_month: (orgData?.ai_requests_used_this_month || 0) + 1
+        })
+        .eq('id', organizationId);
 
       if (incrementError) {
-        console.error('Failed to increment AI usage:', incrementError);
+        console.error('[ai-assistant] Failed to increment AI usage:', incrementError);
         // Don't throw - still return AI response, but log the error
+      } else {
+        console.log('[ai-assistant] AI usage incremented for org:', organizationId);
       }
     } catch (error: any) {
-      console.error('Error tracking AI usage:', error);
+      console.error('[ai-assistant] Error tracking AI usage:', error);
       // Continue - don't fail the request if usage tracking fails
     }
 
