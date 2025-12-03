@@ -117,6 +117,9 @@ export class APIClient {
     // With persistSession: false, getSession() returns null unless we refresh from cookies first
     // ensureValidSession() fetches session from auth-session endpoint and sets it in the client
     // CRITICAL HOTFIX: Actually check the result from ensureValidSession and handle failures
+    let sessionValidationFailed = false;
+    let sessionErrorCode = null;
+
     if (includeAuth && !finalHeaders['Authorization']) {
       try {
         // CRITICAL: Must call ensureValidSession() first to populate the client session
@@ -124,8 +127,10 @@ export class APIClient {
         const sessionResult = await ensureValidSession();
 
         // FIX 2025-12-03: Check if session is valid before proceeding
-        // Previously, we ignored the return value and continued without auth
+        // Track session validation status for better error handling downstream
         if (sessionResult && !sessionResult.valid) {
+          sessionValidationFailed = true;
+          sessionErrorCode = sessionResult.code;
           console.warn('[APIClient] Session invalid:', sessionResult.error, sessionResult.code);
           // If session is invalid but not retryable, log warning but continue
           // The request might still work with cookies as fallback
@@ -152,6 +157,8 @@ export class APIClient {
         }
       } catch (authError) {
         // Log but don't fail - cookies might still work as fallback
+        sessionValidationFailed = true;
+        sessionErrorCode = 'SESSION_ERROR';
         console.warn('[APIClient] Failed to get session for Authorization header:', authError.message);
       }
     }
@@ -163,6 +170,9 @@ export class APIClient {
       signal: signal || controller.signal,
       _timeoutId: timeoutId, // Store for cleanup
       _controller: controller,
+      // FIX 2025-12-03: Track session validation status for better error handling
+      _sessionValidationFailed: sessionValidationFailed,
+      _sessionErrorCode: sessionErrorCode,
     };
   }
 
@@ -193,8 +203,15 @@ export class APIClient {
   async _executeRequest(url, options = {}) {
     const requestOptions = await this.prepareRequest(options);
 
-    // Extract cleanup items
-    const { _timeoutId, _controller, ...fetchOptions } = requestOptions;
+    // Extract cleanup items and session validation status
+    // FIX 2025-12-03: Extract session validation flags for better error handling
+    const {
+      _timeoutId,
+      _controller,
+      _sessionValidationFailed,
+      _sessionErrorCode,
+      ...fetchOptions
+    } = requestOptions;
 
     // NEXT-LEVEL: Use network-aware retry configuration
     // Automatically adjusts retry counts and delays based on connection quality
@@ -254,6 +271,14 @@ export class APIClient {
 
       // Parse and enhance error
       const enhancedError = this.parseError(error, url);
+
+      // FIX 2025-12-03: If session validation failed and we got an auth error, provide clearer error code
+      // This helps the frontend distinguish "session expired" from "invalid credentials"
+      if (_sessionValidationFailed && (enhancedError.status === 401 || enhancedError.status === 403)) {
+        enhancedError.code = _sessionErrorCode || 'SESSION_ERROR';
+        enhancedError.userMessage = 'Your session has expired. Please sign in again.';
+        console.warn('[APIClient] Auth error with known session validation failure - marked as SESSION_ERROR');
+      }
 
       // Log error
       console.error(`[APIClient] Request failed for ${url}:`, enhancedError);

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, AlertCircle, Check, ChevronDown } from 'lucide-react';
 import { findOrphanedDeals } from '../utils/dealRecovery';
-import { supabase } from '../lib/supabase';
 import { getStatusForStage } from '../config/pipelineTemplates';
+// FIX 2025-12-03: Use api-client for proper Authorization header injection
+import { api } from '../lib/api-client';
 
 export const OrphanedDealsModal = ({
   isOpen,
@@ -52,34 +53,31 @@ export const OrphanedDealsModal = ({
   // PHASE 14 FIX: Use backend endpoint instead of direct Supabase
   // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
   // RLS policies deny all client-side mutations. Use backend with service role.
+  // FIX 2025-12-03: Use api.post for proper Authorization header injection
   const handleRecoverAll = async () => {
     setRecovering(true);
     try {
-      // Update each deal via the backend endpoint
+      // Update each deal via the backend endpoint using api-client
       const updates = orphanedDeals.map(async (deal) => {
         const newStage = selectedStages[deal.id];
         const newStatus = getStatusForStage(newStage);
 
-        const response = await fetch('/.netlify/functions/update-deal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // Include HttpOnly cookies
-          body: JSON.stringify({
-            dealId: deal.id,
-            organizationId: organization.id,
-            updates: {
-              stage: newStage,
-              status: newStatus // Set correct status based on stage
-            }
-          })
+        // FIX 2025-12-03: Use api.post instead of direct fetch
+        // api-client calls ensureValidSession() and injects Authorization header
+        const { data: result } = await api.post('update-deal', {
+          dealId: deal.id,
+          organizationId: organization.id,
+          updates: {
+            stage: newStage,
+            status: newStatus // Set correct status based on stage
+          }
         });
 
-        if (!response.ok) {
-          const result = await response.json();
+        if (!result.success && result.error) {
           throw new Error(result.error || `Failed to update deal ${deal.id}`);
         }
 
-        return response.json();
+        return result;
       });
 
       await Promise.all(updates);

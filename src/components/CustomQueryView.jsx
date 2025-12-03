@@ -357,7 +357,8 @@ export const CustomQueryView = ({
   }, [localIsOnline, isOnlineProp]);
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic
-  const { hasProvider: hasProviders } = useAIProviderStatus(user, organization);
+  // FIX 2025-12-03: Also destructure authError to distinguish auth failures from "no provider"
+  const { hasProvider: hasProviders, authError: aiAuthError } = useAIProviderStatus(user, organization);
   // APMDOS: Determine hasAIProvider - use prop if provided, otherwise use hook result
   const hasAIProvider = hasAIProviderProp !== undefined ? hasAIProviderProp : hasProviders;
 
@@ -1357,8 +1358,25 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         </div>
       )}
 
-      {/* No Providers Warning */}
-      {!hasProviders && isOnline && (
+      {/* FIX 2025-12-03: Auth Error Warning - show session expired message, NOT "no provider" */}
+      {aiAuthError && isOnline && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-lg">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-rose-800 dark:text-rose-300 mb-1">
+                Session Expired
+              </p>
+              <p className="text-sm text-rose-700 dark:text-rose-400 mb-3">
+                Your session has expired. Please sign out and sign back in to use AI features.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* No Providers Warning - only show if NO auth error (auth errors handled above) */}
+      {!hasProviders && !aiAuthError && isOnline && (
         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <div className="flex items-start gap-3">
             <Settings className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
