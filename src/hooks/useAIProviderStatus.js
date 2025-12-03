@@ -37,6 +37,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
   const [hasProvider, setHasProvider] = useState(false);
   const [checking, setChecking] = useState(true);
+  // FIX 2025-12-03: Track auth errors separately from "no provider" state
+  const [authError, setAuthError] = useState(false);
 
   // NEXT-LEVEL: Memoize check function to prevent unnecessary re-runs
   const checkAIProviders = useCallback(async (abortSignal) => {
@@ -88,6 +90,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
       if (!response.ok) {
         // HOTFIX 2025-12-02: Handle auth errors - preserve cache, don't trigger AI outage banner
         // Auth errors (401/403) are session issues, NOT "no AI providers" issues
+        // FIX 2025-12-03: Also set authError flag so Dashboard can show correct message
         if (response.status === 401 || response.status === 403) {
           console.debug('[useAIProviderStatus] Auth error (session issue), preserving cache');
           const cachedData = localStorage.getItem(cacheKey);
@@ -100,7 +103,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
               // This prevents showing "no provider" banner for auth issues
             }
           }
-          // Important: Still set checking=false so UI doesn't show loading forever
+          // FIX 2025-12-03: Mark this as auth error, not "no provider" state
+          setAuthError(true);
           setChecking(false);
           return;
         }
@@ -110,6 +114,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
       const result = await response.json();
       const hasProviderValue = result.providers && result.providers.length > 0;
       setHasProvider(hasProviderValue);
+      // FIX 2025-12-03: Clear auth error on successful fetch
+      setAuthError(false);
       localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: hasProviderValue, timestamp: Date.now() }));
 
     } catch (err) {
@@ -327,6 +333,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
   return {
     hasProvider,
     checking,
-    refresh
+    refresh,
+    // FIX 2025-12-03: Expose auth error state for Dashboard to show correct message
+    authError
   };
 }

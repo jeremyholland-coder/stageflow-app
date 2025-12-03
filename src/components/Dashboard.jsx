@@ -173,7 +173,8 @@ export const Dashboard = () => {
   const { handleError } = useErrorHandler(addNotification);
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic (eliminates 50KB of duplicate code)
-  const { hasProvider: hasAIProvider, checking: checkingAI, refresh: refreshAIProviders } = useAIProviderStatus(user, organization);
+  // FIX 2025-12-03: Also destructure authError to distinguish auth failures from "no provider"
+  const { hasProvider: hasAIProvider, checking: checkingAI, refresh: refreshAIProviders, authError: aiAuthError } = useAIProviderStatus(user, organization);
 
   // NEXT-LEVEL: Use shared pipeline hook (eliminates 86 lines of duplicate code)
   const {
@@ -526,9 +527,11 @@ export const Dashboard = () => {
   // CRITICAL FIX: Move cardContext useMemo to TOP LEVEL to fix React error #310
   // Cannot call hooks inside conditional or IIFE - must be at component top level
   // This fixes "Rendered more hooks than during the previous render" error
+  // FIX 2025-12-03: Include aiAuthError for dashboard cards to use
   const cardContext = useMemo(() => ({
     hasAIProvider,
     checkingAI,
+    aiAuthError,
     deals,
     currentUser: user,
     organization,
@@ -541,7 +544,7 @@ export const Dashboard = () => {
       const dismissKey = `health_dismissed_${organization.id}`;
       localStorage.setItem(dismissKey, 'true');
     }
-  }), [hasAIProvider, checkingAI, deals, user, organization, pipelineStages, healthAlert, orphanedDealIds]);
+  }), [hasAIProvider, checkingAI, aiAuthError, deals, user, organization, pipelineStages, healthAlert, orphanedDealIds]);
 
   // FIX v1.7.62 (#4): Prevent empty state flash before skeleton (HIGH)
   // Show skeleton while ANY critical data is loading: org, deals, or pipeline stages
@@ -634,8 +637,9 @@ export const Dashboard = () => {
 
             {/* PHASE W4: WelcomeBlock for new users (no AI, no deals, not dismissed) */}
             {/* PHASE D4 FIX: Wrap in ChartErrorBoundary + null-safe deals check to prevent dashboard crash */}
+            {/* FIX 2025-12-03: Don't show WelcomeBlock during auth errors - hasAIProvider=false may be due to auth, not missing provider */}
             <ChartErrorBoundary chartName="Welcome">
-              {!hasAIProvider && (!deals || deals.length === 0) && !welcomeDismissed && (
+              {!hasAIProvider && !aiAuthError && (!deals || deals.length === 0) && !welcomeDismissed && (
                 <WelcomeBlock
                   onConnectAI={handleConnectAI}
                   onCreateDeal={handleNewDealClick}

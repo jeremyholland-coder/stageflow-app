@@ -37,7 +37,7 @@ export interface CookieOptions {
 const DEFAULT_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: true, // HTTPS only
-  sameSite: 'Strict', // Prevent CSRF
+  sameSite: 'Lax', // FIX 2025-12-03: Changed from Strict to allow cross-site navigation cookies to Netlify Functions
   maxAge: 3600, // 1 hour
   path: '/'
 };

@@ -3,6 +3,7 @@ import { withTimeout, TIMEOUTS, TimeoutError } from './lib/timeout-wrapper';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+import { parseCookies, COOKIE_NAMES } from './lib/cookie-auth';
 import {
   detectChartType,
   calculateChartData,
@@ -336,12 +337,31 @@ export default async (req: Request, context: any) => {
       }
     } else {
       // LEGACY AUTH PATH: Inline auth check (will be removed after migration)
+      // FIX 2025-12-03: Accept both Authorization header AND HttpOnly cookies
       const authHeader = req.headers.get('authorization');
-      const token = authHeader?.replace('Bearer ', '');
+      let token = authHeader?.replace('Bearer ', '').trim() || '';
+
+      // FIX 2025-12-03: Fallback to cookies if no Authorization header
+      if (!token) {
+        const cookieHeader = req.headers.get('cookie') || '';
+        const cookies = parseCookies(cookieHeader);
+        const cookieToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
+        if (cookieToken) {
+          token = cookieToken;
+        }
+      }
+
+      if (!token) {
+        return new Response(JSON.stringify({ error: 'Not authenticated', code: 'NO_SESSION' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
 
       if (authError || !authUser) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        return new Response(JSON.stringify({ error: 'Session expired or invalid', code: 'SESSION_EXPIRED' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' }
         });
