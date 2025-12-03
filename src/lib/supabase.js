@@ -214,6 +214,81 @@ export const withAuth = async (operation) => {
 };
 
 /**
+ * FIX 2025-12-03: Bootstrap session on app initialization
+ *
+ * Call this ONCE when the app loads to ensure the Supabase client has a valid
+ * session from cookies. This prevents the catch-22 where:
+ * - No session in memory after page refresh
+ * - ensureValidSession tries to call auth-session
+ * - auth-session needs cookies OR Authorization header
+ * - Neither exists → 401
+ *
+ * @returns {Promise<boolean>} true if session was bootstrapped successfully
+ */
+let _bootstrapPromise = null;
+let _isBootstrapped = false;
+
+export const bootstrapSession = async () => {
+  // Only bootstrap once
+  if (_isBootstrapped) {
+    return true;
+  }
+
+  // Prevent concurrent bootstrap attempts
+  if (_bootstrapPromise) {
+    return _bootstrapPromise;
+  }
+
+  _bootstrapPromise = (async () => {
+    try {
+      console.log('[Session] Bootstrapping session from cookies...');
+
+      // Check if we already have a session
+      const { data: { session: existingSession } } = await supabase.auth.getSession();
+      if (existingSession?.access_token) {
+        console.log('[Session] ✓ Session already exists in memory');
+        _isBootstrapped = true;
+        return true;
+      }
+
+      // Try to get session from auth-session endpoint (uses cookies)
+      const response = await fetch('/.netlify/functions/auth-session', {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+
+      if (!response.ok) {
+        console.warn('[Session] Bootstrap failed - no valid session:', response.status);
+        // Not an error - user just isn't logged in
+        return false;
+      }
+
+      const data = await response.json();
+
+      if (data.session?.access_token) {
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token
+        });
+        console.log('[Session] ✓ Session bootstrapped from cookies');
+        _isBootstrapped = true;
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.warn('[Session] Bootstrap error:', error.message);
+      return false;
+    } finally {
+      _bootstrapPromise = null;
+    }
+  })();
+
+  return _bootstrapPromise;
+};
+
+/**
  * FIX 2025-12-03: Ensure valid session before RLS-protected queries
  *
  * The client has persistSession: false, so it relies on setSession() being called.

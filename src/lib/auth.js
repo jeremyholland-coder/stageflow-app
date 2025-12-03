@@ -22,6 +22,11 @@
  * @param {string} password - User password
  * @returns {Promise<{user: Object, session: Object}>}
  * @throws {Error} If login fails
+ *
+ * FIX 2025-12-03: Now calls setSession() after login to store tokens in memory.
+ * This matches the OAuth flow (AuthCallback.jsx) and ensures the Supabase client
+ * has a valid session for subsequent API calls. Without this, getSession() returns
+ * null and the Authorization header fallback can't work.
  */
 export async function login(email, password) {
   try {
@@ -38,6 +43,21 @@ export async function login(email, password) {
 
     if (!response.ok) {
       throw new Error(data.error || data.message || 'Login failed');
+    }
+
+    // FIX 2025-12-03: Set session in Supabase client memory
+    // This is CRITICAL for subsequent API calls. The OAuth flow (AuthCallback.jsx)
+    // does this, but email login was missing it. Without this:
+    // - getSession() returns null (persistSession: false)
+    // - No Authorization header can be sent as fallback
+    // - If cookies don't reach the server, all auth fails
+    if (data.session?.access_token && data.session?.refresh_token) {
+      const { supabase } = await import('./supabase.js');
+      await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      });
+      console.log('[Auth] Session set in Supabase client after login');
     }
 
     return data;

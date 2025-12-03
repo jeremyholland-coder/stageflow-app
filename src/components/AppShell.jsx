@@ -676,10 +676,29 @@ export const AppProvider = ({ children }) => {
 
         // SECURITY: Backend-only session check from HttpOnly cookies
         // FIX 2025-12-02: Add single retry for token rotation race condition
+        // FIX 2025-12-03: Also send Authorization header as fallback
         const fetchAuthSession = async (attempt = 1) => {
+          // FIX 2025-12-03: Build headers with Authorization fallback
+          // If there's a token in memory from a previous session (browser kept tab open),
+          // send it as fallback in case cookies don't reach the server
+          const headers = {
+            'Cache-Control': 'no-cache'
+          };
+
+          try {
+            const { data: { session: existingSession } } = await supabase.auth.getSession();
+            if (existingSession?.access_token) {
+              headers['Authorization'] = `Bearer ${existingSession.access_token}`;
+              console.log('[auth-session] Including Authorization header as cookie fallback');
+            }
+          } catch (e) {
+            // Ignore - proceed with just cookies
+          }
+
           const sessionPromise = fetch('/.netlify/functions/auth-session', {
             method: 'GET',
-            credentials: 'include' // Send HttpOnly cookies
+            credentials: 'include', // Send HttpOnly cookies
+            headers
           });
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Auth session check timed out')), AUTH_TIMEOUT)

@@ -32,6 +32,31 @@ export interface CookieOptions {
 }
 
 /**
+ * Get cookie domain based on environment
+ *
+ * FIX 2025-12-03: Added domain attribute to ensure cookies work across subdomains.
+ * Without domain, cookies are set for the exact host only, which can cause issues
+ * when subdomains are involved (auth.startupstage.com vs stageflow.startupstage.com).
+ *
+ * NOTE: Domain is only set in production. For localhost, omit domain to use default behavior.
+ */
+function getCookieDomain(): string | undefined {
+  // Check for production domain
+  const isProd = process.env.NODE_ENV === 'production' ||
+    process.env.NETLIFY === 'true' ||
+    process.env.URL?.includes('startupstage.com');
+
+  if (isProd) {
+    // Use parent domain to allow cookies across all subdomains
+    // e.g., auth.startupstage.com, stageflow.startupstage.com, etc.
+    return '.startupstage.com';
+  }
+
+  // For localhost/dev, don't set domain (uses default behavior)
+  return undefined;
+}
+
+/**
  * Default cookie options for production
  */
 const DEFAULT_COOKIE_OPTIONS: CookieOptions = {
@@ -39,7 +64,8 @@ const DEFAULT_COOKIE_OPTIONS: CookieOptions = {
   secure: true, // HTTPS only
   sameSite: 'Lax', // FIX 2025-12-03: Changed from Strict to allow cross-site navigation cookies to Netlify Functions
   maxAge: 3600, // 1 hour
-  path: '/'
+  path: '/',
+  domain: getCookieDomain() // FIX 2025-12-03: Ensure cookies work across subdomains
 };
 
 /**
