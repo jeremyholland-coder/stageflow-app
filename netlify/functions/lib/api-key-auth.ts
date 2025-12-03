@@ -174,7 +174,8 @@ export async function requireApiKey(req: Request): Promise<ApiKeyContext> {
   const keyHash = hashApiKey(apiKey);
 
   // Get Supabase configuration
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  // CRITICAL: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -310,7 +311,8 @@ export async function authenticateRequest(req: Request): Promise<{
   const user = await requireAuth(req);
 
   // Get organization from team_members
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  // CRITICAL: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
 

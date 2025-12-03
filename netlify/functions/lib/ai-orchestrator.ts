@@ -13,7 +13,6 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './encryption';
-import { withTimeout, TIMEOUTS } from './timeout-wrapper';
 
 // Provider types supported by StageFlow
 export type ProviderType = 'openai' | 'anthropic' | 'google' | 'xai';
@@ -78,11 +77,17 @@ export class AllConnectedProvidersFailedError extends Error {
 }
 
 // Create Supabase client (service role for backend operations)
+// CRITICAL: Backend MUST use SUPABASE_URL, NOT VITE_SUPABASE_URL
+// VITE_* vars are for frontend only and may not exist in Netlify Functions
 function getSupabaseClient(): SupabaseClient {
-  return createClient(
-    process.env.VITE_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('[AI Orchestrator] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
 }
 
 /**

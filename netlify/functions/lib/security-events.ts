@@ -89,7 +89,8 @@ export interface LogResult {
  * Required for inserting into security_events table
  */
 function getSupabaseClient(): SupabaseClient {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  // CRITICAL: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {

@@ -104,18 +104,11 @@ export function validateSupabaseConfig(): ValidationResult {
   
   // Return validation result
   const valid = errors.length === 0;
-  
-  if (!valid && process.env.NODE_ENV === 'production') {
-    // In production, throw on validation failure
-    const errorMessage = [
-      '❌ Database configuration validation failed:',
-      ...errors.map((e: any) => `  - ${e}`),
-      '',
-      'Please verify environment variables in Netlify dashboard.',
-    ].join('\n');
-    
-    console.error(errorMessage);
-    throw new Error('Database configuration invalid - see logs for details');
+
+  // CRITICAL: NEVER throw - just log errors
+  // Throwing here breaks ALL Netlify functions
+  if (!valid) {
+    console.error('[validate-config] Configuration issues detected:', errors);
   }
   
   // Log warnings
@@ -158,16 +151,12 @@ export function getSupabaseConfig(): SupabaseConfig {
 }
 
 /**
- * Validate config at module load time in production
- * Fails fast if configuration is wrong
+ * Validate config at module load time
+ * Logs errors but NEVER throws - individual functions handle missing config
  */
-if (process.env.NODE_ENV === 'production') {
-  try {
-    validateSupabaseConfig();
-  } catch (error: any) {
-    console.error('🚨 FATAL: Database configuration validation failed at startup');
-    console.error(error);
-    // Don't throw here - let individual functions handle it
-    // This allows the function to deploy and log errors
-  }
+try {
+  validateSupabaseConfig();
+} catch (error: any) {
+  // This should never happen now, but just in case
+  console.error('[validate-config] Unexpected validation error:', error.message);
 }

@@ -127,26 +127,38 @@ export class ConfigValidator {
   }
 
   /**
-   * Run validation and throw if critical errors found
+   * Run validation - DEV ONLY warnings, NEVER blocks production
+   *
+   * CRITICAL: This must NEVER throw or block app boot in production.
+   * Missing VITE_ vars in production = silent console error only.
+   * Only developers need to see these warnings.
    */
   validateOrThrow() {
     const result = this.validateSupabaseConfig();
-    
+    const isDev = import.meta.env.DEV;
+
     if (!result.isValid) {
-      const errorMsg = [
-        '❌ DATABASE CONFIGURATION ERROR',
-        '',
-        'Critical database configuration issues detected:',
-        ...result.errors.map(e => `  • ${e}`),
-        '',
-        'The application cannot start until these are resolved.',
-        'Please check your .env.local file and Netlify environment variables.'
-      ].join('\n');
-      
-      throw new Error(errorMsg);
+      // ALWAYS log to console for debugging
+      console.error('[Config] VITE_ environment variable issues:', result.errors);
+
+      // DEV ONLY: Show visible warning to developer
+      if (isDev) {
+        console.error(
+          '%c⚠️ VITE_ ENV VARS MISSING',
+          'background: #e74c3c; color: white; padding: 4px 8px; font-weight: bold;',
+          '\n\nMissing:', result.errors.join(', '),
+          '\n\nCheck your .env.local file has:',
+          '\n  VITE_SUPABASE_URL=https://xxx.supabase.co',
+          '\n  VITE_SUPABASE_ANON_KEY=eyJ...'
+        );
+      }
+
+      // NEVER throw in production - let the app try to boot
+      // The supabase.js Proxy will handle missing client gracefully
+      return result;
     }
 
-    if (result.warnings.length > 0) {
+    if (result.warnings.length > 0 && isDev) {
       console.warn('⚠️ Configuration Warnings:');
       result.warnings.forEach(w => console.warn(`  • ${w}`));
     }
@@ -194,48 +206,57 @@ const validator = new ConfigValidator();
 // Don't run validation at module load time - call initValidator() from App.jsx instead
 let validationInitialized = false;
 
+/**
+ * Initialize config validation
+ *
+ * CRITICAL RULES:
+ * 1. NEVER block app boot in production
+ * 2. NEVER show error UI to end users
+ * 3. DEV ONLY: Show console warnings for developers
+ * 4. Always fail gracefully - let supabase.js handle missing config
+ */
 export function initValidator() {
   if (validationInitialized) return;
   validationInitialized = true;
 
   if (typeof window !== 'undefined') {
-    try {
-      validator.validateOrThrow();
-    } catch (error) {
-      console.error(error.message);
-      // Show error to user
-      if (document.body) {
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = `
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: #1a1a1a;
-          color: #fff;
-          padding: 40px;
-          font-family: monospace;
-          z-index: 99999;
-          overflow: auto;
-        `;
-        // SECURITY FIX: Use textContent to prevent XSS
-        const heading = document.createElement('h1');
-        heading.style.color = '#e74c3c';
-        heading.textContent = '⚠️ Configuration Error';
+    const isDev = import.meta.env.DEV;
 
-        const pre = document.createElement('pre');
-        pre.style.background = '#2a2a2a';
-        pre.style.padding = '20px';
-        pre.style.borderRadius = '8px';
-        pre.textContent = error.message; // Safe - no HTML injection
+    // Run validation (no longer throws)
+    const result = validator.validateOrThrow();
 
-        const para = document.createElement('p');
-        para.textContent = 'Please contact your system administrator.';
+    // DEV ONLY: Show visible indicator for missing VITE_ vars
+    if (!result.isValid && isDev && document.body) {
+      // Small, non-blocking dev indicator in corner
+      const indicator = document.createElement('div');
+      indicator.style.cssText = `
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background: #e74c3c;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        z-index: 99999;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      `;
+      indicator.textContent = '⚠️ VITE_ env vars missing - check console';
+      indicator.title = result.errors.join('\n');
+      indicator.onclick = () => {
+        console.error('[Config] Missing VITE_ vars:', result.errors);
+        indicator.remove();
+      };
+      document.body.appendChild(indicator);
 
-        errorDiv.appendChild(heading);
-        errorDiv.appendChild(pre);
-        errorDiv.appendChild(para);
-        document.body.appendChild(errorDiv);
-      }
+      // Auto-remove after 10 seconds
+      setTimeout(() => indicator.remove(), 10000);
     }
+
+    // PRODUCTION: Silent console error only - NEVER block UI
+    // The supabase.js Proxy handles missing client gracefully
   }
 }
 

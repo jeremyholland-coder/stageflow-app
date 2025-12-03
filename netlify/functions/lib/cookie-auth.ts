@@ -206,8 +206,10 @@ export function getSessionFromCookies(request: Request): {
  * @returns Supabase client configured with cookie session
  */
 export function createSupabaseCookieClient(request: Request): SupabaseClient {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  // CRITICAL: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+  // VITE_* vars are for frontend only and may not exist in Netlify Functions
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase configuration');
@@ -276,8 +278,9 @@ export async function validateCookieSession(request: Request): Promise<{
   session: any;
   needsRefresh: boolean;
 } | null> {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  // CRITICAL: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase configuration');
