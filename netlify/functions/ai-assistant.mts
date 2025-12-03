@@ -1202,11 +1202,32 @@ async function callAIProvider(provider: any, message: string, context: any, conv
 }
 
 export default async (req: Request, context: any) => {
+  // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const origin = req.headers.get('origin') || '';
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
+
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  };
+
+  // Handle preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   // Only allow POST
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }
 
@@ -1217,7 +1238,7 @@ export default async (req: Request, context: any) => {
     if (!message) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1233,7 +1254,7 @@ export default async (req: Request, context: any) => {
         suggestions: []
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1244,7 +1265,7 @@ export default async (req: Request, context: any) => {
         response: 'Unable to process your request due to invalid data. Please try again.'
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1281,7 +1302,7 @@ export default async (req: Request, context: any) => {
           console.error('[ai-assistant] No membership found for user:', user.id);
           return new Response(JSON.stringify({ error: 'No organization found' }), {
             status: 404,
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json', ...corsHeaders }
           });
         }
 
@@ -1305,7 +1326,7 @@ export default async (req: Request, context: any) => {
       if (authError || !authUser) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -1322,7 +1343,7 @@ export default async (req: Request, context: any) => {
       if (!membership) {
         return new Response(JSON.stringify({ error: 'No organization found' }), {
           status: 404,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -1363,7 +1384,7 @@ export default async (req: Request, context: any) => {
           suggestions: []
         }), {
           status: 429, // Too Many Requests
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
     }
@@ -1398,7 +1419,7 @@ export default async (req: Request, context: any) => {
         suggestions: []
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1587,7 +1608,7 @@ export default async (req: Request, context: any) => {
 
     return new Response(JSON.stringify(responseData), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
 
   } catch (error: any) {
@@ -1611,7 +1632,7 @@ export default async (req: Request, context: any) => {
         suggestions: ['Check your AI provider API keys in Settings', 'Try again in a few moments']
       }), {
         status: 503, // Service Unavailable
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1623,7 +1644,7 @@ export default async (req: Request, context: any) => {
         suggestions: ['Sign out and sign back in', 'Clear your browser cache if the issue persists']
       }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -1633,7 +1654,7 @@ export default async (req: Request, context: any) => {
       suggestions: []
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }
 };

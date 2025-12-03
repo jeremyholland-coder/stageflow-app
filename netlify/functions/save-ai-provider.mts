@@ -125,7 +125,9 @@ export default async (req: Request, context: Context) => {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true'
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   };
 
   if (req.method === 'OPTIONS') {

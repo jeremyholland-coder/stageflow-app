@@ -280,10 +280,31 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 }
 
 export default async (req: Request, context: any) => {
+  // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const origin = req.headers.get('origin') || '';
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
+
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  };
+
+  // Handle preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }
 
@@ -294,7 +315,7 @@ export default async (req: Request, context: any) => {
     if (!message) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -327,7 +348,7 @@ export default async (req: Request, context: any) => {
         if (!membership) {
           return new Response(JSON.stringify({ error: 'No organization found' }), {
             status: 404,
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json', ...corsHeaders }
           });
         }
 
@@ -354,7 +375,7 @@ export default async (req: Request, context: any) => {
       if (!token) {
         return new Response(JSON.stringify({ error: 'Not authenticated', code: 'NO_SESSION' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -363,7 +384,7 @@ export default async (req: Request, context: any) => {
       if (authError || !authUser) {
         return new Response(JSON.stringify({ error: 'Session expired or invalid', code: 'SESSION_EXPIRED' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -380,7 +401,7 @@ export default async (req: Request, context: any) => {
       if (!membership) {
         return new Response(JSON.stringify({ error: 'No organization found' }), {
           status: 404,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -411,7 +432,7 @@ export default async (req: Request, context: any) => {
           used, limit
         }), {
           status: 429,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
     }
@@ -449,7 +470,7 @@ export default async (req: Request, context: any) => {
         message: 'No AI provider configured. Please connect an AI provider in Settings.'
       }), {
         status: 422,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -635,7 +656,8 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
+        'Connection': 'keep-alive',
+        ...corsHeaders
       }
     });
 
@@ -665,7 +687,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       message: errorMessage
     }), {
       status: status,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }
 };

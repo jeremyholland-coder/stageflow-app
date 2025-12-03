@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, ensureValidSession } from '../lib/supabase';
 
 /**
  * NEXT-LEVEL OPTIMIZATION: Shared AI Provider Status Hook
@@ -75,10 +75,21 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // PHASE 8 CRITICAL FIX: Use backend endpoint instead of direct Supabase query
       // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
       // RLS policies block direct client queries. Backend uses service role.
+
+      // H2 FIX 2025-12-03: Inject Authorization header for reliable auth
+      // ensureValidSession() fetches session from cookies and sets it in Supabase client
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/get-ai-providers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Send HttpOnly cookies for auth
+        headers,
+        credentials: 'include', // Keep cookies as fallback
         body: JSON.stringify({
           organization_id: organization.id
         })

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Send, Sparkles, Loader2, MessageSquare, Settings, ExternalLink, RotateCcw, AlertCircle, TrendingUp, Target, BarChart3, AlertTriangle, Users, DollarSign, CheckCircle, Percent, Clock, Award, WifiOff, History, Zap, LineChart, Info } from 'lucide-react';
 import { useApp } from './AppShell';
-import { supabase } from '../lib/supabase';
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { DealAnalyticsChartLazy as DealAnalyticsChart } from './DealAnalyticsChartLazy';
 import { renderMarkdown } from '../lib/format-ai-response.jsx';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook
@@ -533,12 +533,19 @@ export const CustomQueryView = ({
       // PHASE 5.3: Collect and send AI signals with request
       const aiSignals = consumePendingSignals();
 
+      // H3 FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: streamSession } } = await supabase.auth.getSession();
+
+      const streamHeaders = { 'Content-Type': 'application/json' };
+      if (streamSession?.access_token) {
+        streamHeaders['Authorization'] = `Bearer ${streamSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/ai-assistant-stream', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include', // Use HttpOnly cookies for auth
+        headers: streamHeaders,
+        credentials: 'include', // Keep cookies as fallback
         body: JSON.stringify({
           message: currentQuery,
           // PERF FIX P16-1: Project deals to minimal fields (80% smaller payload)
@@ -849,13 +856,20 @@ export const CustomQueryView = ({
       // PHASE 5.3: Collect and send AI signals with request
       const aiSignals = consumePendingSignals();
 
+      // H3 FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: nonStreamSession } } = await supabase.auth.getSession();
+
+      const nonStreamHeaders = { 'Content-Type': 'application/json' };
+      if (nonStreamSession?.access_token) {
+        nonStreamHeaders['Authorization'] = `Bearer ${nonStreamSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/ai-assistant', {
         method: 'POST',
         signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include', // Use HttpOnly cookies for auth
+        headers: nonStreamHeaders,
+        credentials: 'include', // Keep cookies as fallback
         body: JSON.stringify({
           message: currentQuery,
           // PERF FIX P16-1: Project deals to minimal fields (80% smaller payload)

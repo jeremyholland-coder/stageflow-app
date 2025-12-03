@@ -166,8 +166,30 @@ async function callProvider(provider: ConnectedProvider, apiKey: string, prompt:
 }
 
 export const handler: Handler = async (event) => {
+  // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
+  const allowedOrigins = [
+    'https://stageflow.startupstage.com',
+    'http://localhost:8888',
+    'http://localhost:5173'
+  ];
+  const origin = event.headers.origin || '';
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
+
+  const corsHeaders = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  };
+
+  // Handle preflight OPTIONS request
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
+
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
   try {
@@ -176,6 +198,7 @@ export const handler: Handler = async (event) => {
     if (!authHeader) {
       return {
         statusCode: 401,
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'Authentication required' })
       };
     }
@@ -191,6 +214,7 @@ export const handler: Handler = async (event) => {
       const errorResponse = createAuthErrorResponse(authError);
       return {
         statusCode: errorResponse.status,
+        headers: corsHeaders,
         body: await errorResponse.text()
       };
     }
@@ -205,6 +229,7 @@ export const handler: Handler = async (event) => {
     if (memberError || !membership) {
       return {
         statusCode: 404,
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'No organization found' })
       };
     }
@@ -217,6 +242,7 @@ export const handler: Handler = async (event) => {
     if (!dealData) {
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'Deal data is required' })
       };
     }
@@ -242,6 +268,7 @@ export const handler: Handler = async (event) => {
     if (!result.success || !result.result) {
       return {
         statusCode: 503,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'AI_FAILED',
           insight: 'Unable to generate insight. Please try again.',
@@ -252,6 +279,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
+      headers: corsHeaders,
       body: JSON.stringify({
         insight: result.result,
         action,
@@ -267,6 +295,7 @@ export const handler: Handler = async (event) => {
     if (error instanceof NoProvidersConnectedError) {
       return {
         statusCode: 200, // Return 200 so frontend shows the message nicely
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'NO_PROVIDERS_CONNECTED',
           insight: error.message
@@ -277,6 +306,7 @@ export const handler: Handler = async (event) => {
     if (error instanceof AllConnectedProvidersFailedError) {
       return {
         statusCode: 503,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: 'ALL_PROVIDERS_FAILED',
           insight: error.message,
@@ -287,6 +317,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 500,
+      headers: corsHeaders,
       body: JSON.stringify({
         error: 'AI insight failed',
         details: error.message
