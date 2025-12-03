@@ -3,7 +3,8 @@ import {
   Laptop, Briefcase, Home, Activity, Target, Zap,
   CheckCircle, ArrowRight, Sparkles, AlertCircle
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from '../lib/supabase';
 
 /**
  * IndustrySelector Component
@@ -126,9 +127,18 @@ export const IndustrySelector = ({ organizationId, onComplete, onSkip, darkMode 
 
     try {
       // Update organization with selected industry via backend
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/update-organization', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include', // Include HttpOnly cookies
         body: JSON.stringify({
           organization_id: organizationId,

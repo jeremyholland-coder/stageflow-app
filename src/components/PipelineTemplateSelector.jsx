@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Check, Loader2, TrendingUp, Building, Stethoscope, Briefcase, Home, Rocket } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { useApp } from './AppShell';
 import { PIPELINE_TEMPLATES, mapStage } from '../config/pipelineTemplates';
 
@@ -104,9 +105,18 @@ export const PipelineTemplateSelector = ({ onTemplateChange }) => {
       // RLS policies deny all client-side mutations. Use backend with service role.
       setMigrationProgress({ current: 1, total: 2, step: 'Preparing migration...' });
 
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/migrate-pipeline', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include', // Include HttpOnly cookies
         body: JSON.stringify({
           organization_id: organization.id,

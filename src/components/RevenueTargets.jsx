@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Target, TrendingUp, Loader2, DollarSign, Calendar, Save } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 
 export const RevenueTargets = ({ organization, userRole, addNotification }) => {
@@ -41,12 +42,19 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
         // Load organization-wide targets via backend endpoint (bypasses RLS)
         // CRITICAL FIX: Direct Supabase queries fail RLS with HttpOnly cookie auth
         // because auth.uid() returns NULL. Use backend endpoint with service role.
+        // FIX 2025-12-03: Inject Authorization header for reliable auth
+        await ensureValidSession();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
         const orgResponse = await fetch(`/.netlify/functions/organization-targets-get?organization_id=${organization.id}`, {
           method: 'GET',
           credentials: 'include', // Include HttpOnly cookies
-          headers: {
-            'Content-Type': 'application/json'
-          }
+          headers
         });
 
         const orgResult = await orgResponse.json();
@@ -176,12 +184,19 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
       // CRITICAL FIX v1.7.89: Use backend endpoint with HttpOnly cookie auth
       // PROBLEM: Direct Supabase queries fail RLS because auth.uid() unavailable with HttpOnly cookies
       // SOLUTION: Backend endpoint uses service role to bypass RLS (same pattern as notification-preferences-save)
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: saveSession } } = await supabase.auth.getSession();
+
+      const saveHeaders = { 'Content-Type': 'application/json' };
+      if (saveSession?.access_token) {
+        saveHeaders['Authorization'] = `Bearer ${saveSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/organization-targets-save', {
         method: 'POST',
         credentials: 'include', // Include HttpOnly cookies
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: saveHeaders,
         body: JSON.stringify({
           organization_id: organization.id,
           annual_target: annualValue,

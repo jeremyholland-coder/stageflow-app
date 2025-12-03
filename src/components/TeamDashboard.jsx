@@ -145,14 +145,28 @@ export const TeamDashboard = () => {
   // Fetch user targets for the organization
   const fetchUserTargets = useCallback(async (orgId) => {
     try {
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/user-targets-get', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify({ organization_id: orgId })
       });
 
       if (!response.ok) {
+        // FIX 2025-12-03: Handle auth errors gracefully
+        if (response.status === 401 || response.status === 403) {
+          console.warn('[TeamDashboard] Session expired - cannot fetch user targets');
+          return;
+        }
         console.warn('[TeamDashboard] Failed to fetch user targets:', response.status);
         return;
       }
@@ -173,9 +187,18 @@ export const TeamDashboard = () => {
 
     setSavingGoals(true);
     try {
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: saveSession } } = await supabase.auth.getSession();
+
+      const saveHeaders = { 'Content-Type': 'application/json' };
+      if (saveSession?.access_token) {
+        saveHeaders['Authorization'] = `Bearer ${saveSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/user-targets-save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: saveHeaders,
         credentials: 'include',
         body: JSON.stringify({
           organization_id: organizationId,
@@ -189,6 +212,10 @@ export const TeamDashboard = () => {
       });
 
       if (!response.ok) {
+        // FIX 2025-12-03: Handle auth errors gracefully
+        if (response.status === 401 || response.status === 403) {
+          console.warn('[TeamDashboard] Session expired - cannot save user targets');
+        }
         console.error('[TeamDashboard] Failed to save user targets:', response.status);
         return false;
       }

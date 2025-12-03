@@ -5,6 +5,7 @@
  * Only uses providers that the user has explicitly connected.
  *
  * QA FIX #5: Now includes retry with backoff for transient errors.
+ * FIX 2025-12-03: Added ensureValidSession + Authorization header for reliable auth
  *
  * @module ai-fallback
  */
@@ -18,6 +19,8 @@ import {
 } from '../ai/stageflowConfig';
 // QA FIX #5: Import retry utilities
 import { withRetry, isRetryableError } from './ai-retry';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from './supabase';
 
 /**
  * Fetch the list of connected AI providers for an organization
@@ -32,14 +35,31 @@ export async function fetchConnectedProviders(organizationId) {
   }
 
   try {
+    // FIX 2025-12-03: Inject Authorization header for reliable auth
+    await ensureValidSession();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
     const response = await fetch('/.netlify/functions/get-ai-providers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      headers,
+      credentials: 'include', // Keep cookies as fallback
       body: JSON.stringify({ organization_id: organizationId })
     });
 
     if (!response.ok) {
+      // FIX 2025-12-03: Detect auth errors vs provider errors
+      if (response.status === 401 || response.status === 403) {
+        console.warn('[ai-fallback] Auth error fetching providers - session may be expired');
+        const error = new Error('Session expired');
+        error.code = 'SESSION_ERROR';
+        error.status = response.status;
+        throw error;
+      }
       console.error('[ai-fallback] Failed to fetch providers:', response.status);
       return [];
     }
@@ -47,6 +67,10 @@ export async function fetchConnectedProviders(organizationId) {
     const result = await response.json();
     return result.providers || [];
   } catch (error) {
+    // FIX 2025-12-03: Propagate auth errors instead of swallowing them
+    if (error.code === 'SESSION_ERROR') {
+      throw error;
+    }
     console.error('[ai-fallback] Error fetching providers:', error);
     return [];
   }
@@ -72,10 +96,19 @@ async function makeAIRequest(options) {
     aiSignals = []
   } = options;
 
+  // FIX 2025-12-03: Inject Authorization header for reliable auth
+  await ensureValidSession();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+
   const response = await fetch('/.netlify/functions/ai-assistant', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    headers,
+    credentials: 'include', // Keep cookies as fallback
     body: JSON.stringify({
       message,
       deals,
@@ -91,6 +124,10 @@ async function makeAIRequest(options) {
     const error = new Error(errorData.error || `HTTP ${response.status}`);
     error.status = response.status;
     error.data = errorData;
+    // FIX 2025-12-03: Mark auth errors with SESSION_ERROR code
+    if (response.status === 401 || response.status === 403) {
+      error.code = 'SESSION_ERROR';
+    }
     throw error;
   }
 

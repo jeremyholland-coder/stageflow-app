@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, AlertTriangle, TrendingUp } from 'lucide-react';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from '../lib/supabase';
 
 /**
  * QA FIX #4: AI Usage Limit Indicator
@@ -25,19 +27,35 @@ export const AIUsageIndicator = ({ organizationId, onNavigate }) => {
 
     const fetchUsage = async () => {
       try {
+        // FIX 2025-12-03: Inject Authorization header for reliable auth
+        await ensureValidSession();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
         const response = await fetch('/.netlify/functions/get-ai-usage', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          headers,
+          credentials: 'include', // Keep cookies as fallback
           body: JSON.stringify({ organization_id: organizationId })
         });
 
         if (!response.ok) {
+          // FIX 2025-12-03: Handle auth errors gracefully
+          if (response.status === 401 || response.status === 403) {
+            console.warn('[AIUsageIndicator] Session expired - hiding indicator');
+            setError('session_expired');
+            return;
+          }
           throw new Error('Failed to fetch usage');
         }
 
         const data = await response.json();
         setUsage(data);
+        setError(null); // Clear any previous errors
       } catch (err) {
         console.error('[AIUsageIndicator] Error fetching usage:', err);
         setError(err.message);
@@ -127,19 +145,32 @@ export const AIUsageIndicatorCompact = ({ organizationId }) => {
 
     const fetchUsage = async () => {
       try {
+        // FIX 2025-12-03: Inject Authorization header for reliable auth
+        await ensureValidSession();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
         const response = await fetch('/.netlify/functions/get-ai-usage', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          headers,
+          credentials: 'include', // Keep cookies as fallback
           body: JSON.stringify({ organization_id: organizationId })
         });
 
         if (response.ok) {
           const data = await response.json();
           setUsage(data);
+        } else if (response.status === 401 || response.status === 403) {
+          // FIX 2025-12-03: Silent fail on auth errors, hide indicator
+          console.warn('[AIUsageIndicatorCompact] Session expired');
         }
       } catch (err) {
         // Silent fail for compact version
+        console.warn('[AIUsageIndicatorCompact] Error:', err.message);
       }
     };
 

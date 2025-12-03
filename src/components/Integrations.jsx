@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Webhook, Upload, Plus, Copy, Trash2, AlertCircle, CheckCircle, Loader2, X, Download, Bot } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+// FIX 2025-12-03: Import auth utilities for proper Authorization header injection
+import { supabase, ensureValidSession } from '../lib/supabase';
 import { useApp } from './AppShell';
 import { validateWebhookUrl, validateDealRow, sanitizeDealFromCSV } from '../lib/validation';
 import { validateNewApiKey } from '../lib/api-key-validator';
@@ -142,12 +143,19 @@ const APIKeysTab = () => {
       // 1. Client uses persistSession: false (for HttpOnly cookie security)
       // 2. RLS policy requires auth.uid() which may not be set in client context
       // 3. Backend endpoint uses service role key which properly bypasses RLS
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/api-keys-list', {
         method: 'GET',
         credentials: 'include', // Include HttpOnly cookies for auth
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers
       });
 
       if (!response.ok) {
@@ -217,12 +225,19 @@ const APIKeysTab = () => {
     try {
       // CRITICAL FIX: Use backend endpoint with HttpOnly cookie auth
       // This fixes RLS policy violations (same issue as onboarding progress)
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: createSession } } = await supabase.auth.getSession();
+
+      const createHeaders = { 'Content-Type': 'application/json' };
+      if (createSession?.access_token) {
+        createHeaders['Authorization'] = `Bearer ${createSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/api-keys-create', {
         method: 'POST',
         credentials: 'include', // Include HttpOnly cookies
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: createHeaders,
         body: JSON.stringify({
           name: newKeyName.trim(),
           permissions: ['read', 'write'], // Default permissions
@@ -282,12 +297,19 @@ const APIKeysTab = () => {
 
     try {
       // FIX v1.7.60 (#3): Use backend endpoint instead of client-side mutation
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: revokeSession } } = await supabase.auth.getSession();
+
+      const revokeHeaders = { 'Content-Type': 'application/json' };
+      if (revokeSession?.access_token) {
+        revokeHeaders['Authorization'] = `Bearer ${revokeSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/api-keys-revoke', {
         method: 'POST',
         credentials: 'include', // Include HttpOnly cookies
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: revokeHeaders,
         body: JSON.stringify({ keyId })
       });
 
@@ -514,9 +536,18 @@ const WebhooksTab = () => {
       // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
       // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
       // RLS policies deny all client-side mutations. Backend has service role.
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: webhookSession } } = await supabase.auth.getSession();
+
+      const webhookHeaders = { 'Content-Type': 'application/json' };
+      if (webhookSession?.access_token) {
+        webhookHeaders['Authorization'] = `Bearer ${webhookSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/create-webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: webhookHeaders,
         credentials: 'include', // Send HttpOnly cookies for auth
         body: JSON.stringify({
           url: formData.url.trim(),
@@ -557,9 +588,18 @@ const WebhooksTab = () => {
       // CRITICAL FIX: Use backend endpoint instead of direct Supabase client
       // Phase 3 Cookie-Only Auth has persistSession: false, so auth.uid() is NULL
       // RLS policies deny all client-side mutations. Backend has service role.
+      // FIX 2025-12-03: Inject Authorization header for reliable auth
+      await ensureValidSession();
+      const { data: { session: deleteSession } } = await supabase.auth.getSession();
+
+      const deleteHeaders = { 'Content-Type': 'application/json' };
+      if (deleteSession?.access_token) {
+        deleteHeaders['Authorization'] = `Bearer ${deleteSession.access_token}`;
+      }
+
       const response = await fetch('/.netlify/functions/delete-webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: deleteHeaders,
         credentials: 'include', // Send HttpOnly cookies for auth
         body: JSON.stringify({
           webhookId: id,
@@ -914,9 +954,18 @@ const CSVImportTab = () => {
       if (validDeals.length > 0) {
         setImportProgress(10); // Show initial progress
 
+        // FIX 2025-12-03: Inject Authorization header for reliable auth
+        await ensureValidSession();
+        const { data: { session: importSession } } = await supabase.auth.getSession();
+
+        const importHeaders = { 'Content-Type': 'application/json' };
+        if (importSession?.access_token) {
+          importHeaders['Authorization'] = `Bearer ${importSession.access_token}`;
+        }
+
         const response = await fetch('/.netlify/functions/import-deals-csv', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: importHeaders,
           credentials: 'include', // Send HttpOnly cookies for auth
           body: JSON.stringify({
             deals: validDeals,
