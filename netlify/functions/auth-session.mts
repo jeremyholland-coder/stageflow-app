@@ -72,17 +72,31 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     let accessToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
     let refreshToken = cookies[COOKIE_NAMES.REFRESH_TOKEN];
 
+    // FIX 2025-12-03: ALWAYS log token sources for production debugging
+    // This helps diagnose 401s without needing DEBUG_AUTH=true
+    const origin = event.headers.origin || event.headers.Origin || 'no-origin';
+    const authHeader = event.headers.authorization || event.headers.Authorization || '';
+    const hasCookieToken = !!accessToken;
+    const hasAuthHeader = authHeader.startsWith('Bearer ');
+
+    console.log('[AUTH_SESSION] Token check:', {
+      origin,
+      hasCookieToken,
+      hasAuthHeader,
+      cookieNames: Object.keys(cookies),
+      cookieHeaderLength: cookieHeader.length
+    });
+
     // FALLBACK: Check Authorization header if no cookies
     if (!accessToken) {
-      const authHeader = event.headers.authorization || event.headers.Authorization || '';
-      if (authHeader.startsWith('Bearer ')) {
+      if (hasAuthHeader) {
         accessToken = authHeader.replace('Bearer ', '').trim();
-        debugLog('Using Authorization header token (no cookies found)');
+        console.log('[AUTH_SESSION] Using Authorization header (no cookie token)');
       }
     }
 
     if (!accessToken) {
-      debugLog('No session found (checked cookies and Authorization header)');
+      console.warn('[AUTH_SESSION] FAIL: No token found (cookies empty, no Authorization header)');
       return {
         statusCode: 401,
         headers: corsHeaders,

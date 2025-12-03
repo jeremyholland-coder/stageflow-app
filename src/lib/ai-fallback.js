@@ -286,6 +286,27 @@ export async function runAIQueryWithFallback(options) {
 
       // Check for soft failures (200 response but error message content)
       if (result.response && isProviderErrorResponse(result.response)) {
+        const isLastProvider = providerType === fallbackChain[fallbackChain.length - 1];
+
+        // FIX 2025-12-03: If this is the LAST provider, return the response with soft failure metadata
+        // instead of throwing ALL_PROVIDERS_FAILED. This ensures the user sees the provider's
+        // error message (e.g., "Your Grok API key needs credits") rather than a generic banner.
+        if (isLastProvider) {
+          console.warn(`[ai-fallback] Last provider ${providerType} returned soft failure - returning response with warning`);
+          return {
+            ...result,
+            providerTypeUsed: providerType,
+            originalProvider: originalProvider,
+            fallbackOccurred: providerType !== originalProvider,
+            attemptedProviders: attemptedProviders,
+            taskType: taskType,
+            provider: getProviderDisplayName(providerType),
+            // Mark as soft failure so frontend can show appropriate warning
+            isSoftFailure: true,
+            softFailureMessage: `${getProviderDisplayName(providerType)} returned an error. Check your API key or try again.`
+          };
+        }
+
         console.warn(`[ai-fallback] Provider ${providerType} returned error response, trying next`);
         lastError = new Error(result.response);
         lastError.providerType = providerType;

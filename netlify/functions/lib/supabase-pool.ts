@@ -46,7 +46,17 @@ export function getSupabaseClient(): SupabaseClient {
     // Get validated configuration
     const config = getSupabaseConfig();
 
-    console.warn('[Supabase Pool] Initializing shared client (singleton)');
+    // FIX 2025-12-03: CRITICAL - Warn loudly if service role key is missing
+    // Using anon key for backend operations will cause RLS failures on mutations
+    if (!config.serviceRoleKey) {
+      console.error('[Supabase Pool] ⚠️ CRITICAL: SUPABASE_SERVICE_ROLE_KEY not set!');
+      console.error('[Supabase Pool] Backend will use anon key - RLS policies will apply!');
+      console.error('[Supabase Pool] This WILL cause update-deal and other mutations to fail.');
+    } else {
+      console.log('[Supabase Pool] ✓ Service role key configured');
+    }
+
+    console.log('[Supabase Pool] Initializing shared client (singleton)');
 
     // Create singleton client with optimized settings
     _supabaseClient = createClient(

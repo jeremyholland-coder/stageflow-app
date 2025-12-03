@@ -1237,11 +1237,19 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
         fallbackOccurred: data.fallbackOccurred || false,
         originalProvider: data.originalProvider,
         providerTypeUsed: data.providerTypeUsed,
+        // FIX 2025-12-03: Mark soft failures for UI warning
+        isSoftFailure: data.isSoftFailure || false,
         ...(data.chartData && { chartData: data.chartData }),
         ...(data.chartType && { chartType: data.chartType }),
         ...(data.chartTitle && { chartTitle: data.chartTitle })
       };
       setConversationHistory(prev => [...prev, aiMessage]);
+
+      // FIX 2025-12-03: Show warning notification for soft failures (provider returned error message)
+      // This replaces the ALL_PROVIDERS_FAILED banner with a more specific, helpful message
+      if (data.isSoftFailure && data.softFailureMessage) {
+        addNotification(data.softFailureMessage, 'warning');
+      }
 
       // PHASE 3: Extract performance metrics from response for summary strip
       if (data.performanceContext) {

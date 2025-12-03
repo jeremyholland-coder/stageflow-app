@@ -53,10 +53,13 @@ export default async (req: Request, context: Context) => {
   try {
     // STEP 1: Authenticate user via HttpOnly cookies
     // PHASE 9 FIX: requireAuth returns User directly, not {user: User}
+    // FIX 2025-12-03: Log auth attempt for production debugging
+    console.log("[UPDATE_DEAL] Auth attempt starting...");
+
     const user = await requireAuth(req);
     const userId = user.id;
 
-    console.warn("[update-deal] Authenticated user:", userId);
+    console.log("[UPDATE_DEAL] Auth SUCCESS:", { userId });
 
     // STEP 2: Parse request body
     const body = await req.json();

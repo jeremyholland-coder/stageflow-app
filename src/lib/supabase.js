@@ -270,12 +270,27 @@ export const ensureValidSession = async () => {
     try {
       console.log('[Session] Fetching session from auth-session...');
 
+      // FIX 2025-12-03: Also send Authorization header if we have a token in memory
+      // This provides fallback when cookies aren't sent (cross-origin/SameSite issues)
+      const headers = {
+        'Cache-Control': 'no-cache'
+      };
+
+      // Try to get existing token from Supabase client memory (if any)
+      try {
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession?.access_token) {
+          headers['Authorization'] = `Bearer ${existingSession.access_token}`;
+          console.log('[Session] Including Authorization header as cookie fallback');
+        }
+      } catch (e) {
+        // Ignore - we'll still try with just cookies
+      }
+
       const response = await fetch('/.netlify/functions/auth-session', {
         method: 'GET',
         credentials: 'include', // Send HttpOnly cookies
-        headers: {
-          'Cache-Control': 'no-cache' // FIX 2025-12-03: Prevent cached 401 responses
-        }
+        headers
       });
 
       if (!response.ok) {
