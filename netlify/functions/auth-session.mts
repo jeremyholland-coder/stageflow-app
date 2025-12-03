@@ -55,14 +55,16 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
   try {
     // Get Supabase configuration
-    const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    // CRITICAL FIX 2025-12-03: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      console.error('[AUTH_SESSION] CRITICAL: Missing Supabase configuration');
       return {
         statusCode: 500,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Server configuration error', code: 'CONFIG_ERROR' })
+        body: JSON.stringify({ error: 'Session validation unavailable', code: 'SUPABASE_CONFIG_ERROR' })
       };
     }
 

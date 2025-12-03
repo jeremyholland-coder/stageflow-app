@@ -1371,6 +1371,8 @@ export const AuthScreen = () => {
         if (!response.ok) {
           console.error('[Login] Auth failed:', { status: response.status, code: data.code, error: data.error });
           // APPLE-LEVEL UX FIX: Detect specific error types and provide actionable guidance
+          setIsEmailNotConfirmed(false);
+
           if (data.code === 'EMAIL_NOT_CONFIRMED') {
             // User needs to verify their email - provide helpful message + resend button
             setIsEmailNotConfirmed(true);
@@ -1378,12 +1380,19 @@ export const AuthScreen = () => {
             setError(data.error || 'Please verify your email address. Check your inbox for the verification link.');
           } else if (response.status === 429) {
             // Rate limiting
-            setIsEmailNotConfirmed(false);
             setError('Too many attempts. Try again in 30 seconds.');
+          } else if (data.code === 'SUPABASE_CONFIG_ERROR' || data.code === 'CONFIG_ERROR') {
+            // Server configuration issue - NOT user's fault
+            setError('Sign-in is temporarily unavailable. Please try again in a few minutes.');
+          } else if (data.code === 'CSRF_INVALID') {
+            // CSRF token issue - reload might help
+            setError('Session expired. Please refresh the page and try again.');
+          } else if (response.status >= 500) {
+            // Generic server error
+            setError('Sign-in is temporarily unavailable. Please try again.');
           } else {
-            // Generic authentication failure (wrong password, invalid email, etc.)
-            setIsEmailNotConfirmed(false);
-            setError('Invalid email or password');
+            // 401/403 - Generic authentication failure (wrong password, invalid email, etc.)
+            setError('Incorrect email or password.');
           }
           setLoading(false);
           return;
@@ -1434,10 +1443,16 @@ export const AuthScreen = () => {
     } catch (error) {
       // DEBUG v1.7.95: Log the actual error for troubleshooting
       console.error('[Login] Exception caught:', error.message, error);
-      // FIX C6: Use generic error to prevent account enumeration
-      // Don't reveal if email exists or if password is wrong
+
+      // Distinguish between network errors and auth errors
       if (isLogin) {
-        setError('Invalid email or password');
+        // Network/fetch errors are typically NOT auth failures
+        if (error.name === 'TypeError' || error.message?.includes('fetch') || error.message?.includes('network')) {
+          setError('Unable to connect. Please check your internet connection.');
+        } else {
+          // Generic auth error - don't reveal if email exists
+          setError('Incorrect email or password.');
+        }
       } else {
         setError(error.message || 'Registration failed. Please try again.');
       }

@@ -166,22 +166,36 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // Get Supabase configuration
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    // CRITICAL FIX 2025-12-03: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+    // VITE_* vars are for frontend only and may not exist in Netlify Functions
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+    // DIAGNOSTIC: Log env var presence (not values) for debugging auth issues
+    console.log('[AUTH_LOGIN] Config check:', {
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasViteSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+      hasSupabaseAnonKey: !!process.env.SUPABASE_ANON_KEY,
+      hasViteSupabaseAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
+      hasSupabaseServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      usingUrl: supabaseUrl ? 'set' : 'MISSING',
+      usingAnonKey: supabaseAnonKey ? 'set' : 'MISSING'
+    });
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('❌ Missing Supabase configuration');
+      console.error('[AUTH_LOGIN] CRITICAL: Missing Supabase configuration - check SUPABASE_URL and SUPABASE_ANON_KEY env vars');
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Server configuration error',
-          code: 'CONFIG_ERROR'
+          error: 'Sign-in is temporarily unavailable. Please try again later.',
+          code: 'SUPABASE_CONFIG_ERROR'
         })
       };
     }
 
     // Create Supabase client
+    console.log('[AUTH_LOGIN] Creating Supabase client for login');
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     // Attempt login
@@ -199,9 +213,12 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         userAgent: event.headers['user-agent']
       });
 
-      console.error('❌ Login failed:', {
-        error: error.message,
-        code: error.code,
+      // DIAGNOSTIC: Log detailed error info for debugging
+      console.error('[AUTH_LOGIN] Login failed:', {
+        errorMessage: error.message,
+        errorCode: error.code,
+        errorStatus: error.status,
+        errorName: error.name,
         ...logContext
       });
 
@@ -398,8 +415,9 @@ export const logoutHandler: Handler = async (event: HandlerEvent, context: Handl
 
   try {
     // Get Supabase configuration
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    // CRITICAL FIX 2025-12-03: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
     if (supabaseUrl && supabaseAnonKey) {
       // Extract access token from Authorization header or cookies

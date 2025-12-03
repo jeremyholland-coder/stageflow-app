@@ -189,18 +189,19 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // Get Supabase configuration
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    // CRITICAL FIX 2025-12-03: Backend MUST prefer SUPABASE_* vars over VITE_* vars
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('❌ Missing Supabase configuration');
+      console.error('[AUTH_REQUEST_PASSWORD_RESET] CRITICAL: Missing Supabase configuration');
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Server configuration error',
-          code: 'CONFIG_ERROR'
+          error: 'Password reset is temporarily unavailable. Please try again later.',
+          code: 'SUPABASE_CONFIG_ERROR'
         })
       };
     }
