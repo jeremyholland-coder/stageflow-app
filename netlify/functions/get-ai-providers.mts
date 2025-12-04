@@ -139,15 +139,21 @@ export default async (req: Request, context: Context) => {
       );
     }
 
+    // SAFETY GUARD: Only allow known providers (prevents zombie entries from DB)
+    const allowedProviders = ['openai', 'anthropic', 'google'];
+    const filteredProviders = (providers || []).filter(
+      (p: any) => allowedProviders.includes(p.provider_type)
+    );
+
     console.log('[get-ai-providers] Found providers:', {
-      count: providers?.length || 0,
-      types: providers?.map(p => p.provider_type) || []
+      count: filteredProviders.length,
+      types: filteredProviders.map((p: any) => p.provider_type)
     });
 
     return new Response(
       JSON.stringify({
         success: true,
-        providers: providers || [],
+        providers: filteredProviders,
         organizationId
       }),
       { status: 200, headers }
