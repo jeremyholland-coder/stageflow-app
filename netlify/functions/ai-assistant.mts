@@ -26,7 +26,8 @@ import {
 // UNIFIED PROVIDER SELECTION: Single source of truth for provider selection
 import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
-import { getProvidersWithCache, invalidateProviderCache } from './lib/provider-cache';
+// P0 FIX 2025-12-04: Import ProviderFetchError to distinguish fetch failures from "no providers"
+import { getProvidersWithCache, invalidateProviderCache, ProviderFetchError } from './lib/provider-cache';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1333,7 +1334,23 @@ export default async (req: Request, context: any) => {
     }
 
     // Get all active providers
-    const providers = await getActiveProviders(organizationId);
+    // P0 FIX 2025-12-04: Wrap in try/catch to distinguish "fetch failed" from "no providers"
+    let providers: any[];
+    try {
+      providers = await getActiveProviders(organizationId);
+    } catch (providerError) {
+      // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
+      console.error('[ai-assistant] Provider fetch failed:', providerError);
+      const isProviderFetchError = providerError instanceof ProviderFetchError;
+      return new Response(JSON.stringify({
+        error: 'AI_PROVIDER_FETCH_FAILED',
+        message: 'Unable to load AI provider configuration. Please retry in a few moments.',
+        code: isProviderFetchError ? providerError.code : 'PROVIDER_FETCH_FAILED'
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
 
     // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
     const runtimeProviders = providers.filter(
@@ -1341,6 +1358,7 @@ export default async (req: Request, context: any) => {
     );
 
     if (runtimeProviders.length === 0) {
+      // This is the REAL "no providers configured" case (empty list, no error)
       return new Response(JSON.stringify({
         error: 'No AI provider configured',
         response: "I'm not connected to any AI providers yet. Please configure an AI provider in Integrations → AI Settings.",

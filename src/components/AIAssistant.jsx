@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send, Sparkles, TrendingUp, Target, Zap, Loader2, AlertCircle, Settings, ChevronDown } from 'lucide-react';
 import { useApp } from './AppShell';
-import { supabase } from '../lib/supabase';
+// P0 FIX 2025-12-04: Removed direct supabase import - use backend endpoint instead (RLS-safe)
 import { AIMessageRenderer } from './AIMessageRenderer';
 import { api } from '../lib/api-client';
+
+// P0 FIX: Allowed provider types - matches backend filtering
+// Belt-and-suspenders guard against zombie providers (e.g., deprecated xAI/Grok)
+const ALLOWED_PROVIDER_TYPES = ['openai', 'anthropic', 'google'];
 
 // 4-Star AI Icon Component
 const AIStarIcon = ({ className = "w-6 h-6" }) => (
@@ -54,6 +58,8 @@ export const AIAssistant = ({ deals = [] }) => {
   const [providers, setProviders] = useState([]);
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  // P0 FIX: Track provider fetch errors separately from "no providers"
+  const [providerFetchError, setProviderFetchError] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { user, organization, addNotification, navigateToIntegrations } = useApp();
@@ -63,27 +69,45 @@ export const AIAssistant = ({ deals = [] }) => {
     fetchProviders();
   }, [user, organization]);
 
+  // P0 FIX 2025-12-04: Use backend endpoint instead of direct Supabase query
+  // Direct Supabase queries fail with RLS when persistSession: false (auth.uid() is NULL)
   const fetchProviders = async () => {
     if (!user || !organization) return;
 
-    try {
-      const { data, error } = await supabase
-        .from('ai_providers')
-        .select('*')
-        .eq('organization_id', organization.id)
-        .eq('active', true)
-        .order('created_at', { ascending: false });
+    // Reset error state on new fetch
+    setProviderFetchError(false);
 
-      if (error) throw error;
-      
-      setProviders(data || []);
-      
-      // Auto-select first provider if none selected
-      if (data && data.length > 0 && !selectedProvider) {
-        setSelectedProvider(data[0]);
+    try {
+      const { data: result } = await api.post('get-ai-providers', {
+        organization_id: organization.id
+      });
+
+      // Check for error response from backend
+      if (result.error) {
+        console.error('[AIAssistant] Provider fetch returned error:', result.error);
+        setProviderFetchError(true);
+        return;
       }
-    } catch (error) {
-      console.error('Failed to fetch AI providers:', error);
+
+      // P0 FIX: Filter to allowed provider types (belt-and-suspenders)
+      // Prevents showing zombie providers (e.g., deprecated xAI/Grok)
+      const rawProviders = result.providers || [];
+      const filteredProviders = rawProviders.filter(p =>
+        ALLOWED_PROVIDER_TYPES.includes(p.provider_type)
+      );
+
+      setProviders(filteredProviders);
+
+      // Auto-select first provider if none selected
+      if (filteredProviders.length > 0 && !selectedProvider) {
+        setSelectedProvider(filteredProviders[0]);
+      }
+    } catch (err) {
+      // P0 FIX: Distinguish between "no providers" and "provider fetch error"
+      // Network errors, 5xx, auth errors = fetch error (NOT "no providers")
+      console.error('[AIAssistant] Failed to fetch AI providers:', err);
+      setProviderFetchError(true);
+      // DO NOT clear providers list - preserve any cached state
     }
   };
 
@@ -407,7 +431,20 @@ export const AIAssistant = ({ deals = [] }) => {
 
           {/* Input */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0D1F2D]">
-            {providers.length === 0 ? (
+            {/* P0 FIX: Distinguish between "no providers" and "provider fetch error" */}
+            {providerFetchError ? (
+              <div className="text-center py-2">
+                <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+                  Unable to load AI providers. Please try again.
+                </p>
+                <button
+                  onClick={() => fetchProviders()}
+                  className="text-xs text-[#1ABC9C] hover:underline font-medium"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : providers.length === 0 ? (
               <div className="text-center py-2">
                 <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-2">
                   No AI providers configured

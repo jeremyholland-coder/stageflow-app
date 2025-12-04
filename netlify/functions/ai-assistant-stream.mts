@@ -24,7 +24,8 @@ import {
 // UNIFIED PROVIDER SELECTION: Single source of truth for provider selection
 import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
-import { getProvidersWithCache } from './lib/provider-cache';
+// P0 FIX 2025-12-04: Import ProviderFetchError to distinguish fetch failures from "no providers"
+import { getProvidersWithCache, ProviderFetchError } from './lib/provider-cache';
 // FIX 2025-12-03: Import fallback utilities for proper provider failover
 // FIX 2025-12-04: Added detectSoftFailure for streaming soft-failure handling
 import {
@@ -470,7 +471,23 @@ export default async (req: Request, context: any) => {
     }
 
     // Get AI providers (TASK 1: Now uses 60s cache)
-    const providers = await getProvidersWithCache(supabase, organizationId);
+    // P0 FIX 2025-12-04: Wrap in try/catch to distinguish "fetch failed" from "no providers"
+    let providers: any[];
+    try {
+      providers = await getProvidersWithCache(supabase as any, organizationId);
+    } catch (providerError) {
+      // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
+      console.error('[ai-assistant-stream] Provider fetch failed:', providerError);
+      const isProviderFetchError = providerError instanceof ProviderFetchError;
+      return new Response(JSON.stringify({
+        error: 'AI_PROVIDER_FETCH_FAILED',
+        code: isProviderFetchError ? providerError.code : 'PROVIDER_FETCH_FAILED',
+        message: 'Unable to load AI provider configuration. Please retry in a few moments.'
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
 
     // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
     const runtimeProviders = providers.filter(
@@ -478,7 +495,7 @@ export default async (req: Request, context: any) => {
     );
 
     // FIX 2025-12-02: Return 422 (Unprocessable Entity) for NO_PROVIDERS
-    // Previously returned 200 which confused frontend error handling
+    // This is the REAL "no providers configured" case (empty list, no error)
     if (!runtimeProviders || runtimeProviders.length === 0) {
       return new Response(JSON.stringify({
         error: 'NO_PROVIDERS',

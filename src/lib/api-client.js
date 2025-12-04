@@ -124,26 +124,30 @@ export class APIClient {
       try {
         // CRITICAL: Must call ensureValidSession() first to populate the client session
         // from HttpOnly cookies (Phase 3 Cookie-Only Auth has persistSession: false)
-        const sessionResult = await ensureValidSession();
+        let sessionResult = await ensureValidSession();
 
         // FIX 2025-12-03: HARD STOP on session errors - don't proceed with API calls
         // This prevents cascading 500 errors and misleading "AI providers unavailable" messages
+        // P1 FIX 2025-12-04: Add single retry for TRANSIENT session errors before hard-stopping
         if (sessionResult && !sessionResult.valid) {
-          const isHardSessionError = [
+          // Truly fatal codes - no retry, fail immediately
+          const isFatalSessionError = [
             'SESSION_INVALID',
-            'SESSION_ROTATED',
+            'SESSION_ROTATED'
+          ].includes(sessionResult.code);
+
+          // Potentially transient codes - retry once before giving up
+          const isTransientSessionError = [
             'NO_SESSION',
             'REFRESH_ERROR'
           ].includes(sessionResult.code);
 
-          if (isHardSessionError) {
-            console.warn('[APIClient] HARD SESSION FAILURE - stopping API call:', sessionResult.code);
+          if (isFatalSessionError) {
+            console.warn('[APIClient] FATAL SESSION ERROR - stopping API call:', sessionResult.code);
 
             // Sign out and redirect to login
-            // Use setTimeout to allow this function to return before redirect
             setTimeout(() => handleSessionInvalid(), 0);
 
-            // Throw immediately - do NOT proceed with the fetch
             const sessionError = new Error('Your session has expired. Please sign in again.');
             sessionError.code = 'SESSION_ERROR';
             sessionError.status = 401;
@@ -151,10 +155,35 @@ export class APIClient {
             throw sessionError;
           }
 
-          // For throttled or other temporary issues, log but continue
-          sessionValidationFailed = true;
-          sessionErrorCode = sessionResult.code;
-          console.warn('[APIClient] Session validation issue (non-fatal):', sessionResult.error, sessionResult.code);
+          if (isTransientSessionError) {
+            // P1 FIX: Single retry for transient errors (network glitch, race condition)
+            console.warn('[APIClient] Transient session error, retrying once:', sessionResult.code);
+
+            // Brief delay before retry (500ms)
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            sessionResult = await ensureValidSession();
+
+            // If still invalid after retry, treat as fatal
+            if (sessionResult && !sessionResult.valid) {
+              console.warn('[APIClient] Session still invalid after retry - stopping API call:', sessionResult.code);
+
+              setTimeout(() => handleSessionInvalid(), 0);
+
+              const sessionError = new Error('Your session has expired. Please sign in again.');
+              sessionError.code = 'SESSION_ERROR';
+              sessionError.status = 401;
+              sessionError.userMessage = 'Your session has expired. Please sign in again.';
+              throw sessionError;
+            }
+            // If retry succeeded, continue normally
+            console.warn('[APIClient] Session retry succeeded');
+          } else {
+            // For throttled or other non-transient temporary issues, log but continue
+            sessionValidationFailed = true;
+            sessionErrorCode = sessionResult.code;
+            console.warn('[APIClient] Session validation issue (non-fatal):', sessionResult.error, sessionResult.code);
+          }
         }
 
         const { data: { session } } = await supabase.auth.getSession();

@@ -26,6 +26,23 @@ import { createClient } from '@supabase/supabase-js';
 // Cache TTL in milliseconds (60 seconds)
 const CACHE_TTL_MS = 60 * 1000;
 
+/**
+ * P0 FIX 2025-12-04: Custom error for provider fetch failures
+ * This allows callers to distinguish between "no providers" (empty array)
+ * and "failed to fetch providers" (error thrown)
+ */
+export class ProviderFetchError extends Error {
+  code: string;
+  originalError?: any;
+
+  constructor(message: string, originalError?: any) {
+    super(message);
+    this.name = 'ProviderFetchError';
+    this.code = 'PROVIDER_FETCH_FAILED';
+    this.originalError = originalError;
+  }
+}
+
 // Maximum cache size to prevent memory leaks (100 orgs)
 const MAX_CACHE_SIZE = 100;
 
@@ -163,8 +180,13 @@ export async function getProvidersWithCache(
     .order('created_at', { ascending: true }); // First connected = first in array
 
   if (error) {
+    // P0 FIX 2025-12-04: THROW instead of returning []
+    // This allows callers to distinguish "no providers" from "fetch failed"
     console.error('[provider-cache] Error fetching providers:', error);
-    return [];
+    throw new ProviderFetchError(
+      `Failed to fetch AI providers: ${error.message || 'Database error'}`,
+      error
+    );
   }
 
   const providers = data || [];
@@ -181,5 +203,6 @@ export default {
   invalidateProviderCache,
   clearProviderCache,
   getCacheStats,
-  getProvidersWithCache
+  getProvidersWithCache,
+  ProviderFetchError
 };

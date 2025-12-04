@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo } from 'react';
 import { X, Loader2, Trash2, Calendar, XCircle, Receipt, DollarSign, CheckCircle2, UserCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+// P2 FIX 2025-12-04: Removed direct supabase import - use backend endpoint instead (RLS-safe)
 import { useApp } from './AppShell';
 // FIX CRITICAL #1: Import default pipeline as fallback if pipelineStages fails to load
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates';
@@ -58,59 +58,37 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   }, [deal]);
 
   // PRO TIER FIX: Fetch team members for deal assignment dropdown
-  // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
-  // broken join to users table with raw_user_meta_data
+  // P2 FIX 2025-12-04: Use backend endpoint instead of direct Supabase query
+  // Direct Supabase queries fail with RLS when persistSession: false (auth.uid() is NULL)
   useEffect(() => {
     const fetchTeamMembers = async () => {
       if (!isOpen || !organization?.id || !hasPaidPlan) return;
 
       setLoadingTeamMembers(true);
       try {
-        // Step 1: Get all team members for this organization
-        const { data: members, error } = await supabase
-          .from('team_members')
-          .select('user_id, role')
-          .eq('organization_id', organization.id);
+        // P2 FIX: Use backend endpoint with service role (bypasses RLS)
+        const { data: result } = await api.post('get-team-members', {
+          organization_id: organization.id
+        });
 
-        if (error) throw error;
-
-        // Handle empty members gracefully
-        if (!members || members.length === 0) {
-          console.warn('[DealDetailsModal] No team members found for org:', organization.id);
+        // Check for error response from backend
+        if (result.error) {
+          console.error('[DealDetailsModal] Team members fetch returned error:', result.error);
           setTeamMembers([]);
-          setLoadingTeamMembers(false);
           return;
         }
 
-        // Step 2: Fetch user profiles from user_profiles view
-        // This view has email and full_name (profiles table does NOT)
-        const userIds = members.map(m => m.user_id);
-        const { data: profiles, error: profilesError } = await supabase
-          .from('user_profiles')
-          .select('id, email, full_name')
-          .in('id', userIds);
+        // Use team members from backend response
+        const members = result.teamMembers || [];
+        setTeamMembers(members);
 
-        if (profilesError) throw profilesError;
-
-        // Step 3: Map profiles to members
-        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
-
-        const formattedMembers = members.map(m => {
-          const profile = profileMap.get(m.user_id);
-          const fullName = profile?.full_name;
-          const email = profile?.email;
-
-          return {
-            id: m.user_id,
-            name: fullName || email?.split('@')[0] || 'Team Member',
-            email: email,
-            role: m.role
-          };
-        });
-
-        setTeamMembers(formattedMembers);
+        if (members.length === 0) {
+          console.warn('[DealDetailsModal] No team members found for org:', organization.id);
+        }
       } catch (error) {
+        // P2 FIX: Log error but don't crash - show empty list with error logged
         console.error('[DealDetailsModal] Error fetching team members:', error);
+        setTeamMembers([]);
       } finally {
         setLoadingTeamMembers(false);
       }

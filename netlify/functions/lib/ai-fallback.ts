@@ -50,6 +50,7 @@ export const NO_FALLBACK_ERRORS = {
 
 // FIX 2025-12-04: Soft failure patterns for streaming parity
 // These patterns indicate a "soft failure" - the API returned 200 but the content is an error message
+// P3 FIX 2025-12-04: Added more patterns for provider-side temporary errors
 export const SOFT_FAILURE_PATTERNS = [
   "i'm unable to connect",
   "unable to connect to",
@@ -64,7 +65,14 @@ export const SOFT_FAILURE_PATTERNS = [
   "invalid api key",
   "authentication failed",
   "rate limit exceeded",
-  "quota exceeded"
+  "quota exceeded",
+  // P3 FIX: Additional patterns for provider-side temporary issues
+  "model is currently overloaded",
+  "currently experiencing high demand",
+  "please try again later",
+  "service temporarily unavailable",
+  "server is busy",
+  "capacity limit"
 ] as const;
 
 // FIX 2025-12-04: Task-aware fallback order affinity scores

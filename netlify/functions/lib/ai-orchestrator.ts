@@ -77,14 +77,14 @@ export class AllConnectedProvidersFailedError extends Error {
 }
 
 // Create Supabase client (service role for backend operations)
-// CRITICAL: Backend MUST use SUPABASE_URL, NOT VITE_SUPABASE_URL
-// VITE_* vars are for frontend only and may not exist in Netlify Functions
+// P1 FIX 2025-12-04: Add VITE_SUPABASE_URL fallback for consistency with other modules
+// VITE_* vars may be set in some environments where SUPABASE_* vars are not
 function getSupabaseClient(): SupabaseClient {
-  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('[AI Orchestrator] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    throw new Error('[AI Orchestrator] Missing Supabase config: SUPABASE_URL (or VITE_SUPABASE_URL) and/or SUPABASE_SERVICE_ROLE_KEY');
   }
 
   return createClient(supabaseUrl, serviceRoleKey);
