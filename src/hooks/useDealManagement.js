@@ -164,6 +164,9 @@ export const useDealManagement = (user, organization, addNotification) => {
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  // H6-C HARDENING 2025-12-04: Drag lock state prevents concurrent drag-drop operations
+  // When true, KanbanBoard should disable dragging until the current update completes
+  const [isDragLocked, setIsDragLocked] = useState(false);
   const isMountedRef = useRef(true);
   const fetchInProgressRef = useRef(false);
   const wasOfflineRef = useRef(false); // Track if we were offline (for sync trigger)
@@ -631,6 +634,16 @@ export const useDealManagement = (user, organization, addNotification) => {
       return;
     }
 
+    // H6-C HARDENING 2025-12-04: Check if drag is already locked (prevents concurrent drag-drops)
+    // This provides an additional layer of protection beyond request deduplication
+    if (isDragLocked) {
+      logger.log('[updateDeal] Drag locked - ignoring concurrent update request');
+      return;
+    }
+
+    // H6-C HARDENING 2025-12-04: Lock drag operations while update is in progress
+    setIsDragLocked(true);
+
     // NEXT-LEVEL: Request deduplication to prevent race conditions
     // If same deal is being updated, wait for in-flight request to complete
     const dedupeKey = `update-deal-${dealId}`;
@@ -720,7 +733,25 @@ export const useDealManagement = (user, organization, addNotification) => {
       addNotification('Deal updated successfully');
     } catch (error) {
       console.error('Error updating deal:', error);
-      addNotification(error.message || 'Failed to update deal', 'error');
+
+      // H6-H HARDENING 2025-12-04: Context-aware error messages for deal operations
+      // Parse error to get proper classification and user-friendly message
+      const appError = parseSupabaseError(error);
+      let userMessage = 'Deal update failed. Please try again.';
+
+      if (appError.code === ERROR_CODES.NETWORK_ERROR) {
+        userMessage = 'Connection lost. Please check your network and try again.';
+      } else if (appError.code === ERROR_CODES.TIMEOUT) {
+        userMessage = 'Request timed out. Please try again.';
+      } else if (appError.code === ERROR_CODES.SERVER_ERROR) {
+        userMessage = 'Server issue. Please try again in a moment.';
+      } else if (appError.code === ERROR_CODES.PERMISSION_DENIED) {
+        userMessage = 'You don\'t have permission to update this deal.';
+      } else if (appError.code === ERROR_CODES.SESSION_EXPIRED) {
+        userMessage = 'Session expired. Please refresh the page.';
+      }
+
+      addNotification(userMessage, 'error');
 
       // CRITICAL FIX: Only rollback if we have originalDeal captured
       // This prevents crash if error occurred before originalDeal was assigned
@@ -735,9 +766,15 @@ export const useDealManagement = (user, organization, addNotification) => {
         // Fallback: If no originalDeal, just log warning (don't crash)
         logger.log('[Optimistic] Could not rollback - originalDeal not captured');
       }
+    } finally {
+      // H6-C HARDENING 2025-12-04: Always unlock drag when update completes (success or failure)
+      // This ensures the user can drag again after any outcome
+      if (isMountedRef.current) {
+        setIsDragLocked(false);
+      }
     }
     }); // End deduplication wrapper
-  }, [user, organization, addNotification]); // CRITICAL: Removed deals and fetchDeals from deps
+  }, [user, organization, addNotification, isDragLocked]); // H6-C: Added isDragLocked to deps
 
   // PROCESS BATCHED UPDATES - v1.7.98: True FIFO ordering with Array queue
   // Processes updates in exact order received, with mutex to prevent concurrent processing
@@ -784,6 +821,14 @@ export const useDealManagement = (user, organization, addNotification) => {
           logger.log('[BatchQueue] ✓ Processed update for deal', dealId, 'queued at', timestamp);
         } catch (error) {
           console.error('[BatchQueue] Failed for deal:', dealId, error);
+          // H6-H HARDENING 2025-12-04: Context-aware error for batch failures
+          // Single notification to avoid spam during rapid operations
+          const appError = parseSupabaseError(error);
+          if (appError.code === ERROR_CODES.NETWORK_ERROR) {
+            addNotification('Deal update failed - connection lost', 'error');
+          } else if (isMountedRef.current) {
+            addNotification('Deal update failed. Please try again.', 'error');
+          }
         }
       }
     } finally {
@@ -852,6 +897,8 @@ export const useDealManagement = (user, organization, addNotification) => {
     pendingSyncCount,
     isSyncing,
     syncOfflineCommands, // Manual sync trigger if needed
+    // H6-C HARDENING 2025-12-04: Expose drag lock state for KanbanBoard
+    isDragLocked,
     fetchDeals,
     updateDeal,
     queueDealUpdate, // v1.7.98: FIFO batched updates for rapid operations

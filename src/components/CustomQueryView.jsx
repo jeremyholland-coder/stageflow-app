@@ -419,6 +419,10 @@ export const CustomQueryView = ({
   // React state updates are async, so we need a ref for immediate lock checking
   const submissionLockRef = useRef(false);
 
+  // H6-A HARDENING 2025-12-04: AbortController for streaming requests
+  // Ensures proper cleanup on unmount, navigation, or new request
+  const streamAbortControllerRef = useRef(null);
+
   // PHASE 5.3: Helper to add a signal
   const addAISignal = (type, sectionId = null, actionId = null) => {
     // Don't collect signals when offline
@@ -487,6 +491,23 @@ export const CustomQueryView = ({
     });
   }, [conversationHistory, loading]);
 
+  // H6-A HARDENING 2025-12-04: Cleanup streaming on component unmount
+  // Prevents orphaned network requests and state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      // Abort any in-flight streaming request
+      if (streamAbortControllerRef.current) {
+        streamAbortControllerRef.current.abort();
+        streamAbortControllerRef.current = null;
+      }
+      // Also clear Plan My Day timeout if pending
+      if (planMyDayTimeoutRef.current) {
+        clearTimeout(planMyDayTimeoutRef.current);
+        planMyDayTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // PERFORMANCE: Streaming AI responses for instant feedback
   const handleQueryStreaming = async (queryText = null) => {
     // Accept optional queryText parameter for one-click execution
@@ -497,6 +518,16 @@ export const CustomQueryView = ({
 
     // Acquire lock immediately (synchronous - before any state updates)
     submissionLockRef.current = true;
+
+    // H6-A HARDENING 2025-12-04: Abort any previous stream before starting new one
+    // This prevents orphaned streams from accumulating and ensures clean state
+    if (streamAbortControllerRef.current) {
+      streamAbortControllerRef.current.abort();
+      streamAbortControllerRef.current = null;
+    }
+    // Create new AbortController for this stream
+    const streamAbortController = new AbortController();
+    streamAbortControllerRef.current = streamAbortController;
 
     // AIDASH-EDGE-01 FIX: Reset lastQuickActionRef only for manual queries
     // This ensures Plan My Day micro-buttons stay visible after quick action completes
@@ -548,10 +579,12 @@ export const CustomQueryView = ({
         streamHeaders['Authorization'] = `Bearer ${streamSession.access_token}`;
       }
 
+      // H6-A HARDENING 2025-12-04: Add signal for abort support
       const response = await fetch('/.netlify/functions/ai-assistant-stream', {
         method: 'POST',
         headers: streamHeaders,
         credentials: 'include', // Keep cookies as fallback
+        signal: streamAbortController.signal, // H6-A: Enable abort on unmount/new request
         body: JSON.stringify({
           message: currentQuery,
           // PERF FIX P16-1: Project deals to minimal fields (80% smaller payload)
@@ -791,6 +824,21 @@ export const CustomQueryView = ({
       }
 
     } catch (error) {
+      // H6-A HARDENING 2025-12-04: Handle intentional abort gracefully (no error shown)
+      // AbortError occurs when: component unmounts, user navigates away, or new stream starts
+      if (error.name === 'AbortError') {
+        console.log('[CustomQueryView] Stream aborted (intentional cleanup)');
+        // Silently clean up placeholder message without showing error
+        setConversationHistory(prev => {
+          const withoutPlaceholder = prev.filter(msg => msg.id !== aiMessageId);
+          if (withoutPlaceholder.length > 0 && withoutPlaceholder[withoutPlaceholder.length - 1]?.role === 'user') {
+            return withoutPlaceholder.slice(0, -1);
+          }
+          return withoutPlaceholder;
+        });
+        return; // Exit without showing error - this was intentional
+      }
+
       console.error('Streaming error:', error);
 
       // CRITICAL-03 FIX: Single atomic state update to prevent race conditions
@@ -819,6 +867,8 @@ export const CustomQueryView = ({
       setIsSubmitting(false);
       // CONCURRENCY FIX: Release synchronous lock
       submissionLockRef.current = false;
+      // H6-A HARDENING 2025-12-04: Clear ref after stream completes (success or error)
+      streamAbortControllerRef.current = null;
     }
   };
 

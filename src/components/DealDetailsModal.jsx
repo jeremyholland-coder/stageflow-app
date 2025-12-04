@@ -19,6 +19,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   const [showLostModal, setShowLostModal] = useState(false);
   const [pendingStageChange, setPendingStageChange] = useState(null);
   const closeButtonRef = React.useRef(null);
+  // H6-D HARDENING 2025-12-04: Track if form has unsaved changes
+  const [isDirty, setIsDirty] = useState(false);
 
   // PRO TIER FIX: Team members for deal assignment
   const [teamMembers, setTeamMembers] = useState([]);
@@ -54,6 +56,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         lost_reason: deal.lost_reason || '',
         assigned_to: deal.assigned_to || ''
       });
+      // H6-D HARDENING 2025-12-04: Reset dirty state when deal changes (new data loaded)
+      setIsDirty(false);
     }
   }, [deal]);
 
@@ -106,6 +110,22 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     }
   }, [isOpen]);
 
+  // H6-D HARDENING 2025-12-04: Helper to update form fields and mark as dirty
+  const updateFormField = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    setIsDirty(true);
+  };
+
+  // H6-D HARDENING 2025-12-04: Handle close with unsaved changes confirmation
+  const handleClose = () => {
+    if (isDirty) {
+      const confirmed = window.confirm('You have unsaved changes. Discard them?');
+      if (!confirmed) return;
+    }
+    setIsDirty(false);
+    onClose();
+  };
+
   const handleStageChange = (newStage) => {
     // CRITICAL: If changing to "lost", show reason modal first
     if (newStage === 'lost' && deal.stage !== 'lost') {
@@ -115,6 +135,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     }
 
     // CRITICAL: Auto-change status to "won" when moving to retention
+    // H6-D: Mark form as dirty when stage changes
+    setIsDirty(true);
     if (newStage === 'retention') {
       setFormData({ ...formData, stage: newStage, status: 'won' });
     } else {
@@ -125,8 +147,10 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 
   const handleLostReasonConfirm = (reason) => {
     // Update form data with lost stage, status, and reason
-    setFormData({ 
-      ...formData, 
+    // H6-D: Mark form as dirty
+    setIsDirty(true);
+    setFormData({
+      ...formData,
       stage: 'lost',
       status: 'lost',
       lost_reason: reason
@@ -320,7 +344,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
             </div>
             <button
               ref={closeButtonRef}
-              onClick={onClose}
+              onClick={handleClose}
               className="min-w-touch min-h-touch flex items-center justify-center text-gray-400 hover:text-white rounded-lg transition"
               aria-label="Close deal details"
             >
@@ -351,7 +375,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                 type="text"
                 required
                 value={formData.client}
-                onChange={(e) => setFormData({ ...formData, client: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, client: e.target.value }); setIsDirty(true); }}
                 className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
               />
             </div>
@@ -365,14 +389,14 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                   type="email"
                   required
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setIsDirty(true); }}
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
                 />
               </div>
               <PhoneInput
                 id="deal-phone"
                 value={formData.phone}
-                onChange={(value) => setFormData({ ...formData, phone: value })}
+                onChange={(value) => { setFormData({ ...formData, phone: value }); setIsDirty(true); }}
                 error={null}
                 required={false}
               />
@@ -389,7 +413,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                   min="0"
                   step="0.01"
                   value={formData.value}
-                  onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, value: e.target.value }); setIsDirty(true); }}
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
                 />
               </div>
@@ -434,7 +458,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                 </label>
                 <select
                   value={formData.assigned_to}
-                  onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, assigned_to: e.target.value }); setIsDirty(true); }}
                   disabled={loadingTeamMembers || teamMembers.length === 0}
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%239CA3AF%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%276 9 12 15 18 9%27/%3E%3C/svg%3E')] bg-[length:1.5em_1.5em] bg-[right_0.5rem_center] bg-no-repeat disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -470,7 +494,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               </label>
               <textarea
                 value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, notes: e.target.value }); setIsDirty(true); }}
                 rows={4}
                 maxLength={5000}
                 className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
@@ -545,7 +569,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               <div className="flex-1" />
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-3 min-h-touch border border-gray-700 text-gray-400 hover:text-white rounded-xl hover:bg-gray-800/50 transition"
               >
                 Cancel

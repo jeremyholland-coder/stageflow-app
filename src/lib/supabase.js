@@ -4,6 +4,78 @@ import { createRateLimitedClient } from './rate-limited-supabase';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// H6-B HARDENING 2025-12-04: Multi-Tab Session Consistency via BroadcastChannel
+// When a user logs out or session expires in one tab, all other tabs are notified
+// This prevents stale auth state from causing confusing errors in background tabs
+const AUTH_CHANNEL_NAME = 'stageflow-auth-channel';
+let _authBroadcastChannel = null;
+
+/**
+ * Get or create the auth broadcast channel
+ * Safe for SSR - returns null if BroadcastChannel is not available
+ */
+function getAuthChannel() {
+  if (_authBroadcastChannel) return _authBroadcastChannel;
+
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') {
+    return null;
+  }
+
+  try {
+    _authBroadcastChannel = new BroadcastChannel(AUTH_CHANNEL_NAME);
+
+    // Listen for auth events from other tabs
+    _authBroadcastChannel.onmessage = (event) => {
+      const { type, timestamp } = event.data || {};
+      console.log(`[Auth] Received cross-tab message: ${type}`);
+
+      if (type === 'SIGNED_OUT') {
+        // Another tab signed out - redirect this tab to login
+        console.warn('[Auth] Another tab signed out - redirecting to login');
+        // Use replace to prevent back button returning to a broken state
+        // Small delay to allow any in-flight operations to complete
+        setTimeout(() => {
+          window.location.replace('/login');
+        }, 100);
+      } else if (type === 'SESSION_INVALID') {
+        // Another tab detected invalid session - redirect this tab
+        console.warn('[Auth] Another tab detected invalid session - redirecting');
+        setTimeout(() => {
+          window.location.replace('/login');
+        }, 100);
+      }
+    };
+
+    console.log('[Auth] BroadcastChannel initialized for multi-tab session sync');
+  } catch (e) {
+    console.warn('[Auth] BroadcastChannel not available:', e.message);
+    return null;
+  }
+
+  return _authBroadcastChannel;
+}
+
+/**
+ * Broadcast an auth event to all other tabs
+ */
+function broadcastAuthEvent(type) {
+  const channel = getAuthChannel();
+  if (channel) {
+    try {
+      channel.postMessage({ type, timestamp: Date.now() });
+      console.log(`[Auth] Broadcasted ${type} to other tabs`);
+    } catch (e) {
+      console.warn('[Auth] Failed to broadcast:', e.message);
+    }
+  }
+}
+
+// Initialize channel on module load (lazy - only when accessed)
+if (typeof window !== 'undefined') {
+  // Defer initialization to avoid blocking initial load
+  setTimeout(() => getAuthChannel(), 100);
+}
+
 // PHASE 3: Cookie-based authentication (localStorage removed)
 // MIGRATION COMPLETE: All authentication now uses HttpOnly cookies
 //
@@ -118,6 +190,10 @@ export const VIEWS = {
 export async function handleSessionInvalid() {
   console.warn('[Auth] handleSessionInvalid called - signing out and redirecting');
 
+  // H6-B HARDENING 2025-12-04: Notify other tabs that session is invalid
+  // This ensures all tabs redirect together, preventing stale-auth confusion
+  broadcastAuthEvent('SESSION_INVALID');
+
   try {
     // Sign out from Supabase client (clears any local state)
     const client = getSupabaseClient();
@@ -189,6 +265,10 @@ export const signOut = async () => {
   }
 
   try {
+    // H6-B HARDENING 2025-12-04: Notify other tabs before signing out
+    // This ensures all tabs sign out together
+    broadcastAuthEvent('SIGNED_OUT');
+
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     return { error: null };
@@ -325,18 +405,21 @@ export const ensureValidSession = async () => {
     console.warn('[Session] getSession() failed:', e.message);
   }
 
+  // H6-G HARDENING 2025-12-04: Mutex check BEFORE throttle check
+  // If a refresh is already in progress, ALL callers should share that result
+  // regardless of throttle timing. This ensures concurrent calls don't get THROTTLED
+  // when they could share the in-flight refresh result.
+  if (_sessionRefreshPromise) {
+    console.log('[Session] Refresh already in progress, waiting...');
+    return _sessionRefreshPromise;
+  }
+
   // FIX 2025-12-03: Throttle refresh attempts to prevent hammering server
+  // Only throttle NEW refresh attempts (not callers sharing an in-progress refresh)
   const now = Date.now();
   if (now - _lastRefreshAttempt < REFRESH_THROTTLE_MS) {
     console.log('[Session] Throttled - too soon since last refresh attempt');
     return { valid: false, error: 'Refresh throttled', code: 'THROTTLED' };
-  }
-
-  // No valid session or expiring soon - try to refresh from auth-session
-  // Use mutex to prevent concurrent refresh attempts
-  if (_sessionRefreshPromise) {
-    console.log('[Session] Refresh already in progress, waiting...');
-    return _sessionRefreshPromise;
   }
 
   _lastRefreshAttempt = now;

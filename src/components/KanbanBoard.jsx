@@ -200,7 +200,8 @@ const STAGE_COLORS = {
 };
 
 // Apple-like KanbanCard with modern, polished aesthetic
-export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3, organizationId, onDisqualify, onAssignmentChange }) => {
+// H6-C HARDENING 2025-12-04: Added isDragLocked to disable dragging during updates
+export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3, organizationId, onDisqualify, onAssignmentChange, isDragLocked = false }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -405,26 +406,27 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
   // PREMIUM GLASS DESIGN - Modern deal card with teal accents
   // LAYOUT FIX: Consistent card height (168px) ensures uniform spacing across all columns
   // This matches virtual scroll itemHeight (180px = 168px card + 12px gap from space-y-3)
+  // H6-C HARDENING 2025-12-04: Disable dragging when isDragLocked is true (update in progress)
   return (
     <div
       ref={cardRef}
-      draggable="true"
-      onDragStart={handleDragStart}
+      draggable={!isDragLocked}
+      onDragStart={isDragLocked ? undefined : handleDragStart}
       onDragEnd={handleDragEnd}
-      onTouchStart={handleTouchStart}
+      onTouchStart={isDragLocked ? undefined : handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onClick={() => onSelect(deal)}
       onKeyDown={handleKeyDown}
       tabIndex={0}
       role="button"
-      aria-label={`Deal: ${deal.client || 'Unnamed'}, Value: $${(Number(deal.value) || 0).toLocaleString()}, Stage: ${deal.stage}, ${deal.status === 'active' ? `Confidence: ${confidenceScore}%` : `Status: ${deal.status}`}. Press Enter to view details.`}
+      aria-label={`Deal: ${deal.client || 'Unnamed'}, Value: $${(Number(deal.value) || 0).toLocaleString()}, Stage: ${deal.stage}, ${deal.status === 'active' ? `Confidence: ${confidenceScore}%` : `Status: ${deal.status}`}. Press Enter to view details.${isDragLocked ? ' Drag temporarily disabled.' : ''}`}
       data-deal-id={deal.id}
       data-tour="deal-card"
       className={`
         group relative
         rounded-2xl p-5
-        cursor-pointer
+        ${isDragLocked ? 'cursor-wait' : 'cursor-pointer'}
         transition-all duration-200 ease-out
         bg-gradient-to-br from-gray-900 to-black
         border border-teal-500/30
@@ -671,7 +673,9 @@ export const KanbanColumn = memo(({
   globalWinRate = 0.3,
   organizationId,
   onDisqualify,
-  onAssignmentChange
+  onAssignmentChange,
+  // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
+  isDragLocked = false
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
@@ -933,6 +937,7 @@ export const KanbanColumn = memo(({
                   organizationId={organizationId}
                   onDisqualify={onDisqualify}
                   onAssignmentChange={onAssignmentChange}
+                  isDragLocked={isDragLocked}
                 />
               ))}
             </div>
@@ -959,7 +964,9 @@ export const KanbanBoard = memo(({
   onAnalyticsEvent = () => {},
   orphanedDealIds = new Set(), // Track orphaned deals for orange glow
   dealsError = null, // MEDIUM FIX: Error state for retry UI
-  onRetryDeals = () => {} // MEDIUM FIX: Retry function
+  onRetryDeals = () => {}, // MEDIUM FIX: Retry function
+  // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
+  isDragLocked = false
 }) => {
   const { organization, user } = useApp();
   const [isDragging, setIsDragging] = useState(false);
@@ -1458,6 +1465,7 @@ export const KanbanBoard = memo(({
                 organizationId={organization?.id}
                 onDisqualify={handleDisqualifyRequest}
                 onAssignmentChange={handleAssignmentChange}
+                isDragLocked={isDragLocked}
               />
             </div>
           );

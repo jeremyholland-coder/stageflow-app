@@ -214,6 +214,8 @@ export const Dashboard = () => {
     deals,
     loading,
     error: dealsError, // MEDIUM FIX: Get error state for retry UI
+    // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
+    isDragLocked,
     fetchDeals,
     updateDeal,
     handleDealCreated,
@@ -785,6 +787,7 @@ export const Dashboard = () => {
                   orphanedDealIds={orphanedDealIds}
                   dealsError={dealsError}
                   onRetryDeals={fetchDeals}
+                  isDragLocked={isDragLocked}
                 />
               </div>
             </ListErrorBoundary>

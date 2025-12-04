@@ -18,6 +18,8 @@ import LoadingOverlay from './LoadingOverlay';
 import AppContext, { useApp } from '../context/AppContext';
 import { logger } from '../lib/logger';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
+// H6-F HARDENING 2025-12-04: Offline status banner
+import { ConnectionStatus } from './ConnectionStatus';
 
 // Re-export for backward compatibility
 export { useApp };
@@ -127,9 +129,11 @@ export const AppProvider = ({ children }) => {
     return Math.max(baseTime, Math.min(readingTime, 10000)); // 5-10s range
   }, []);
 
-  const addNotification = useCallback((msg, type = 'success') => {
+  // H6-H HARDENING 2025-12-04: Enhanced notifications with optional action buttons
+  // Usage: addNotification('Deal move failed', 'error', { label: 'Retry', onClick: retryFn })
+  const addNotification = useCallback((msg, type = 'success', action = null) => {
     const id = notificationIdRef.current++;
-    setNotifications(prev => [...prev, { id, message: msg, type }]);
+    setNotifications(prev => [...prev, { id, message: msg, type, action }]);
 
     // v1.7.54: Use dynamic timeout based on message length
     const timeout = getNotificationTimeout(msg);
@@ -1818,15 +1822,9 @@ export const AppShell = ({ children }) => {
 
         {/* Banners Container - Fixed at top above nav */}
         <div className="fixed top-0 left-0 right-0 z-[160]">
-          {/* FIX #7: Offline detection banner */}
-          {!isOnline && (
-            <div className="bg-yellow-500 dark:bg-yellow-600 text-white py-3 text-center font-medium shadow-md">
-              <div className="max-w-7xl mx-auto px-4 flex items-center justify-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                <span>You're offline. Changes will sync when reconnected.</span>
-              </div>
-            </div>
-          )}
+          {/* H6-F HARDENING 2025-12-04: Enhanced offline/network quality indicator */}
+          {/* ConnectionStatus auto-hides when connection is good, shows on offline/poor */}
+          <ConnectionStatus />
 
           {/* Organization Loading Banner - REMOVED: Silent background loading for better UX
               Only show if this is FIRST TIME setup (no cache) AND taking longer than 3 seconds
@@ -2107,7 +2105,27 @@ export const AppShell = ({ children }) => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
-                <span className="flex-1 text-sm leading-relaxed">{notif.message}</span>
+                <div className="flex-1">
+                  <span className="text-sm leading-relaxed">{notif.message}</span>
+                  {/* H6-H HARDENING 2025-12-04: Action button support for retry/dismiss with action */}
+                  {notif.action && (
+                    <button
+                      onClick={() => {
+                        notif.action.onClick?.();
+                        removeNotification(notif.id);
+                      }}
+                      className={`ml-2 text-sm font-semibold underline underline-offset-2 transition-colors ${
+                        notif.type === 'error'
+                          ? 'text-red-300 hover:text-red-100'
+                          : notif.type === 'warning'
+                          ? 'text-amber-300 hover:text-amber-100'
+                          : 'text-emerald-300 hover:text-emerald-100'
+                      }`}
+                    >
+                      {notif.action.label}
+                    </button>
+                  )}
+                </div>
                 <button
                   onClick={() => removeNotification(notif.id)}
                   className={`flex-shrink-0 p-1 rounded-lg transition-colors ${
