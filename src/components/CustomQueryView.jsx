@@ -33,6 +33,8 @@ import { useActivationState, markFeatureSeen } from '../hooks/useActivationState
 import { AIUsageIndicator } from './AIUsageIndicator';
 // TASK 3 WIRE-UP: Unified inline error UI for AI failures
 import { AIInlineError } from './AIInlineError';
+// PHASE 4: Provider-specific error display with dashboard links
+import { AIProviderErrorDisplay } from './AIProviderErrorDisplay';
 
 // ISSUE 4 FIX: Plan My Day daily limit helpers
 const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
@@ -149,13 +151,47 @@ const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
     };
   }
 
-  // All providers failed (only after ruling out auth issues)
+  // PHASE 4: All providers failed with structured error details
+  // Check for the new AI_PROVIDER_FAILURE format first
   if (
+    error?.error?.type === 'AI_PROVIDER_FAILURE' ||
+    error?.data?.error?.type === 'AI_PROVIDER_FAILURE' ||
     errorCode.includes('ALL_PROVIDERS_FAILED') ||
     error?.isAllProvidersFailed
   ) {
+    // Extract provider-specific errors from the new format
+    const providerErrors = error?.error?.providers ||
+                          error?.data?.error?.providers ||
+                          error?.providers ||
+                          [];
+
+    // Extract fallback plan if available
+    const fallbackPlan = error?.error?.fallbackPlan ||
+                        error?.data?.error?.fallbackPlan ||
+                        error?.fallbackPlan ||
+                        error?.data?.fallbackPlan;
+
+    // Build detailed message from provider errors
+    let detailedMessage = 'Your AI providers are currently failing due to quota, billing, or configuration issues.';
+
+    if (providerErrors.length > 0) {
+      // Get the most actionable error (billing/quota first)
+      const priorityOrder = ['BILLING_REQUIRED', 'INSUFFICIENT_QUOTA', 'INVALID_KEY', 'MODEL_NOT_FOUND'];
+      const sortedErrors = [...providerErrors].sort((a, b) => {
+        const aIdx = priorityOrder.indexOf(a.code);
+        const bIdx = priorityOrder.indexOf(b.code);
+        return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      });
+
+      if (sortedErrors[0]?.message) {
+        detailedMessage = sortedErrors[0].message;
+      }
+    }
+
     return {
-      message: 'All AI providers are temporarily unavailable.',
+      message: detailedMessage,
+      providerErrors, // Pass through for detailed display
+      fallbackPlan, // Pass through for fallback display
       action: onRetry ? {
         label: 'Retry',
         onClick: onRetry
@@ -322,6 +358,10 @@ export const CustomQueryView = ({
   // Prevents double-clicks and provides timeout UX specifically for Plan My Day
   const [isPlanning, setIsPlanning] = useState(false);
   const planMyDayTimeoutRef = useRef(null);
+
+  // PHASE 4: Basic mode state for non-AI fallback
+  const [basicModePlan, setBasicModePlan] = useState(null);
+  const [basicModeLoading, setBasicModeLoading] = useState(false);
 
   // OFFLINE: Track network status for AI availability
   // Use prop if provided (from parent), otherwise track locally
@@ -1135,6 +1175,69 @@ Guidelines:
     }
   };
 
+  // PHASE 4: Handle basic mode (No-AI fallback) request
+  const handleBasicModeRequest = useCallback(async () => {
+    if (basicModeLoading) return;
+
+    setBasicModeLoading(true);
+    setInlineError(null);
+
+    try {
+      const session = await ensureValidSession();
+      if (!session?.access_token) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      const response = await fetch('/.netlify/functions/ai-assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          message: 'Generate my daily pipeline summary',
+          deals: deals || [],
+          mode: 'basic' // Request non-AI fallback
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.ok && data.fallbackPlan) {
+        setBasicModePlan(data.fallbackPlan);
+        // Also add to conversation history for display
+        setConversationHistory(prev => [{
+          role: 'assistant',
+          content: data.response,
+          timestamp: new Date().toISOString(),
+          provider: 'StageFlow (No AI)',
+          isBasicMode: true,
+          fallbackPlan: data.fallbackPlan
+        }]);
+
+        addNotification('Basic pipeline summary generated (no AI used)', 'success');
+      } else if (data.fallbackPlan) {
+        // Error response but still has fallback
+        setBasicModePlan(data.fallbackPlan);
+      } else {
+        throw new Error(data.message || 'Failed to generate basic plan');
+      }
+    } catch (error) {
+      console.error('[CustomQueryView] Basic mode request failed:', error);
+      setInlineError({
+        message: error.message || 'Failed to generate basic plan. Please try again.',
+        action: {
+          label: 'Try Again',
+          onClick: () => handleBasicModeRequest()
+        },
+        severity: 'error',
+        retryable: true
+      });
+    } finally {
+      setBasicModeLoading(false);
+    }
+  }, [deals, basicModeLoading, addNotification]);
+
   // Quick action handler - ONE-CLICK execution (no second click required)
   const handleQuickAction = async (actionType) => {
     // M2 HARDENING: Special guard for Plan My Day to prevent overlapping requests
@@ -1703,11 +1806,41 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                           Start your day with a quick plan.
                         </p>
                         {hasProviders && isOnline && (
-                          <PlanMyDayButton
-                            onClick={() => handleQuickAction('plan_my_day')}
-                            disabled={loading || isSubmitting}
-                            loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-                          />
+                          <div className="flex flex-col items-center gap-2">
+                            <PlanMyDayButton
+                              onClick={() => handleQuickAction('plan_my_day')}
+                              disabled={loading || isSubmitting}
+                              loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                            />
+                            {/* PHASE 4: Safe Mode button for non-AI fallback */}
+                            <button
+                              onClick={handleBasicModeRequest}
+                              disabled={basicModeLoading}
+                              className="text-xs text-white/40 hover:text-white/60 transition-colors flex items-center gap-1"
+                            >
+                              {basicModeLoading ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3 h-3" />
+                              )}
+                              View basic summary (no AI)
+                            </button>
+                          </div>
+                        )}
+                        {/* PHASE 4: Show Safe Mode button when no AI providers */}
+                        {(!hasProviders || !isOnline) && (
+                          <button
+                            onClick={handleBasicModeRequest}
+                            disabled={basicModeLoading}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70 hover:bg-white/10 hover:text-white/90 transition-all"
+                          >
+                            {basicModeLoading ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-4 h-4" />
+                            )}
+                            View basic pipeline summary
+                          </button>
                         )}
                       </>
                     )}
@@ -1962,7 +2095,17 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
           )}
 
           {/* TASK 3 WIRE-UP: Inline error display for AI failures */}
-          {inlineError && (
+          {/* PHASE 4: Show detailed provider errors when available */}
+          {inlineError && inlineError.providerErrors && inlineError.providerErrors.length > 0 ? (
+            <AIProviderErrorDisplay
+              message={inlineError.message}
+              providerErrors={inlineError.providerErrors}
+              fallbackPlan={inlineError.fallbackPlan}
+              onRetry={inlineError.action?.onClick}
+              onDismiss={() => setInlineError(null)}
+              className="mb-3"
+            />
+          ) : inlineError && (
             <AIInlineError
               message={inlineError.message}
               action={inlineError.action}

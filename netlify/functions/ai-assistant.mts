@@ -50,6 +50,14 @@ import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
 // P0 FIX 2025-12-04: Import ProviderFetchError to distinguish fetch failures from "no providers"
 import { getProvidersWithCache, invalidateProviderCache, ProviderFetchError } from './lib/provider-cache';
+// PHASE 3: Non-AI fallback for Mission Control
+import {
+  buildMissionControlContext,
+  buildBasicMissionControlPlan,
+  formatBasicPlanAsText,
+  MissionControlContext,
+  BasicMissionControlPlan
+} from './lib/mission-control-fallback';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1264,6 +1272,9 @@ export default async (req: Request, context: any) => {
     });
   }
 
+  // PHASE 3: Store deals at top level so it's accessible in catch block for fallback
+  let requestDeals: any[] = [];
+
   try {
     // DIAGNOSTICS 2025-12-04: Runtime environment health check
     const envProblems = verifyProviderEnvironment();
@@ -1272,7 +1283,14 @@ export default async (req: Request, context: any) => {
     }
 
     const body = await req.json() as any;
-    const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [] } = body;
+    const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [], mode } = body;
+
+    // PHASE 3: Store deals for catch block access
+    requestDeals = deals;
+
+    // PHASE 3: Support "basic" mode for non-AI fallback
+    // When mode=basic, skip AI providers entirely and return deterministic plan
+    const isBasicMode = mode === 'basic';
 
     if (!message) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
@@ -1473,14 +1491,56 @@ export default async (req: Request, context: any) => {
       (p: any) => ['openai', 'anthropic', 'google'].includes(p.provider_type)
     );
 
+    // PHASE 3: Build Mission Control context for both AI and fallback use
+    // This is done early so we have context ready for fallback if AI fails
+    const performanceContext = await getPerformanceContext(organizationId, user.id);
+    const missionControlContext = buildMissionControlContext(deals, performanceContext ? {
+      userWinRate: performanceContext.userWinRate ? parseFloat(performanceContext.userWinRate) : undefined,
+      avgDaysToClose: performanceContext.orgAvgDaysToClose
+    } : null);
+
+    // PHASE 3: Handle basic mode - return non-AI fallback plan
+    // This is used when users click "No-AI / Safe Mode" button
+    if (isBasicMode) {
+      console.log('[ai-assistant] Basic mode requested - returning non-AI fallback');
+
+      const basicPlan = buildBasicMissionControlPlan(missionControlContext);
+      const textResponse = formatBasicPlanAsText(basicPlan);
+
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: 'basic',
+        response: textResponse,
+        provider: 'StageFlow (No AI)',
+        fallbackPlan: basicPlan,
+        suggestions: ['Connect an AI provider for personalized insights'],
+        timestamp: new Date().toISOString(),
+        performanceContext: performanceContext ? {
+          orgWinRate: performanceContext.orgWinRate,
+          userWinRate: performanceContext.userWinRate,
+          avgDaysToClose: performanceContext.orgAvgDaysToClose,
+          highValueAtRisk: missionControlContext.highValueAtRisk.length
+        } : null
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+
     if (runtimeProviders.length === 0) {
       // This is the REAL "no providers configured" case (empty list, no error)
+      // PHASE 3: Include basic fallback plan so users still get value
+      const basicPlan = buildBasicMissionControlPlan(missionControlContext);
+
       return new Response(JSON.stringify({
+        ok: false,
         error: AI_ERROR_CODES.NO_PROVIDERS,
         code: AI_ERROR_CODES.NO_PROVIDERS,
         message: 'No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.',
         response: "No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.",
-        suggestions: []
+        suggestions: [],
+        // PHASE 3: Include fallback plan so users still get value
+        fallbackPlan: basicPlan
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -1508,11 +1568,8 @@ export default async (req: Request, context: any) => {
       setCachedPipelineAnalysis(organizationId, deals, pipelineAnalysis);
     }
 
-    // LEARNING ENGINE: Fetch performance metrics to enhance AI context
-    // This provides real historical data instead of hardcoded benchmarks
-    const performanceContext = await getPerformanceContext(organizationId, user.id);
-
-    // Merge performance context into pipeline analysis for richer AI insights
+    // LEARNING ENGINE: performanceContext already fetched above for fallback use
+    // Now merge into pipeline analysis for richer AI insights
     const enrichedAnalysis = {
       ...pipelineAnalysis,
       // Add historical performance data if available
@@ -1703,6 +1760,13 @@ export default async (req: Request, context: any) => {
           httpStatus: e.statusCode ?? null,
           message: e.message?.substring(0, 150), // Truncated for safety
           timestamp: e.timestamp
+        })),
+        // PHASE 1: Include classified errors in diagnostic
+        classifiedErrors: error.classifiedErrors?.map(ce => ({
+          provider: ce.provider,
+          code: ce.code,
+          httpStatus: ce.httpStatus,
+          dashboardUrl: ce.providerDashboardUrl
         }))
       });
 
@@ -1710,8 +1774,42 @@ export default async (req: Request, context: any) => {
       // Now provides actionable guidance based on specific error types (quota, billing, model, etc.)
       const userMessage = error.userFriendlyMessage || error.message;
 
+      // PHASE 3: Build fallback plan to include in error response
+      // Users still get value even when AI fails
+      let fallbackPlan: BasicMissionControlPlan | null = null;
+      try {
+        // Use requestDeals which is stored at top level for catch block access
+        const fallbackContext = buildMissionControlContext(requestDeals, null);
+        fallbackPlan = buildBasicMissionControlPlan(fallbackContext);
+      } catch (fallbackError) {
+        console.error('[ai-assistant] Failed to build fallback plan:', fallbackError);
+      }
+
+      // PHASE 2: Build structured error response with provider-specific details
+      // Frontend can now show per-provider error messages with dashboard links
       return new Response(JSON.stringify({
-        error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+        ok: false,
+        error: {
+          type: 'AI_PROVIDER_FAILURE',
+          reason: 'ALL_PROVIDERS_FAILED',
+          code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+          message: userMessage,
+          // PHASE 2: Per-provider classified errors with actionable info
+          providers: error.classifiedErrors?.map(ce => ({
+            provider: ce.provider,
+            code: ce.code,
+            message: ce.userMessage,
+            dashboardUrl: ce.providerDashboardUrl,
+            httpStatus: ce.httpStatus
+          })) || error.errors.map(e => ({
+            provider: e.provider,
+            code: e.errorType,
+            message: e.message?.substring(0, 200)
+          })),
+          // PHASE 3: Include fallback plan so users still get value
+          fallbackPlan
+        },
+        // Legacy fields for backwards compatibility
         code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
         message: userMessage,
         response: userMessage,
@@ -1720,7 +1818,9 @@ export default async (req: Request, context: any) => {
           provider: e.provider,
           errorType: e.errorType
         })),
-        suggestions: ['Check your AI provider API keys in Settings', 'Try again in a few moments']
+        suggestions: ['Check your AI provider API keys in Settings', 'Try again in a few moments'],
+        // PHASE 3: Top-level fallback plan for easier access
+        fallbackPlan
       }), {
         status: 503, // Service Unavailable
         headers: { 'Content-Type': 'application/json', ...corsHeaders }

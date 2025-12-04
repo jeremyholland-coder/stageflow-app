@@ -10,6 +10,14 @@
  * @author StageFlow Engineering
  */
 
+// PHASE 1: Import provider error classifier for structured error handling
+import {
+  classifyProviderError,
+  buildProviderErrorSummary,
+  ClassifiedProviderError,
+  ProviderErrorCode
+} from './provider-error-classifier';
+
 // DEPRECATED: This constant is kept for backwards compatibility only.
 // New code should use buildFallbackChain from lib/select-provider.ts
 // FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
@@ -508,11 +516,19 @@ export function summarizeProviderErrors(errors: ProviderError[]): string {
  *
  * FIX 2025-12-04: Now includes intelligent error summarization
  * that provides actionable guidance based on error types.
+ *
+ * PHASE 1 2025-12-04: Added classifiedErrors with structured
+ * provider-specific error codes, messages, and dashboard URLs.
  */
 export class AllProvidersFailedError extends Error {
   public readonly errors: ProviderError[];
   public readonly providersAttempted: string[];
   public readonly userFriendlyMessage: string;
+  /**
+   * PHASE 1: Structured error classification with provider-specific
+   * error codes, user messages, and dashboard URLs for each provider.
+   */
+  public readonly classifiedErrors: ClassifiedProviderError[];
 
   constructor(errors: ProviderError[]) {
     const userMessage = summarizeProviderErrors(errors);
@@ -521,6 +537,11 @@ export class AllProvidersFailedError extends Error {
     this.errors = errors;
     this.providersAttempted = errors.map(e => e.provider);
     this.userFriendlyMessage = userMessage;
+
+    // PHASE 1: Classify each error with provider-specific details
+    this.classifiedErrors = errors.map(e =>
+      classifyProviderError(e.provider, e.statusCode || null, e.message)
+    );
   }
 }
 
