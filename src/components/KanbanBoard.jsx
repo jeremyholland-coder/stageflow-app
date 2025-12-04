@@ -119,6 +119,17 @@ const STAGE_ID_ICONS = {
   lost: AlertCircle
 };
 
+// APPLE UX POLISH: Human-readable labels for disqualification reasons
+// Matches categories defined in DisqualifyModal.jsx
+const DISQUALIFY_REASON_LABELS = {
+  no_budget: 'No budget',
+  not_a_fit: 'Not a fit',
+  wrong_timing: 'Wrong timing',
+  went_with_competitor: 'Went with competitor',
+  unresponsive: 'Unresponsive',
+  other: 'Other'
+};
+
 // FIX PHASE 8: Comprehensive color mapping for ALL pipeline templates (60+ stages)
 // Removed hardcoded STAGES array - now fully pipeline-aware
 const STAGE_COLORS = {
@@ -548,9 +559,10 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
       {/* Disqualified Reason – only for disqualified leads */}
       {isDisqualified &&
         (deal.disqualified_reason_notes || deal.disqualified_reason_category) && (
-          <p className="text-sm truncate mb-3 text-red-400">
+          <p className="text-sm truncate mb-3 text-red-400" title={deal.disqualified_reason_notes || DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] || deal.disqualified_reason_category}>
             {deal.disqualified_reason_notes ||
-              deal.disqualified_reason_category.replace(/_/g, ' ')}
+              DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] ||
+              deal.disqualified_reason_category}
           </p>
         )}
 

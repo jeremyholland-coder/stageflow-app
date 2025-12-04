@@ -130,7 +130,7 @@ const StatusBadge = ({ status, attainmentPct, projectedAttainmentPct, period }) 
 // ============================================================
 
 export const TeamDashboard = () => {
-  const { setActiveView, organization: contextOrganization } = useApp();
+  const { setActiveView, organization: contextOrganization, addNotification } = useApp();
 
   // Core state
   const [loading, setLoading] = useState(true);
@@ -585,15 +585,21 @@ export const TeamDashboard = () => {
         if (analytics) {
           setAnalyticsData(analytics);
         }
+        // APPLE UX POLISH: Show success notification
+        addNotification(result.partial ? 'Targets saved (some may need review)' : 'Targets saved successfully', result.partial ? 'warning' : 'success');
       } else {
         console.error('[TeamDashboard] Failed to save targets:', result.errors);
+        // APPLE UX POLISH: Show error notification
+        addNotification('Failed to save targets. Please try again.', 'error');
       }
     } catch (error) {
       console.error('[TeamDashboard] Error saving targets:', error);
+      // APPLE UX POLISH: Show error notification
+      addNotification('Connection error. Please check your network and try again.', 'error');
     } finally {
       setSavingTargets(false);
     }
-  }, [organizationId, editedTargets, editedOrgAnnual, selectedPeriod, fetchAnalytics]);
+  }, [organizationId, editedTargets, editedOrgAnnual, selectedPeriod, fetchAnalytics, addNotification]);
 
   // Distribute to team
   const distributeToTeam = useCallback(() => {
