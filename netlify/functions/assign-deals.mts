@@ -101,28 +101,11 @@ export const handler = async (event: any) => {
 
       console.warn('[assign-deals] Membership verified, role:', membership.role);
 
-      // H4/H5 FIX: Role-based permission check for deal assignment
-      // Only admins and owners can assign deals to OTHER people
-      // Members can still self-assign (claim deals)
-      const { assignedTo, assignedBy } = body;
-      const isSelfAssignment = !assignedBy || assignedBy === user.id || assignedTo === user.id;
-      const canAssignToOthers = ['owner', 'admin'].includes(membership.role);
-
-      if (!isSelfAssignment && !canAssignToOthers) {
-        console.warn('[assign-deals] Permission denied - member cannot assign to others:', {
-          userId: user.id,
-          role: membership.role,
-          assignedTo
-        });
-        return {
-          statusCode: 403,
-          headers,
-          body: JSON.stringify({
-            error: 'Only admins and owners can assign deals to other team members',
-            code: 'INSUFFICIENT_PERMISSIONS'
-          })
-        };
-      }
+      // PERMISSION POLICY: Any org member can assign deals to any other org member.
+      // Cross-org assignment is prevented by:
+      // 1. The membership check above (assigning user must be in org)
+      // 2. The assignee check in each action (assignee must be in same org)
+      // 3. The deal update query (deal must belong to same org)
     } catch (authError: any) {
       console.error('[assign-deals] Auth error:', {
         message: authError.message,
