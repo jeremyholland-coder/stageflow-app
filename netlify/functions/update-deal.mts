@@ -72,7 +72,14 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    console.warn("[update-deal] Update request:", { dealId, organizationId, updateKeys: Object.keys(updates) });
+    // KANBAN DRAG FIX 2025-12-04: Enhanced logging for drag-drop debugging
+    console.log("[KANBAN][BACKEND] Update request received:", {
+      dealId,
+      organizationId,
+      updateKeys: Object.keys(updates),
+      stageUpdate: updates.stage || 'no stage change',
+      statusUpdate: updates.status || 'no status change'
+    });
 
     // STEP 3: Get Supabase client with service role (bypasses RLS)
     const supabase = getSupabaseClient();
@@ -193,7 +200,8 @@ export default async (req: Request, context: Context) => {
       ]);
 
       if (!VALID_STAGES.has(sanitizedUpdates.stage)) {
-        console.error("[update-deal] Invalid stage value:", sanitizedUpdates.stage);
+        console.error("[KANBAN][BACKEND] ❌ Invalid stage value:", sanitizedUpdates.stage);
+        console.error("[KANBAN][BACKEND] Valid stages are:", Array.from(VALID_STAGES).join(', '));
         return new Response(
           JSON.stringify({
             error: `Invalid stage value: ${sanitizedUpdates.stage}`,
@@ -202,6 +210,7 @@ export default async (req: Request, context: Context) => {
           { status: 400, headers: corsHeaders }
         );
       }
+      console.log("[KANBAN][BACKEND] ✓ Stage validation passed:", sanitizedUpdates.stage);
     }
 
     // STEP 7: Validate lost/disqualified mutual exclusivity
@@ -325,7 +334,12 @@ export default async (req: Request, context: Context) => {
       }
     }
 
-    console.info("[StageFlow][DEAL][INFO] Update success:", { dealId, stage: updatedDeal.stage });
+    console.log("[KANBAN][BACKEND] ✓ Update success:", {
+      dealId,
+      previousStage: existingDeal.stage,
+      newStage: updatedDeal.stage,
+      status: updatedDeal.status
+    });
 
     // FIX 2025-12-02: Include success: true for proper frontend error handling
     // M5 HARDENING 2025-12-04: Include ignoredFields for debugging

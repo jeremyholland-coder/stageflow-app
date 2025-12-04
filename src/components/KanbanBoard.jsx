@@ -233,7 +233,14 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
   const isDisqualified = deal.status === 'disqualified';
 
   // Desktop drag handlers
+  // KANBAN DRAG FIX 2025-12-04: Added logging to trace drag start
   const handleDragStart = (e) => {
+    console.log('[KANBAN][DRAG_START]', {
+      dealId: deal.id,
+      dealName: deal.client || 'Unnamed Deal',
+      currentStage: deal.stage,
+      currentStatus: deal.status
+    });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('dealId', deal.id);
     e.dataTransfer.setData('dealName', deal.client || 'Unnamed Deal');
@@ -734,6 +741,7 @@ export const KanbanColumn = memo(({
 
   const handleDragLeave = () => setDragOver(false);
 
+  // KANBAN DRAG FIX 2025-12-04: Added logging to trace drop event
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
@@ -741,7 +749,17 @@ export const KanbanColumn = memo(({
     const dealName = e.dataTransfer.getData('dealName');
     const currentStatus = e.dataTransfer.getData('currentStatus');
 
-    if (!dealId) return;
+    console.log('[KANBAN][DRAG_END] Drop event received:', {
+      dealId,
+      dealName,
+      currentStatus,
+      targetStage: stage.id
+    });
+
+    if (!dealId) {
+      console.warn('[KANBAN][DRAG_END] ⚠️ No dealId in dataTransfer - drop ignored');
+      return;
+    }
 
     processDrop(dealId, dealName, currentStatus);
   };
@@ -755,18 +773,31 @@ export const KanbanColumn = memo(({
   }, []);
 
   // Shared drop processing logic for both desktop and touch
+  // KANBAN DRAG FIX 2025-12-04: Added comprehensive logging to trace drag-drop flow
   const processDrop = (dealId, dealName, currentStatus) => {
+    console.log('[KANBAN][DROP] Processing drop:', {
+      dealId,
+      dealName,
+      currentStatus,
+      targetStage: stage.id,
+      targetStageName: stage.name
+    });
+
     if (stage.id === 'lost') {
+      console.log('[KANBAN][DROP] → Opening lost reason modal');
       onLostReasonRequired(dealId, dealName, stage.id);
     } else if (stage.id === 'retention') {
+      console.log('[KANBAN][DROP] → Moving to retention (status: won)');
       onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
     } else {
       const isMovingFromWonOrLost = currentStatus === 'won' || currentStatus === 'lost';
       const isMovingToActiveStage = stage.id !== 'retention' && stage.id !== 'lost';
 
       if (isMovingFromWonOrLost && isMovingToActiveStage) {
+        console.log('[KANBAN][DROP] → Opening status change confirmation modal');
         onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
       } else {
+        console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
         onUpdateDeal(dealId, { stage: stage.id });
       }
     }

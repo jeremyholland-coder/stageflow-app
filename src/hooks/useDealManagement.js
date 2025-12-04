@@ -628,20 +628,37 @@ export const useDealManagement = (user, organization, addNotification) => {
   }, [user, organization, addNotification]);
 
   // UPDATE DEAL - ROOT CAUSE FIX: Remove state dependencies to prevent excessive re-renders
+  // KANBAN DRAG FIX 2025-12-04: Added comprehensive logging and improved drag lock handling
   const updateDeal = useCallback(async (dealId, updates) => {
+    console.log('[KANBAN][UPDATE_DEAL] Called with:', {
+      dealId,
+      updates,
+      hasUser: !!user,
+      hasOrg: !!organization,
+      isDragLocked
+    });
+
     if (!user || !organization || !dealId) {
-      console.error('Missing required params for updateDeal');
+      console.error('[KANBAN][UPDATE_DEAL] Missing required params:', {
+        hasUser: !!user,
+        hasOrg: !!organization,
+        dealId
+      });
       return;
     }
 
     // H6-C HARDENING 2025-12-04: Check if drag is already locked (prevents concurrent drag-drops)
     // This provides an additional layer of protection beyond request deduplication
+    // KANBAN DRAG FIX 2025-12-04: Added user notification when drag is blocked
     if (isDragLocked) {
-      logger.log('[updateDeal] Drag locked - ignoring concurrent update request');
+      console.warn('[KANBAN][UPDATE_DEAL] ⚠️ BLOCKED - Drag locked (another update in progress)');
+      // Don't silently fail - let the user know
+      addNotification('Please wait - another update is in progress', 'info');
       return;
     }
 
     // H6-C HARDENING 2025-12-04: Lock drag operations while update is in progress
+    console.log('[KANBAN][UPDATE_DEAL] Setting drag lock = true');
     setIsDragLocked(true);
 
     // NEXT-LEVEL: Request deduplication to prevent race conditions
@@ -684,8 +701,11 @@ export const useDealManagement = (user, organization, addNotification) => {
 
       finalUpdates.last_activity = new Date().toISOString();
 
+      console.log('[KANBAN][UPDATE_DEAL] Final updates to apply:', finalUpdates);
+
       // Optimistic update
       // ROOT CAUSE FIX: Filter nulls before mapping
+      console.log('[KANBAN][UPDATE_DEAL] Applying optimistic update...');
       setDeals(prevDeals =>
         prevDeals.filter(d => d != null).map(d =>
           d.id === dealId
@@ -693,6 +713,7 @@ export const useDealManagement = (user, organization, addNotification) => {
            : d
         )
       );
+      console.log('[KANBAN][UPDATE_DEAL] ✓ Optimistic update applied');
 
       // OFFLINE: If offline, queue command instead of making network call
       if (!navigator.onLine) {
@@ -709,18 +730,28 @@ export const useDealManagement = (user, organization, addNotification) => {
 
       // PHASE J: Use auth-aware api-client with Authorization header
       // Fixes cross-origin cookie issues by sending Bearer token
+      console.log('[KANBAN][UPDATE_DEAL] Making API call to update-deal...');
       const { data: result } = await api.post('update-deal', {
         dealId,
         updates: finalUpdates,
         organizationId: organization.id
       });
 
+      console.log('[KANBAN][UPDATE_DEAL] API response:', {
+        success: result.success,
+        hasError: !!result.error,
+        hasDeal: !!result.deal,
+        dealStage: result.deal?.stage,
+        ignoredFields: result.ignoredFields
+      });
+
       if (!result.success && result.error) {
+        console.error('[KANBAN][UPDATE_DEAL] ❌ API returned error:', result.error);
         throw new Error(result.error);
       }
 
       const data = result.deal;
-      logger.log('[updateDeal] Backend update successful');
+      console.log('[KANBAN][UPDATE_DEAL] ✓ Backend update successful, deal stage:', data?.stage);
 
       // Update with server response
       // ROOT CAUSE FIX: Filter nulls before mapping
@@ -732,7 +763,11 @@ export const useDealManagement = (user, organization, addNotification) => {
 
       addNotification('Deal updated successfully');
     } catch (error) {
-      console.error('Error updating deal:', error);
+      console.error('[KANBAN][UPDATE_DEAL] ❌ Error caught:', {
+        message: error.message,
+        code: error.code,
+        status: error.status
+      });
 
       // H6-H HARDENING 2025-12-04: Context-aware error messages for deal operations
       // Parse error to get proper classification and user-friendly message
@@ -756,21 +791,26 @@ export const useDealManagement = (user, organization, addNotification) => {
       // CRITICAL FIX: Only rollback if we have originalDeal captured
       // This prevents crash if error occurred before originalDeal was assigned
       if (isMountedRef.current && originalDeal) {
+        console.log('[KANBAN][UPDATE_DEAL] Rolling back to original state...');
         setDeals(prevDeals =>
           prevDeals.filter(d => d != null).map(d =>
             d.id === dealId ? originalDeal : d
           )
         );
-        logger.log('[Optimistic] Rolled back deal to original state');
+        console.log('[KANBAN][UPDATE_DEAL] ✓ Rolled back deal to original stage:', originalDeal.stage);
       } else if (isMountedRef.current) {
         // Fallback: If no originalDeal, just log warning (don't crash)
-        logger.log('[Optimistic] Could not rollback - originalDeal not captured');
+        console.warn('[KANBAN][UPDATE_DEAL] Could not rollback - originalDeal not captured');
       }
     } finally {
       // H6-C HARDENING 2025-12-04: Always unlock drag when update completes (success or failure)
       // This ensures the user can drag again after any outcome
+      console.log('[KANBAN][UPDATE_DEAL] Finally block - releasing drag lock');
       if (isMountedRef.current) {
         setIsDragLocked(false);
+        console.log('[KANBAN][UPDATE_DEAL] ✓ Drag lock released');
+      } else {
+        console.warn('[KANBAN][UPDATE_DEAL] Component unmounted - drag lock not released via setState');
       }
     }
     }); // End deduplication wrapper
