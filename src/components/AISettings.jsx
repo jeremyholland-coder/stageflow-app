@@ -75,7 +75,7 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
 
   return (
     <div
-      className={`relative bg-gradient-to-br from-gray-900 to-black rounded-2xl p-6 border transition-all duration-300 shadow-2xl ${
+      className={`relative bg-gradient-to-br from-gray-900 to-black rounded-2xl p-6 border transition-all duration-300 shadow-2xl h-full flex flex-col ${
         connected
           ? 'border-teal-500 shadow-teal-500/40 hover:shadow-teal-500/60'
           : 'border-teal-500/30 hover:border-teal-500/50 hover:shadow-teal-500/20'
@@ -95,6 +95,7 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
         }}
       />
 
+      {/* Header section */}
       <div className="flex items-start justify-between mb-4 relative z-10">
         <div className="flex items-center gap-3">
           <div
@@ -127,9 +128,10 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
         )}
       </div>
 
+      {/* Body + Footer wrapper - flex-1 pushes footer to bottom */}
       {connected ? (
-        <div className="space-y-3 relative z-10">
-          {/* PHASE K4 FIX: Clear "Key configured" indicator instead of confusing encrypted key display */}
+        <div className="flex-1 flex flex-col justify-between relative z-10">
+          {/* Body: Key info */}
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 backdrop-blur-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -144,7 +146,8 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
               </span>
             </div>
           </div>
-          <div className="flex gap-2">
+          {/* Footer: Action buttons */}
+          <div className="flex gap-2 mt-4">
             <button
               onClick={() => handleRemoveProvider(provider.id)}
               className="flex-1 px-4 py-2 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/10 hover:border-red-500 transition-all text-sm font-medium"
@@ -163,12 +166,14 @@ const ProviderCard = ({ provider, isProviderConnected, getConnectedProvider, han
           </div>
         </div>
       ) : (
-        <div className="space-y-3 relative z-10">
+        <div className="flex-1 flex flex-col justify-between relative z-10">
+          {/* Body: Helper text */}
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <AlertCircle className="w-3 h-3" />
             <span>You'll need an API key from {provider.name}</span>
           </div>
-          <div className="flex gap-2">
+          {/* Footer: Action buttons */}
+          <div className="flex gap-2 mt-4">
             <button
               onClick={() => handleConnectProvider(provider)}
               disabled={isDisabled}
@@ -384,14 +389,13 @@ export const AISettings = () => {
       </div>
 
       {/* CRITICAL: AI Providers Grid - Enhanced visibility for onboarding spotlight */}
+      {/* Layout: 1-col mobile, 2-col tablet, 3-col desktop for uniform card display */}
       <div
         data-tour="ai-providers"
-        className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-stretch relative z-10"
         style={{
           // FIX v1.7.61 (#6): Changed from z-[173] to z-10 to prevent cards overlapping navbar
           // Navbar is z-150, so cards must be lower. Onboarding spotlight handles elevation.
-          // RESTORED ORIGINAL LAYOUT: 2×2 grid on all screen sizes (md breakpoint and up)
-          // Mobile: 1 column, Tablet/Desktop: 2×2 grid with proper spacing
           isolation: 'isolate'
         }}
       >
@@ -407,7 +411,7 @@ export const AISettings = () => {
             />
           ))
         ) : (
-          <div className="col-span-2 text-center py-8 text-[#6B7280] dark:text-[#9CA3AF]">
+          <div className="col-span-full text-center py-8 text-[#6B7280] dark:text-[#9CA3AF]">
             <p>No AI providers available</p>
           </div>
         )}
