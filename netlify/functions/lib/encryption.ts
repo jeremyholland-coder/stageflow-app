@@ -57,28 +57,61 @@ export function encrypt(text: string): string {
  * @returns Decrypted plain text
  */
 export function decrypt(encryptedData: string): string {
+  // Parse encrypted data FIRST for diagnostics
+  const parts = encryptedData?.split(':') || [];
+
   try {
     const key = getEncryptionKey();
-    
-    // Parse encrypted data
-    const parts = encryptedData.split(':');
+
     if (parts.length !== 3) {
+      // DIAGNOSTIC: Log format issue
+      console.error("[StageFlow][AI][DECRYPT][ERROR] Invalid GCM format", {
+        expectedParts: 3,
+        actualParts: parts.length,
+        encryptedDataLength: encryptedData?.length ?? 0
+      });
       throw new Error('Invalid encrypted data format');
     }
-    
+
     const [ivHex, authTagHex, ciphertext] = parts;
-    
+
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    
+
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
-    
+
     let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
+    // ============================================================================
+    // [StageFlow][AI][DECRYPT] Success diagnostic (NO actual key logged!)
+    // ============================================================================
+    console.log("[StageFlow][AI][DECRYPT]", {
+      success: true,
+      format: 'GCM',
+      inputLength: encryptedData?.length ?? 0,
+      outputLength: decrypted?.length ?? 0,
+      // Only log first 4 chars to confirm key format (sk-..., AIza..., etc)
+      outputPrefix: decrypted?.substring(0, 4) + '***'
+    });
+
     return decrypted;
   } catch (error: any) {
+    // ============================================================================
+    // [StageFlow][AI][DECRYPT] Failure diagnostic
+    // ============================================================================
+    console.error("[StageFlow][AI][DECRYPT]", {
+      success: false,
+      format: 'GCM',
+      inputLength: encryptedData?.length ?? 0,
+      inputParts: parts.length,
+      errorName: error?.name,
+      errorMessage: error?.message?.substring(0, 100),
+      // Check if ENCRYPTION_KEY is present (don't log the key!)
+      encryptionKeyPresent: !!process.env.ENCRYPTION_KEY,
+      encryptionKeyLength: process.env.ENCRYPTION_KEY?.length ?? 0
+    });
     console.error('Decryption error:', error);
     throw new Error('Failed to decrypt data');
   }
@@ -98,24 +131,57 @@ export function isLegacyEncryption(encryptedData: string): boolean {
  * Decrypt legacy CBC encrypted data (for migration only)
  */
 export function decryptLegacy(encryptedData: string): string {
+  // Parse encrypted data FIRST for diagnostics
+  const parts = encryptedData?.split(':') || [];
+
   try {
     const key = getEncryptionKey();
-    
-    const parts = encryptedData.split(':');
+
     if (parts.length !== 2) {
+      // DIAGNOSTIC: Log format issue
+      console.error("[StageFlow][AI][DECRYPT][ERROR] Invalid CBC format", {
+        expectedParts: 2,
+        actualParts: parts.length,
+        encryptedDataLength: encryptedData?.length ?? 0
+      });
       throw new Error('Invalid legacy encrypted data format');
     }
-    
+
     const [ivHex, ciphertext] = parts;
     const iv = Buffer.from(ivHex, 'hex');
-    
+
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    
+
     let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
+    // ============================================================================
+    // [StageFlow][AI][DECRYPT] Success diagnostic (NO actual key logged!)
+    // ============================================================================
+    console.log("[StageFlow][AI][DECRYPT]", {
+      success: true,
+      format: 'CBC_LEGACY',
+      inputLength: encryptedData?.length ?? 0,
+      outputLength: decrypted?.length ?? 0,
+      // Only log first 4 chars to confirm key format
+      outputPrefix: decrypted?.substring(0, 4) + '***'
+    });
+
     return decrypted;
   } catch (error: any) {
+    // ============================================================================
+    // [StageFlow][AI][DECRYPT] Failure diagnostic
+    // ============================================================================
+    console.error("[StageFlow][AI][DECRYPT]", {
+      success: false,
+      format: 'CBC_LEGACY',
+      inputLength: encryptedData?.length ?? 0,
+      inputParts: parts.length,
+      errorName: error?.name,
+      errorMessage: error?.message?.substring(0, 100),
+      encryptionKeyPresent: !!process.env.ENCRYPTION_KEY,
+      encryptionKeyLength: process.env.ENCRYPTION_KEY?.length ?? 0
+    });
     console.error('Legacy decryption error:', error);
     throw new Error('Failed to decrypt legacy data');
   }

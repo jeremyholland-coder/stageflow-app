@@ -179,6 +179,27 @@ export async function getProvidersWithCache(
     .eq('active', true)
     .order('created_at', { ascending: true }); // First connected = first in array
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDERS][DB_FETCH] Deep diagnostic log
+  // Shows what we got from database BEFORE any decryption
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDERS][DB_FETCH]", {
+    organizationId: orgId,
+    dbError: error ? { code: error.code, message: error.message, details: error.details } : null,
+    count: data?.length ?? 0,
+    providers: (data || []).map((p: any) => ({
+      id: p.id,
+      provider_type: p.provider_type,
+      active: p.active,
+      model: p.model,
+      hasEncryptedKey: !!(p.api_key_encrypted),
+      encryptedKeyLength: p.api_key_encrypted?.length ?? 0,
+      encryptedKeyFormat: p.api_key_encrypted?.split(':').length === 3 ? 'GCM' :
+                          p.api_key_encrypted?.split(':').length === 2 ? 'CBC' : 'UNKNOWN',
+      created_at: p.created_at
+    }))
+  });
+
   if (error) {
     // P0 FIX 2025-12-04: THROW instead of returning []
     // This allows callers to distinguish "no providers" from "fetch failed"

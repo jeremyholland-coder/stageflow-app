@@ -712,6 +712,19 @@ Focus on sustainable momentum and genuine relationship development.`
     content: message
   });
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Pre-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'openai',
+    model: modelName || 'gpt-4o',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    apiKeyLength: apiKey?.length ?? 0,
+    apiKeyPrefix: apiKey?.substring(0, 7) + '***', // "sk-proj" or "sk-..." prefix
+    messageCount: messages.length,
+    phase: 'CALLING'
+  });
+
   const response = await withTimeout(
     fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -730,8 +743,24 @@ Focus on sustainable momentum and genuine relationship development.`
     'OpenAI API call'
   );
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Post-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'openai',
+    model: modelName || 'gpt-4o',
+    httpStatus: response.status,
+    httpOk: response.ok,
+    phase: 'RESPONSE_RECEIVED'
+  });
+
   if (!response.ok) {
     const errorText = await response.text();
+    console.error("[StageFlow][AI][PROVIDER_CALL][ERROR]", {
+      provider: 'openai',
+      httpStatus: response.status,
+      errorBody: errorText?.substring(0, 200)
+    });
     throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
   }
 
@@ -835,6 +864,19 @@ Focus on sustainable momentum and genuine relationship development.`;
     });
   }
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Pre-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'anthropic',
+    model: modelName || 'claude-3-5-sonnet-20241022',
+    endpoint: 'https://api.anthropic.com/v1/messages',
+    apiKeyLength: apiKey?.length ?? 0,
+    apiKeyPrefix: apiKey?.substring(0, 7) + '***', // "sk-ant-" prefix
+    messageCount: messages.length,
+    phase: 'CALLING'
+  });
+
   const response = await withTimeout(
     fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -854,8 +896,24 @@ Focus on sustainable momentum and genuine relationship development.`;
     'Anthropic API call'
   );
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Post-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'anthropic',
+    model: modelName || 'claude-3-5-sonnet-20241022',
+    httpStatus: response.status,
+    httpOk: response.ok,
+    phase: 'RESPONSE_RECEIVED'
+  });
+
   if (!response.ok) {
     const errorText = await response.text();
+    console.error("[StageFlow][AI][PROVIDER_CALL][ERROR]", {
+      provider: 'anthropic',
+      httpStatus: response.status,
+      errorBody: errorText?.substring(0, 200)
+    });
     throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
   }
 
@@ -941,6 +999,19 @@ ${context.adaptationSnippet || ''}
     });
   }
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Pre-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'google',
+    model: model,
+    endpoint: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    apiKeyLength: apiKey?.length ?? 0,
+    apiKeyPrefix: apiKey?.substring(0, 4) + '***', // "AIza" prefix
+    contentsCount: contents.length,
+    phase: 'CALLING'
+  });
+
   const response = await withTimeout(
     fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
@@ -955,8 +1026,24 @@ ${context.adaptationSnippet || ''}
     'Gemini API call'
   );
 
+  // ============================================================================
+  // [StageFlow][AI][PROVIDER_CALL] Post-call diagnostic
+  // ============================================================================
+  console.log("[StageFlow][AI][PROVIDER_CALL]", {
+    provider: 'google',
+    model: model,
+    httpStatus: response.status,
+    httpOk: response.ok,
+    phase: 'RESPONSE_RECEIVED'
+  });
+
   if (!response.ok) {
     const errorText = await response.text();
+    console.error("[StageFlow][AI][PROVIDER_CALL][ERROR]", {
+      provider: 'google',
+      httpStatus: response.status,
+      errorBody: errorText?.substring(0, 200)
+    });
     throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
   }
 
@@ -1603,6 +1690,22 @@ export default async (req: Request, context: any) => {
 
     // AI FALLBACK: Handle AllProvidersFailedError with detailed info
     if (error instanceof AllProvidersFailedError) {
+      // ============================================================================
+      // [StageFlow][AI][ALL_PROVIDERS_FAILED] Deep diagnostic
+      // Shows exactly why each provider failed
+      // ============================================================================
+      console.error("[StageFlow][AI][ALL_PROVIDERS_FAILED]", {
+        totalProviders: error.errors.length,
+        providersAttempted: error.providersAttempted,
+        errors: error.errors.map(e => ({
+          provider: e.provider,
+          errorType: e.errorType,
+          httpStatus: e.statusCode ?? null,
+          message: e.message?.substring(0, 150), // Truncated for safety
+          timestamp: e.timestamp
+        }))
+      });
+
       const providerNames = error.errors
         .map(e => PROVIDER_NAMES[e.provider] || e.provider)
         .filter(Boolean)
