@@ -472,9 +472,15 @@ export default async (req: Request, context: any) => {
     // Get AI providers (TASK 1: Now uses 60s cache)
     const providers = await getProvidersWithCache(supabase, organizationId);
 
+    // FIX 2025-12-04: Remove xAI/Grok from runtime provider chain
+    // Grok is deprecated - filter it out at the boundary so it's never called
+    const runtimeProviders = providers.filter(
+      (p: any) => p.provider_type !== 'xai'
+    );
+
     // FIX 2025-12-02: Return 422 (Unprocessable Entity) for NO_PROVIDERS
     // Previously returned 200 which confused frontend error handling
-    if (!providers || providers.length === 0) {
+    if (!runtimeProviders || runtimeProviders.length === 0) {
       return new Response(JSON.stringify({
         error: 'NO_PROVIDERS',
         code: 'NO_PROVIDERS',
@@ -489,9 +495,10 @@ export default async (req: Request, context: any) => {
     const taskType = determineTaskType(message);
 
     // FIX 2025-12-03: Sort providers for fallback - best provider first, then others
-    // FIX 2025-12-04: Pass taskType for task-aware fallback ordering (ChatGPT → Claude → Gemini → Grok for planning)
-    const bestProvider = selectBestProvider(providers, taskType);
-    const sortedProviders = sortProvidersForFallback(providers, bestProvider?.provider_type, taskType);
+    // FIX 2025-12-04: Pass taskType for task-aware fallback ordering (ChatGPT → Claude → Gemini for planning)
+    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
+    const bestProvider = selectBestProvider(runtimeProviders, taskType);
+    const sortedProviders = sortProvidersForFallback(runtimeProviders, bestProvider?.provider_type, taskType);
 
     // Analyze pipeline (simplified for streaming)
     const pipelineContext = analyzeDealsPipeline(deals);

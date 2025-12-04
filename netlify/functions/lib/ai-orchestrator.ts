@@ -118,8 +118,9 @@ export async function getConnectedProvidersForOrg(orgId: string): Promise<Connec
   }
 
   // Filter out any with empty api_key_encrypted (extra safety)
+  // FIX 2025-12-04: Also filter out xAI/Grok - deprecated provider
   const validProviders = (data || []).filter(
-    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== ''
+    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== '' && p.provider_type !== 'xai'
   );
 
   console.log(`[ai-orchestrator] Org ${orgId} has ${validProviders.length} connected provider(s):`,

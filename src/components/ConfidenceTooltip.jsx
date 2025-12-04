@@ -164,7 +164,7 @@ export const ConfidenceTooltip = ({ deal, confidenceScore }) => {
                       AI Enhancement Available
                     </h4>
                     <p className="text-sm text-[#61788A] dark:text-[#ABCAE2] mb-3">
-                      These base confidence scores provide reliable deal insights. When you connect an AI provider (OpenAI, Anthropic, Google, or xAI), confidence calculations become <span className="font-semibold text-purple-600 dark:text-purple-400">dynamic and adaptive</span>.
+                      These base confidence scores provide reliable deal insights. When you connect an AI provider (ChatGPT, Claude, or Gemini), confidence calculations become <span className="font-semibold text-purple-600 dark:text-purple-400">dynamic and adaptive</span>.
                     </p>
                     <p className="text-sm text-[#61788A] dark:text-[#ABCAE2]">
                       <span className="font-semibold">The more deals you process, the smarter it gets.</span> AI learns from your historical win/loss patterns, stage conversion rates, and customer interactions to provide increasingly accurate predictions over time.

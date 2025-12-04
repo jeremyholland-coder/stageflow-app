@@ -749,7 +749,7 @@ export const CustomQueryView = ({
         }
 
         // AI FALLBACK: Check if streamed response is a provider error
-        // This happens when Grok returns 403 - the backend returns an error message as content
+        // This happens when a provider returns an error - the backend returns an error message as content
         const hasProviderError = isProviderErrorResponse(accumulatedContent);
 
         // Mark streaming complete and add chart data if present
@@ -1393,7 +1393,7 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                 AI Provider Required
               </p>
               <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
-                Connect an AI provider (ChatGPT, Claude, Gemini, or Grok) to use natural language queries.
+                Connect an AI provider (ChatGPT, Claude, or Gemini) to use natural language queries.
               </p>
               <button
                 onClick={() => setActiveView && setActiveView(VIEWS?.INTEGRATIONS)}

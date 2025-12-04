@@ -1442,7 +1442,13 @@ export default async (req: Request, context: any) => {
     // Get all active providers
     const providers = await getActiveProviders(organizationId);
 
-    if (providers.length === 0) {
+    // FIX 2025-12-04: Remove xAI/Grok from runtime provider chain
+    // Grok is deprecated - filter it out at the boundary so it's never called
+    const runtimeProviders = providers.filter(
+      (p: any) => p.provider_type !== 'xai'
+    );
+
+    if (runtimeProviders.length === 0) {
       return new Response(JSON.stringify({
         error: 'No AI provider configured',
         response: "I'm not connected to any AI providers yet. Please configure an AI provider in Integrations → AI Settings.",
@@ -1457,13 +1463,14 @@ export default async (req: Request, context: any) => {
     const taskType = determineTaskType(message);
 
     // Select provider: prefer specified, fallback to best available (highest tier + task affinity)
+    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
     let selectedProvider;
     if (preferredProvider) {
-      const preferred = providers.find(p => p.provider_type === preferredProvider);
-      selectedProvider = preferred || selectBestProvider(providers, taskType);
+      const preferred = runtimeProviders.find((p: any) => p.provider_type === preferredProvider);
+      selectedProvider = preferred || selectBestProvider(runtimeProviders, taskType);
     } else {
       // Auto-select best provider based on model tier AND task type affinity
-      selectedProvider = selectBestProvider(providers, taskType);
+      selectedProvider = selectBestProvider(runtimeProviders, taskType);
     }
 
     // Analyze pipeline with caching for performance (2-3x faster for repeat queries)
@@ -1493,12 +1500,13 @@ export default async (req: Request, context: any) => {
       adaptationSnippet: userProfile ? buildAdaptationPromptSnippet(userProfile) : ''
     };
 
-    // AI FALLBACK: Use standardized fallback chain (openai → anthropic → google → xai)
+    // AI FALLBACK: Use standardized fallback chain (openai → anthropic → google)
     // This ensures consistent failover behavior across all AI operations
-    // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini → Grok for planning)
+    // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini for planning)
+    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
     const fallbackResult = await runWithFallback(
       'mission-control',
-      providers,
+      runtimeProviders,
       async (provider) => {
         // LEARNING ENGINE: Pass enriched analysis with historical performance data
         // PHASE 3: Pass taskType for visual spec instructions

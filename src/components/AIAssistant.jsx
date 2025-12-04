@@ -222,11 +222,11 @@ export const AIAssistant = ({ deals = [] }) => {
   };
 
   const getProviderDisplayName = (providerType) => {
+    // FIX 2025-12-04: Removed Grok/xAI - deprecated provider
     const names = {
       'openai': 'ChatGPT',
       'anthropic': 'Claude',
-      'google': 'Gemini',
-      'xai': 'Grok'
+      'google': 'Gemini'
     };
     return names[providerType] || providerType;
   };

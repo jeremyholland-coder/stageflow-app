@@ -187,9 +187,10 @@ export function formatPercentage(value) {
  * The provider IDs must match the provider_type values in the ai_providers table.
  *
  * PHASE 18: Updated to prioritize ChatGPT (best all-arounder for RevOps)
- * followed by Claude (best coaching), Gemini (strong fallback), Grok (creative specialist)
+ * followed by Claude (best coaching), Gemini (strong fallback)
+ * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
-export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini', 'grok'];
+export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini'];
 
 /**
  * Task-Type-Based Provider Chains
@@ -198,34 +199,33 @@ export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini', 'grok'];
  * - ChatGPT (GPT-4o): Best for RevOps analysis, planning, structured tasks
  * - Claude: Best for coaching, insights, long-context understanding
  * - Gemini: Strong fallback, good analytics
- * - Grok: Creative, image generation (future), less reliable for structured RevOps
+ * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const TASK_PROVIDER_CHAINS = {
-  // Image/chart/visual generation - Grok excels, then Gemini
-  image: ['grok', 'gemini', 'gpt4o', 'claude'],
-  chart: ['grok', 'gemini', 'gpt4o', 'claude'],
+  // Image/chart/visual generation - Gemini excels
+  image: ['gemini', 'gpt4o', 'claude'],
+  chart: ['gemini', 'gpt4o', 'claude'],
 
   // Coaching/insight tasks - Claude excels at tone and reasoning
-  coaching: ['claude', 'gpt4o', 'gemini', 'grok'],
+  coaching: ['claude', 'gpt4o', 'gemini'],
 
   // Planning/analysis tasks - ChatGPT excels at structured output
-  planning: ['gpt4o', 'claude', 'gemini', 'grok'],
-  analysis: ['gpt4o', 'claude', 'gemini', 'grok'],
+  planning: ['gpt4o', 'claude', 'gemini'],
+  analysis: ['gpt4o', 'claude', 'gemini'],
 
   // General Q&A - ChatGPT as default brain
-  general: ['gpt4o', 'claude', 'gemini', 'grok'],
+  general: ['gpt4o', 'claude', 'gemini'],
 
   // Default fallback (same as global)
-  default: ['gpt4o', 'claude', 'gemini', 'grok']
+  default: ['gpt4o', 'claude', 'gemini']
 };
 
 /**
  * Provider ID mapping to display names
  * Used for user-friendly messages when showing which provider was used
+ * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const PROVIDER_DISPLAY_NAMES = {
-  'xai': 'Grok',
-  'grok': 'Grok',
   'anthropic': 'Claude',
   'claude': 'Claude',
   'openai': 'ChatGPT',
@@ -250,10 +250,10 @@ export const PROVIDER_ERROR_PATTERNS = [
 
 /**
  * Map provider_type values to internal fallback IDs
- * The ai_providers table uses 'xai' for Grok, 'openai' for ChatGPT, etc.
+ * The ai_providers table uses 'openai' for ChatGPT, etc.
+ * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const PROVIDER_TYPE_TO_FALLBACK_ID = {
-  'xai': 'grok',
   'openai': 'gpt4o',
   'anthropic': 'claude',
   'google': 'gemini'
@@ -261,9 +261,9 @@ export const PROVIDER_TYPE_TO_FALLBACK_ID = {
 
 /**
  * Map fallback IDs back to provider_type for API calls
+ * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const FALLBACK_ID_TO_PROVIDER_TYPE = {
-  'grok': 'xai',
   'gpt4o': 'openai',
   'claude': 'anthropic',
   'gemini': 'google'
