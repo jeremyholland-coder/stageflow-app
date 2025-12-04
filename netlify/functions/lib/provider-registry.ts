@@ -14,6 +14,38 @@
  * @author StageFlow Engineering
  */
 
+/**
+ * =============================================================================
+ * XAI/GROK DEPRECATION - DATABASE CLEANUP UTILITY
+ * =============================================================================
+ *
+ * xAI/Grok has been deprecated as a provider. The application code now filters
+ * out xAI providers at runtime, but you may want to clean up database rows.
+ *
+ * MANUAL CLEANUP SQL (run in Supabase SQL Editor):
+ *
+ * -- STEP 1: Preview affected rows (dry run)
+ * SELECT id, organization_id, provider_type, display_name, active, created_at
+ * FROM ai_providers
+ * WHERE provider_type = 'xai';
+ *
+ * -- STEP 2: Deactivate xAI providers (soft delete)
+ * UPDATE ai_providers
+ * SET active = false
+ * WHERE provider_type = 'xai' AND active = true;
+ *
+ * -- STEP 3: (OPTIONAL) Hard delete if no longer needed
+ * -- WARNING: This is irreversible!
+ * -- DELETE FROM ai_providers WHERE provider_type = 'xai';
+ *
+ * -- STEP 4: Verify cleanup
+ * SELECT provider_type, COUNT(*), SUM(CASE WHEN active THEN 1 ELSE 0 END) as active_count
+ * FROM ai_providers
+ * GROUP BY provider_type;
+ *
+ * =============================================================================
+ */
+
 import { getProvidersWithCache, ProviderFetchError } from './provider-cache';
 
 // ============================================================================

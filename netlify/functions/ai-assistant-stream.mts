@@ -54,9 +54,11 @@ import {
   classifyError,
   logProviderAttempt,
   detectSoftFailure,
+  summarizeProviderErrors,
   FALLBACK_TRIGGERS,
   PROVIDER_NAMES,
-  ProviderType
+  ProviderType,
+  ProviderError
 } from './lib/ai-fallback';
 
 const supabase = createClient(
@@ -731,13 +733,24 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
         }
 
         // FIX 2025-12-03: If ALL providers failed, send error
+        // FIX 2025-12-04: Use intelligent error summarization for actionable guidance
         if (!textStreamCompleted) {
           console.error('[StageFlow][AI][ERROR] All providers failed:', providerErrors);
-          const providerNames = providerErrors.map(e => PROVIDER_NAMES[e.provider as ProviderType] || e.provider).join(', ');
+
+          // Convert to ProviderError format for summarization
+          const formattedErrors: ProviderError[] = providerErrors.map(e => ({
+            provider: e.provider as ProviderType,
+            errorType: e.errorType,
+            message: e.message,
+            timestamp: new Date().toISOString()
+          }));
+
+          const userMessage = summarizeProviderErrors(formattedErrors);
+
           safeEnqueue(encoder.encode(`data: ${JSON.stringify({
             error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
             code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
-            message: `All AI providers failed (${providerNames}). Please try again or check your API keys.`,
+            message: userMessage,
             errors: providerErrors
           })}\n\n`));
           controller.close();

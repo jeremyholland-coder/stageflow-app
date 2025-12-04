@@ -359,18 +359,168 @@ export function logProviderAttempt(
 }
 
 /**
+ * FIX 2025-12-04: Summarize provider errors into user-friendly message
+ *
+ * Analyzes the error types and messages to provide actionable guidance:
+ * - Quota/billing issues → "Check your API billing status"
+ * - Rate limiting → "Rate limited - try again in a moment"
+ * - Invalid keys → "Check your API key configuration"
+ * - Model issues → "Model configuration issue"
+ * - Default → "Service temporarily unavailable"
+ *
+ * @param errors - Array of provider errors from fallback attempts
+ * @returns User-friendly summary message
+ */
+export function summarizeProviderErrors(errors: ProviderError[]): string {
+  if (!errors || errors.length === 0) {
+    return 'AI service temporarily unavailable. Please try again.';
+  }
+
+  // Categorize errors
+  let hasQuotaIssue = false;
+  let hasBillingIssue = false;
+  let hasRateLimitIssue = false;
+  let hasKeyIssue = false;
+  let hasModelIssue = false;
+  let hasNetworkIssue = false;
+  let hasTimeoutIssue = false;
+
+  for (const error of errors) {
+    const msgLower = (error.message || '').toLowerCase();
+    const errorType = error.errorType || '';
+
+    // Quota issues
+    if (msgLower.includes('quota') ||
+        msgLower.includes('insufficient_quota') ||
+        msgLower.includes('exceeded your current quota') ||
+        msgLower.includes('rate_limit_exceeded')) {
+      hasQuotaIssue = true;
+    }
+
+    // Billing/credit issues
+    if (msgLower.includes('billing') ||
+        msgLower.includes('credit') ||
+        msgLower.includes('payment') ||
+        msgLower.includes('credits') ||
+        msgLower.includes('insufficient funds') ||
+        msgLower.includes('balance is too low')) {
+      hasBillingIssue = true;
+    }
+
+    // Rate limiting
+    if (error.statusCode === 429 ||
+        errorType === FALLBACK_TRIGGERS.RATE_LIMIT ||
+        msgLower.includes('rate limit') ||
+        msgLower.includes('too many requests')) {
+      hasRateLimitIssue = true;
+    }
+
+    // Key issues
+    if (errorType === FALLBACK_TRIGGERS.INVALID_KEY ||
+        errorType === FALLBACK_TRIGGERS.NO_KEY ||
+        errorType === FALLBACK_TRIGGERS.KEY_EXPIRED ||
+        errorType === FALLBACK_TRIGGERS.PERMISSION_DENIED ||
+        error.statusCode === 401 ||
+        error.statusCode === 403 ||
+        msgLower.includes('invalid api key') ||
+        msgLower.includes('api key not valid') ||
+        msgLower.includes('unauthorized') ||
+        msgLower.includes('authentication')) {
+      hasKeyIssue = true;
+    }
+
+    // Model issues (404 or model not found)
+    if (error.statusCode === 404 ||
+        msgLower.includes('model not found') ||
+        msgLower.includes('model_not_found') ||
+        msgLower.includes('does not exist') ||
+        msgLower.includes('invalid model')) {
+      hasModelIssue = true;
+    }
+
+    // Network issues
+    if (errorType === FALLBACK_TRIGGERS.NETWORK_ERROR ||
+        msgLower.includes('network') ||
+        msgLower.includes('econnrefused') ||
+        msgLower.includes('enotfound')) {
+      hasNetworkIssue = true;
+    }
+
+    // Timeout issues
+    if (errorType === FALLBACK_TRIGGERS.TIMEOUT ||
+        msgLower.includes('timeout') ||
+        msgLower.includes('timed out')) {
+      hasTimeoutIssue = true;
+    }
+  }
+
+  // Build summary based on categories (most specific first)
+  const issues: string[] = [];
+
+  if (hasBillingIssue || hasQuotaIssue) {
+    issues.push('API quota/billing issue detected');
+  }
+  if (hasKeyIssue) {
+    issues.push('API key issue detected');
+  }
+  if (hasModelIssue) {
+    issues.push('model configuration issue');
+  }
+  if (hasRateLimitIssue && !hasQuotaIssue) {
+    issues.push('rate limited');
+  }
+  if (hasNetworkIssue) {
+    issues.push('network connectivity issue');
+  }
+  if (hasTimeoutIssue) {
+    issues.push('request timed out');
+  }
+
+  if (issues.length === 0) {
+    return 'AI providers temporarily unavailable. Please try again.';
+  }
+
+  // Provide actionable guidance based on issues
+  const providerNames = errors.map(e => PROVIDER_NAMES[e.provider] || e.provider);
+  const uniqueProviders = [...new Set(providerNames)].join(', ');
+
+  if (hasBillingIssue || hasQuotaIssue) {
+    return `AI request failed (${uniqueProviders}): ${issues[0]}. Please check your API billing status in Settings → AI Providers.`;
+  }
+
+  if (hasKeyIssue) {
+    return `AI request failed (${uniqueProviders}): ${issues[0]}. Please verify your API keys in Settings → AI Providers.`;
+  }
+
+  if (hasModelIssue) {
+    return `AI request failed (${uniqueProviders}): ${issues[0]}. The selected model may have been deprecated or renamed.`;
+  }
+
+  if (hasRateLimitIssue) {
+    return `AI request failed (${uniqueProviders}): ${issues[0]}. Please wait a moment and try again.`;
+  }
+
+  return `AI request failed (${uniqueProviders}): ${issues.join(', ')}. Please try again.`;
+}
+
+/**
  * Custom error class for when all providers fail
+ *
+ * FIX 2025-12-04: Now includes intelligent error summarization
+ * that provides actionable guidance based on error types.
  */
 export class AllProvidersFailedError extends Error {
   public readonly errors: ProviderError[];
   public readonly providersAttempted: string[];
+  public readonly userFriendlyMessage: string;
 
   constructor(errors: ProviderError[]) {
-    const providerNames = errors.map(e => PROVIDER_NAMES[e.provider] || e.provider);
-    super(`All AI providers failed: ${providerNames.join(', ')}`);
+    const userMessage = summarizeProviderErrors(errors);
+    super(userMessage);
     this.name = 'AllProvidersFailedError';
     this.errors = errors;
     this.providersAttempted = errors.map(e => e.provider);
+    this.userFriendlyMessage = userMessage;
   }
 }
 

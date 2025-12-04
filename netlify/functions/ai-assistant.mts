@@ -1706,16 +1706,15 @@ export default async (req: Request, context: any) => {
         }))
       });
 
-      const providerNames = error.errors
-        .map(e => PROVIDER_NAMES[e.provider] || e.provider)
-        .filter(Boolean)
-        .join(', ');
+      // FIX 2025-12-04: Use intelligent error summarization from AllProvidersFailedError
+      // Now provides actionable guidance based on specific error types (quota, billing, model, etc.)
+      const userMessage = error.userFriendlyMessage || error.message;
 
       return new Response(JSON.stringify({
         error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
         code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
-        message: `All AI providers failed (${providerNames}). Please try again or check your API keys.`,
-        response: `I tried all available AI providers (${providerNames}) but none could respond. This may be a temporary issue - please try again in a moment.`,
+        message: userMessage,
+        response: userMessage,
         providersAttempted: error.providersAttempted,
         errors: error.errors.map(e => ({
           provider: e.provider,
