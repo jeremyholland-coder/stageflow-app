@@ -26,10 +26,12 @@ import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
 import { getProvidersWithCache } from './lib/provider-cache';
 // FIX 2025-12-03: Import fallback utilities for proper provider failover
+// FIX 2025-12-04: Added detectSoftFailure for streaming soft-failure handling
 import {
   sortProvidersForFallback,
   classifyError,
   logProviderAttempt,
+  detectSoftFailure,
   FALLBACK_TRIGGERS,
   PROVIDER_NAMES,
   ProviderType
@@ -487,8 +489,9 @@ export default async (req: Request, context: any) => {
     const taskType = determineTaskType(message);
 
     // FIX 2025-12-03: Sort providers for fallback - best provider first, then others
+    // FIX 2025-12-04: Pass taskType for task-aware fallback ordering (ChatGPT → Claude → Gemini → Grok for planning)
     const bestProvider = selectBestProvider(providers, taskType);
-    const sortedProviders = sortProvidersForFallback(providers, bestProvider?.provider_type);
+    const sortedProviders = sortProvidersForFallback(providers, bestProvider?.provider_type, taskType);
 
     // Analyze pipeline (simplified for streaming)
     const pipelineContext = analyzeDealsPipeline(deals);
@@ -555,15 +558,31 @@ export default async (req: Request, context: any) => {
             // Stream based on provider type (using enrichedContext with visual instructions)
             if (currentProvider.provider_type === 'openai') {
               accumulatedResponse = await streamOpenAI(apiKey, message, enrichedContext, currentProvider.model || 'gpt-4o-mini', conversationHistory, controller);
+              // FIX 2025-12-04: Check streaming response for soft failures too
+              const { isSoftFailure: oaiSoftFailure } = detectSoftFailure(accumulatedResponse);
+              const oaiIsLast = sortedProviders.indexOf(currentProvider) === sortedProviders.length - 1;
+              if (oaiSoftFailure && !oaiIsLast) {
+                console.warn(`[ai-stream-fallback] OpenAI returned soft failure, trying next...`);
+                providerErrors.push({ provider: providerType, errorType: 'SOFT_FAILURE', message: accumulatedResponse.substring(0, 200) });
+                continue;
+              }
               textStreamCompleted = true;
               successfulProvider = providerType;
-              logProviderAttempt('streaming', providerType, 'success');
+              logProviderAttempt('streaming', providerType, oaiSoftFailure ? 'soft_failure' : 'success');
               break; // Success! Exit the loop
             } else if (currentProvider.provider_type === 'anthropic') {
               accumulatedResponse = await streamAnthropic(apiKey, message, enrichedContext, currentProvider.model || 'claude-3-5-sonnet-20241022', conversationHistory, controller);
+              // FIX 2025-12-04: Check streaming response for soft failures too
+              const { isSoftFailure: claudeSoftFailure } = detectSoftFailure(accumulatedResponse);
+              const claudeIsLast = sortedProviders.indexOf(currentProvider) === sortedProviders.length - 1;
+              if (claudeSoftFailure && !claudeIsLast) {
+                console.warn(`[ai-stream-fallback] Anthropic returned soft failure, trying next...`);
+                providerErrors.push({ provider: providerType, errorType: 'SOFT_FAILURE', message: accumulatedResponse.substring(0, 200) });
+                continue;
+              }
               textStreamCompleted = true;
               successfulProvider = providerType;
-              logProviderAttempt('streaming', providerType, 'success');
+              logProviderAttempt('streaming', providerType, claudeSoftFailure ? 'soft_failure' : 'success');
               break; // Success! Exit the loop
             } else {
               // CRITICAL-02 FIX: For Gemini/Grok, use non-streaming fallback
@@ -622,7 +641,36 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
                 throw new Error(`Unsupported provider type: ${currentProvider.provider_type}`);
               }
 
-              // Send the complete response as a single SSE event
+              // FIX 2025-12-04: Streaming soft-failure handling for last provider (match non-stream behavior)
+              // Check if the response content indicates a soft failure (200 OK but error message)
+              const { isSoftFailure: responseIsSoftFailure, pattern: softFailurePattern } = detectSoftFailure(responseText);
+              const isLastProvider = sortedProviders.indexOf(currentProvider) === sortedProviders.length - 1;
+
+              if (responseIsSoftFailure) {
+                if (isLastProvider) {
+                  // Last provider returned a soft failure - show their message with warning flag
+                  // instead of ALL_PROVIDERS_FAILED (matches non-streaming behavior from ai-fallback.js:288-315)
+                  console.warn(`[ai-stream-fallback] Last provider ${providerType} returned soft failure: "${softFailurePattern}"`);
+                  safeEnqueue(encoder.encode(`data: ${JSON.stringify({
+                    content: responseText,
+                    provider: providerName,
+                    isSoftFailure: true,
+                    softFailureMessage: `${providerName} returned an error. Check your API key or try again.`
+                  })}\n\n`));
+                  textStreamCompleted = true;
+                  successfulProvider = providerType;
+                  accumulatedResponse = responseText;
+                  logProviderAttempt('streaming', providerType, 'soft_failure');
+                  break; // Exit loop - we've handled this gracefully
+                } else {
+                  // Not last provider - try next one (treat as error for fallback purposes)
+                  console.warn(`[ai-stream-fallback] Provider ${providerType} returned soft failure, trying next...`);
+                  providerErrors.push({ provider: providerType, errorType: 'SOFT_FAILURE', message: responseText.substring(0, 200) });
+                  continue; // Try next provider
+                }
+              }
+
+              // No soft failure - send the complete response as a single SSE event
               safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
               textStreamCompleted = true;
               successfulProvider = providerType;

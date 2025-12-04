@@ -1495,6 +1495,7 @@ export default async (req: Request, context: any) => {
 
     // AI FALLBACK: Use standardized fallback chain (openai → anthropic → google → xai)
     // This ensures consistent failover behavior across all AI operations
+    // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini → Grok for planning)
     const fallbackResult = await runWithFallback(
       'mission-control',
       providers,
@@ -1503,7 +1504,8 @@ export default async (req: Request, context: any) => {
         // PHASE 3: Pass taskType for visual spec instructions
         return await callAIProvider(provider, message, enrichedAnalysis, conversationHistory, taskType);
       },
-      preferredProvider // Use user's preferred provider first if specified
+      preferredProvider, // Use user's preferred provider first if specified
+      taskType // FIX 2025-12-04: Task-aware fallback ordering
     );
 
     // Check if all providers failed

@@ -48,6 +48,38 @@ export const NO_FALLBACK_ERRORS = {
   CONTENT_POLICY: 'CONTENT_POLICY',
 } as const;
 
+// FIX 2025-12-04: Soft failure patterns for streaming parity
+// These patterns indicate a "soft failure" - the API returned 200 but the content is an error message
+export const SOFT_FAILURE_PATTERNS = [
+  "i'm unable to connect",
+  "unable to connect to",
+  "api key needs credits",
+  "api key needs permissions",
+  "check your api key",
+  "verify your api key",
+  "no credits",
+  "insufficient credits",
+  "permission denied",
+  "not authorized",
+  "invalid api key",
+  "authentication failed",
+  "rate limit exceeded",
+  "quota exceeded"
+] as const;
+
+// FIX 2025-12-04: Task-aware fallback order affinity scores
+// For planning tasks: ChatGPT(5) → Claude(4) → Gemini(2) → Grok(1)
+// Higher score = tried earlier in fallback chain
+export const TASK_FALLBACK_AFFINITY: Record<string, Record<ProviderType, number>> = {
+  planning: { openai: 5, anthropic: 4, google: 2, xai: 1 },
+  coaching: { anthropic: 5, openai: 3, google: 2, xai: 2 },
+  chart_insight: { openai: 4, google: 3, anthropic: 2, xai: 3 },
+  text_analysis: { openai: 4, anthropic: 3, google: 2, xai: 1 },
+  image_suitable: { xai: 5, google: 4, openai: 2, anthropic: 1 },
+  general: { openai: 4, anthropic: 3, google: 2, xai: 1 },
+  default: { openai: 3, anthropic: 3, google: 2, xai: 2 }
+};
+
 export interface ProviderError {
   provider: ProviderType;
   errorType: string;
@@ -193,20 +225,79 @@ export function classifyError(error: any, statusCode?: number): { shouldFallback
 }
 
 /**
+ * FIX 2025-12-04: Detect soft failures in AI response content
+ *
+ * A "soft failure" is when the provider returns HTTP 200 but the response
+ * content is an error message (e.g., Grok saying "I can't connect right now").
+ *
+ * This is used by both streaming and non-streaming paths for consistency.
+ *
+ * @param responseText - The text content of the AI response
+ * @returns { isSoftFailure: boolean, pattern: string | null }
+ */
+export function detectSoftFailure(responseText: string | null | undefined): { isSoftFailure: boolean; pattern: string | null } {
+  if (!responseText || typeof responseText !== 'string') {
+    return { isSoftFailure: false, pattern: null };
+  }
+
+  const lowerText = responseText.toLowerCase();
+
+  for (const pattern of SOFT_FAILURE_PATTERNS) {
+    if (lowerText.includes(pattern)) {
+      return { isSoftFailure: true, pattern };
+    }
+  }
+
+  return { isSoftFailure: false, pattern: null };
+}
+
+/**
  * Sort providers for fallback execution
  *
- * FIX 2025-12-02: Now respects CONNECTION ORDER (first connected = first tried)
- * Previously used hardcoded order (openai → anthropic → google → xai)
- * Now keeps providers in their original order from the database (sorted by created_at)
+ * FIX 2025-12-04: Task-aware fallback ordering
+ * For planning tasks: ChatGPT → Claude → Gemini → Grok (by affinity score)
+ * Falls back to connection order only when no taskType is specified.
  *
  * @param providers - Providers array (should be pre-sorted by created_at ascending)
  * @param preferredProvider - Optional provider to try first (user's explicit choice)
+ * @param taskType - Optional task type for affinity-based ordering
  */
 export function sortProvidersForFallback<T extends { provider_type: string }>(
   providers: T[],
-  preferredProvider?: string
+  preferredProvider?: string,
+  taskType?: string
 ): T[] {
-  // If no preferred provider, return providers in their original (connection) order
+  // FIX 2025-12-04: If taskType is provided, sort by affinity score (task-aware ordering)
+  if (taskType) {
+    const affinityMap = TASK_FALLBACK_AFFINITY[taskType] || TASK_FALLBACK_AFFINITY.default;
+
+    // Sort by affinity score (higher = first), then by original index as tiebreaker
+    const sorted = [...providers].sort((a, b) => {
+      const aAffinity = affinityMap[a.provider_type as ProviderType] || 0;
+      const bAffinity = affinityMap[b.provider_type as ProviderType] || 0;
+
+      // Higher affinity first
+      if (bAffinity !== aAffinity) {
+        return bAffinity - aAffinity;
+      }
+
+      // Tiebreaker: original array order (connection order)
+      return providers.indexOf(a) - providers.indexOf(b);
+    });
+
+    // If preferred provider specified, move it to front (overrides affinity)
+    if (preferredProvider) {
+      const preferredIndex = sorted.findIndex(p => p.provider_type === preferredProvider);
+      if (preferredIndex > 0) {
+        const [preferred] = sorted.splice(preferredIndex, 1);
+        sorted.unshift(preferred);
+      }
+    }
+
+    return sorted;
+  }
+
+  // Legacy behavior: connection order with preferred provider first
   if (!preferredProvider) {
     return [...providers];
   }
@@ -282,17 +373,20 @@ export class AllProvidersFailedError extends Error {
  * @param providers - Array of provider objects with provider_type field
  * @param callProvider - Function that calls a specific provider
  * @param preferredProvider - Optional preferred provider to try first
+ * @param taskType - Optional task type for task-aware fallback ordering
  */
 export async function runWithFallback<T, P extends { provider_type: string }>(
   operation: string,
   providers: P[],
   callProvider: (provider: P) => Promise<T>,
-  preferredProvider?: string
+  preferredProvider?: string,
+  taskType?: string // FIX 2025-12-04: Task-aware fallback ordering
 ): Promise<FallbackResult<T>> {
   const errors: ProviderError[] = [];
 
   // Sort providers into fallback order
-  const sortedProviders = sortProvidersForFallback(providers, preferredProvider);
+  // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini → Grok for planning)
+  const sortedProviders = sortProvidersForFallback(providers, preferredProvider, taskType);
 
   if (sortedProviders.length === 0) {
     return {
