@@ -15,6 +15,11 @@ import { supabase, ensureValidSession } from '../lib/supabase';
  * - AbortController for proper cleanup (prevents memory leaks)
  * - Backwards compatibility (handles missing ai_providers table)
  *
+ * M1 HARDENING 2025-12-04: Now distinguishes between:
+ * - providersLoaded: true when initial fetch completes (success or failure)
+ * - hasProvider: true when at least one provider is configured
+ * - providerFetchError: non-null when fetch failed (different from "no providers")
+ *
  * Performance Impact:
  * - ~200ms saved on initial render (cached lookups)
  * - ~50KB less duplicated code in bundle
@@ -25,7 +30,7 @@ import { supabase, ensureValidSession } from '../lib/supabase';
  * @param {Object} options - Configuration options
  * @param {number} options.delay - Delay before checking (default: 500ms)
  * @param {number} options.cacheTTL - Cache time-to-live in ms (default: 5 minutes)
- * @returns {Object} { hasProvider, checking, refresh }
+ * @returns {Object} { hasProvider, checking, refresh, providersLoaded, providerFetchError }
  */
 export function useAIProviderStatus(user, organization, options = {}) {
   // CACHE TTL OPTIMIZATION: Reduced from 24h to 30 minutes for better correctness
@@ -37,8 +42,21 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
   const [hasProvider, setHasProvider] = useState(false);
   const [checking, setChecking] = useState(true);
+  // M1 HARDENING 2025-12-04: Track distinct states for better UX
+  // providersLoaded: true when initial fetch completes (regardless of success/failure)
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  // providerFetchError: null = no error, string = error message
+  // This is DIFFERENT from "no providers configured" (which is hasProvider=false, providerFetchError=null)
+  const [providerFetchError, setProviderFetchError] = useState(null);
   // FIX 2025-12-03: Track auth errors separately from "no provider" state
   const [authError, setAuthError] = useState(false);
+
+  // M6 HARDENING 2025-12-04: Last Known Good + Error State
+  // Prevents a transient DB/API blip from making the UI scream "No providers"
+  // statusMayBeStale: true when showing lastKnownGoodStatus instead of fresh data
+  const [statusMayBeStale, setStatusMayBeStale] = useState(false);
+  // STALE_THRESHOLD: How long to keep showing lastKnownGoodStatus (15 minutes)
+  const STALE_THRESHOLD = 15 * 60 * 1000;
 
   // NEXT-LEVEL: Memoize check function to prevent unnecessary re-runs
   const checkAIProviders = useCallback(async (abortSignal) => {
@@ -58,6 +76,9 @@ export function useAIProviderStatus(user, organization, options = {}) {
           // Cache hit! Skip DB query entirely
           setHasProvider(cachedValue);
           setChecking(false);
+          // M1 HARDENING: Mark as loaded from cache (no fetch error)
+          setProvidersLoaded(true);
+          setProviderFetchError(null);
           return;
         }
       } catch (err) {
@@ -67,6 +88,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
     }
 
     setChecking(true);
+    // M1 HARDENING: Clear previous fetch error before new attempt
+    setProviderFetchError(null);
 
     try {
       // NEXT-LEVEL: Check abort signal before DB query
@@ -103,7 +126,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
         // Auth errors (401/403) are session issues, NOT "no AI providers" issues
         // FIX 2025-12-03: Also set authError flag so Dashboard can show correct message
         if (response.status === 401 || response.status === 403) {
-          console.debug('[useAIProviderStatus] Auth error (session issue), preserving cache');
+          console.info('[StageFlow][AI][INFO] Auth error (session issue), preserving cache');
           const cachedData = localStorage.getItem(cacheKey);
           if (cachedData) {
             try {
@@ -116,9 +139,13 @@ export function useAIProviderStatus(user, organization, options = {}) {
           }
           // FIX 2025-12-03: Mark this as auth error, not "no provider" state
           setAuthError(true);
+          // M1 HARDENING: Session error is a fetch error, not "no providers"
+          setProviderFetchError('Session expired. Please refresh the page.');
+          setProvidersLoaded(true);
           setChecking(false);
           return;
         }
+        // M1 HARDENING: Non-auth HTTP errors are also fetch errors
         throw new Error(`Failed to fetch providers: ${response.status}`);
       }
 
@@ -127,25 +154,61 @@ export function useAIProviderStatus(user, organization, options = {}) {
       setHasProvider(hasProviderValue);
       // FIX 2025-12-03: Clear auth error on successful fetch
       setAuthError(false);
-      localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: hasProviderValue, timestamp: Date.now() }));
+      // M1 HARDENING: Success - mark as loaded with no fetch error
+      setProvidersLoaded(true);
+      setProviderFetchError(null);
+      // M6 HARDENING: Fresh data, not stale
+      setStatusMayBeStale(false);
+      // M6 HARDENING: Store as lastKnownGoodStatus for fallback on future errors
+      localStorage.setItem(cacheKey, JSON.stringify({
+        hasProvider: hasProviderValue,
+        timestamp: Date.now(),
+        isLastKnownGood: true // M6: Mark this as a known good state
+      }));
 
     } catch (err) {
       // GRACEFUL DEGRADATION: On error, preserve cache instead of setting false
       if (!abortSignal?.aborted) {
-        console.debug('[useAIProviderStatus] AI provider check failed (non-fatal):', err);
-        // CRITICAL FIX: Don't overwrite cache with false on errors
-        // Try to use cached value instead
+        console.warn('[StageFlow][AI][WARN] AI provider check failed (non-fatal):', err);
+
+        // M6 HARDENING: Try to use lastKnownGoodStatus if recent
         const cachedData = localStorage.getItem(cacheKey);
+        let usedLastKnownGood = false;
+
         if (cachedData) {
           try {
-            const { hasProvider: cachedValue } = JSON.parse(cachedData);
-            setHasProvider(cachedValue);
+            const { hasProvider: cachedValue, timestamp, isLastKnownGood } = JSON.parse(cachedData);
+            const age = Date.now() - timestamp;
+
+            // M6 HARDENING: If lastKnownGoodStatus exists and is recent (< 15 minutes), use it
+            if (isLastKnownGood && age < STALE_THRESHOLD) {
+              console.info('[StageFlow][AI][INFO] Using lastKnownGoodStatus (age:', Math.round(age/1000) + 's)');
+              setHasProvider(cachedValue);
+              setProvidersLoaded(true);
+              // M6: Show warning that status might be stale but keep showing provider status
+              setStatusMayBeStale(true);
+              // M6: Don't show scary error message if we have recent good data
+              setProviderFetchError(null);
+              usedLastKnownGood = true;
+            } else {
+              // Cache is too old or not a known good state
+              setHasProvider(cachedValue);
+            }
           } catch (e) {
             setHasProvider(false);
           }
         } else {
           setHasProvider(false);
         }
+
+        // M1/M6 HARDENING: Only set fetch error if we couldn't use lastKnownGoodStatus
+        if (!usedLastKnownGood) {
+          setProviderFetchError(
+            "We couldn't reach your AI provider settings. This is likely temporary. Please try again."
+          );
+          setStatusMayBeStale(false);
+        }
+        setProvidersLoaded(true);
       }
     } finally {
       if (!abortSignal?.aborted) {
@@ -160,6 +223,9 @@ export function useAIProviderStatus(user, organization, options = {}) {
     if (!user?.id || !organization?.id) {
       setHasProvider(false);
       setChecking(false);
+      // M1 HARDENING: No org = not loaded yet (not an error)
+      setProvidersLoaded(false);
+      setProviderFetchError(null);
       return;
     }
 
@@ -174,13 +240,16 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
         if (age < cacheTTL) {
           // Cache hit! Use immediately, no delay needed
-          console.warn('[useAIProviderStatus] Cache hit on mount:', { hasProvider: cachedValue, age: Math.round(age/1000) + 's' });
+          console.info('[StageFlow][AI][INFO] Cache hit on mount:', { hasProvider: cachedValue, age: Math.round(age/1000) + 's' });
           setHasProvider(cachedValue);
           setChecking(false);
+          // M1 HARDENING: Cache hit = loaded successfully
+          setProvidersLoaded(true);
+          setProviderFetchError(null);
           return; // Don't do delayed DB query, cache is fresh
         }
       } catch (err) {
-        console.debug('[useAIProviderStatus] Corrupted cache on mount');
+        console.info('[StageFlow][AI][INFO] Corrupted cache on mount');
       }
     }
 
@@ -346,6 +415,18 @@ export function useAIProviderStatus(user, organization, options = {}) {
     checking,
     refresh,
     // FIX 2025-12-03: Expose auth error state for Dashboard to show correct message
-    authError
+    authError,
+    // M1 HARDENING 2025-12-04: Expose distinct states for better UX
+    // providersLoaded: true once initial fetch completes (success or failure)
+    providersLoaded,
+    // providerFetchError: null = no error, string = error message
+    // UI should show different messages based on:
+    // - providerFetchError non-null: "We couldn't reach your AI settings..."
+    // - providersLoaded && !hasProvider && !providerFetchError: "No AI provider connected..."
+    providerFetchError,
+    // M6 HARDENING 2025-12-04: Expose staleness indicator
+    // statusMayBeStale: true when showing lastKnownGoodStatus instead of fresh data
+    // UI can optionally show a subtle warning like "Status might be outdated"
+    statusMayBeStale
   };
 }

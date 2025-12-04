@@ -13,17 +13,16 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './encryption';
+// M4 HARDENING 2025-12-04: Import from shared provider registry
+import { ALLOWED_PROVIDERS, PROVIDER_DISPLAY_NAMES as REGISTRY_DISPLAY_NAMES, AllowedProviderType } from './provider-registry';
 
 // Provider types supported by StageFlow
-// FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
-export type ProviderType = 'openai' | 'anthropic' | 'google';
+// M4 HARDENING: Now derived from shared provider-registry.ts
+export type ProviderType = AllowedProviderType;
 
 // Provider display names for user-facing messages
-export const PROVIDER_DISPLAY_NAMES: Record<ProviderType, string> = {
-  openai: 'ChatGPT',
-  anthropic: 'Claude',
-  google: 'Gemini'
-};
+// M4 HARDENING: Use shared display names from registry
+export const PROVIDER_DISPLAY_NAMES: Record<ProviderType, string> = REGISTRY_DISPLAY_NAMES;
 
 // Connected provider from database
 export interface ConnectedProvider {
@@ -113,14 +112,14 @@ export async function getConnectedProvidersForOrg(orgId: string): Promise<Connec
     .order('created_at', { ascending: true }); // First connected = first in array
 
   if (error) {
-    console.error('[ai-orchestrator] Error fetching providers:', error);
+    console.error('[StageFlow][AI][ERROR] ai-orchestrator: Error fetching providers:', error);
     return [];
   }
 
   // Filter out any with empty api_key_encrypted (extra safety)
-  // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
+  // M4 HARDENING: Use ALLOWED_PROVIDERS from shared registry
   const validProviders = (data || []).filter(
-    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== '' && ['openai', 'anthropic', 'google'].includes(p.provider_type)
+    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== '' && ALLOWED_PROVIDERS.includes(p.provider_type as AllowedProviderType)
   );
 
   console.log(`[ai-orchestrator] Org ${orgId} has ${validProviders.length} connected provider(s):`,

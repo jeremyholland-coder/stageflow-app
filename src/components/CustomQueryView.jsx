@@ -318,6 +318,11 @@ export const CustomQueryView = ({
   // ISSUE 4 FIX: Track if Plan My Day was already run today
   const [planMyDayRunToday, setPlanMyDayRunToday] = useState(() => wasPlanMyDayRunToday());
 
+  // M2 HARDENING 2025-12-04: Plan My Day in-flight guard
+  // Prevents double-clicks and provides timeout UX specifically for Plan My Day
+  const [isPlanning, setIsPlanning] = useState(false);
+  const planMyDayTimeoutRef = useRef(null);
+
   // OFFLINE: Track network status for AI availability
   // Use prop if provided (from parent), otherwise track locally
   const [localIsOnline, setLocalIsOnline] = useState(() =>
@@ -1082,8 +1087,49 @@ Guidelines:
 
   // Quick action handler - ONE-CLICK execution (no second click required)
   const handleQuickAction = async (actionType) => {
+    // M2 HARDENING: Special guard for Plan My Day to prevent overlapping requests
+    if (actionType === 'plan_my_day') {
+      if (isPlanning) {
+        // M2 HARDENING: Show hint instead of silently ignoring
+        addNotification('Already planning your day...', 'info');
+        return;
+      }
+      setIsPlanning(true);
+
+      // M2 HARDENING: Set up 50-second timeout for Plan My Day specifically
+      planMyDayTimeoutRef.current = setTimeout(() => {
+        console.warn('[StageFlow][AI][WARN] Plan My Day timeout after 50 seconds');
+        setIsPlanning(false);
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
+        setInlineError({
+          message: 'This is taking longer than expected. Please try again or check your AI provider status.',
+          action: {
+            label: 'Try Again',
+            onClick: () => {
+              setInlineError(null);
+              handleQuickAction('plan_my_day');
+            }
+          },
+          severity: 'warning',
+          retryable: true
+        });
+      }, 50000); // 50 seconds timeout
+    }
+
     // CONCURRENCY FIX: Check synchronous lock first (prevents double-click race condition)
-    if (isSubmitting || loading || !hasProviders || submissionLockRef.current) return;
+    if (isSubmitting || loading || !hasProviders || submissionLockRef.current) {
+      // M2 HARDENING: Clear planning state if we early-return
+      if (actionType === 'plan_my_day') {
+        setIsPlanning(false);
+        if (planMyDayTimeoutRef.current) {
+          clearTimeout(planMyDayTimeoutRef.current);
+          planMyDayTimeoutRef.current = null;
+        }
+      }
+      return;
+    }
 
     // Acquire lock immediately (synchronous - before any state updates)
     submissionLockRef.current = true;
@@ -1287,6 +1333,15 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
       setIsSubmitting(false);
       // CONCURRENCY FIX: Release synchronous lock
       submissionLockRef.current = false;
+
+      // M2 HARDENING: Clear planning state and timeout when complete
+      if (lastQuickActionRef.current === 'plan_my_day') {
+        setIsPlanning(false);
+        if (planMyDayTimeoutRef.current) {
+          clearTimeout(planMyDayTimeoutRef.current);
+          planMyDayTimeoutRef.current = null;
+        }
+      }
     }
   };
 

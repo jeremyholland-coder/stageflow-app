@@ -4,6 +4,8 @@ import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
 import { parseCookies, COOKIE_NAMES } from './lib/cookie-auth';
+// M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
+import { AI_ERROR_CODES } from './lib/ai-error-codes';
 import {
   detectChartType,
   calculateChartData,
@@ -24,8 +26,7 @@ import {
 // UNIFIED PROVIDER SELECTION: Single source of truth for provider selection
 import { selectProvider as unifiedSelectProvider } from './lib/select-provider';
 // TASK 1: Provider health caching to reduce DB reads
-// P0 FIX 2025-12-04: Import ProviderFetchError to distinguish fetch failures from "no providers"
-import { getProvidersWithCache, ProviderFetchError } from './lib/provider-cache';
+import { getProvidersWithCache } from './lib/provider-cache';
 // FIX 2025-12-03: Import fallback utilities for proper provider failover
 // FIX 2025-12-04: Added detectSoftFailure for streaming soft-failure handling
 import {
@@ -385,7 +386,7 @@ export default async (req: Request, context: any) => {
       }
 
       if (!token) {
-        return new Response(JSON.stringify({ error: 'Not authenticated', code: 'NO_SESSION' }), {
+        return new Response(JSON.stringify({ error: 'Not authenticated', code: AI_ERROR_CODES.AUTH_REQUIRED }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -394,7 +395,7 @@ export default async (req: Request, context: any) => {
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
 
       if (authError || !authUser) {
-        return new Response(JSON.stringify({ error: 'Session expired or invalid', code: 'SESSION_EXPIRED' }), {
+        return new Response(JSON.stringify({ error: 'Session expired or invalid', code: AI_ERROR_CODES.SESSION_ERROR }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -439,7 +440,9 @@ export default async (req: Request, context: any) => {
 
       if (limit > 0 && used >= limit) {
         return new Response(JSON.stringify({
-          error: 'AI_LIMIT_REACHED',
+          error: AI_ERROR_CODES.AI_LIMIT_REACHED,
+          code: AI_ERROR_CODES.AI_LIMIT_REACHED,
+          message: `You've reached your monthly limit of ${limit} AI requests. Upgrade your plan to continue.`,
           limitReached: true,
           used, limit
         }), {
@@ -477,11 +480,10 @@ export default async (req: Request, context: any) => {
       providers = await getProvidersWithCache(supabase as any, organizationId);
     } catch (providerError) {
       // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
-      console.error('[ai-assistant-stream] Provider fetch failed:', providerError);
-      const isProviderFetchError = providerError instanceof ProviderFetchError;
+      console.error('[StageFlow][AI][ERROR] Provider fetch failed:', providerError);
       return new Response(JSON.stringify({
-        error: 'AI_PROVIDER_FETCH_FAILED',
-        code: isProviderFetchError ? providerError.code : 'PROVIDER_FETCH_FAILED',
+        error: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
+        code: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
         message: 'Unable to load AI provider configuration. Please retry in a few moments.'
       }), {
         status: 503,
@@ -498,9 +500,9 @@ export default async (req: Request, context: any) => {
     // This is the REAL "no providers configured" case (empty list, no error)
     if (!runtimeProviders || runtimeProviders.length === 0) {
       return new Response(JSON.stringify({
-        error: 'NO_PROVIDERS',
-        code: 'NO_PROVIDERS',
-        message: 'No AI provider configured. Please connect an AI provider in Settings.'
+        error: AI_ERROR_CODES.NO_PROVIDERS,
+        code: AI_ERROR_CODES.NO_PROVIDERS,
+        message: 'No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.'
       }), {
         status: 422,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -704,10 +706,11 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 
         // FIX 2025-12-03: If ALL providers failed, send error
         if (!textStreamCompleted) {
-          console.error('[ai-stream-fallback] All providers failed:', providerErrors);
+          console.error('[StageFlow][AI][ERROR] All providers failed:', providerErrors);
           const providerNames = providerErrors.map(e => PROVIDER_NAMES[e.provider as ProviderType] || e.provider).join(', ');
           safeEnqueue(encoder.encode(`data: ${JSON.stringify({
-            error: 'ALL_PROVIDERS_FAILED',
+            error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+            code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
             message: `All AI providers failed (${providerNames}). Please try again or check your API keys.`,
             errors: providerErrors
           })}\n\n`));
@@ -779,27 +782,27 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
     });
 
   } catch (error: any) {
-    console.error('AI Streaming error:', error);
+    console.error('[StageFlow][AI][ERROR] AI Streaming error:', error);
 
-    // FIX 2025-12-02: Include proper error codes for frontend classification
+    // M3 HARDENING: Use standardized error codes for frontend classification
     const errorMessage = error.message || 'AI request failed';
-    let errorCode = 'PROVIDER_ERROR';
+    let errorCode: string = AI_ERROR_CODES.PROVIDER_ERROR;
     let status = 500;
 
     // Classify the error for proper frontend handling
     if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('401')) {
-      errorCode = 'INVALID_API_KEY';
+      errorCode = AI_ERROR_CODES.INVALID_API_KEY;
       status = 401;
     } else if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
-      errorCode = 'RATE_LIMITED';
+      errorCode = AI_ERROR_CODES.RATE_LIMITED;
       status = 429;
     } else if (errorMessage.includes('timeout')) {
-      errorCode = 'TIMEOUT';
+      errorCode = AI_ERROR_CODES.TIMEOUT;
       status = 504;
     }
 
     return new Response(JSON.stringify({
-      error: errorMessage,
+      error: errorCode,
       code: errorCode,
       message: errorMessage
     }), {

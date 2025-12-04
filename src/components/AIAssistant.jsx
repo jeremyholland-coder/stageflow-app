@@ -58,8 +58,11 @@ export const AIAssistant = ({ deals = [] }) => {
   const [providers, setProviders] = useState([]);
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  // P0 FIX: Track provider fetch errors separately from "no providers"
-  const [providerFetchError, setProviderFetchError] = useState(false);
+  // M1 HARDENING: Track provider fetch errors with message (null = no error, string = error message)
+  // This is DIFFERENT from "no providers configured" (which is providers.length === 0 with no fetch error)
+  const [providerFetchError, setProviderFetchError] = useState(null);
+  // M1 HARDENING: Track if initial provider fetch has completed
+  const [providersLoaded, setProvidersLoaded] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { user, organization, addNotification, navigateToIntegrations } = useApp();
@@ -74,8 +77,8 @@ export const AIAssistant = ({ deals = [] }) => {
   const fetchProviders = async () => {
     if (!user || !organization) return;
 
-    // Reset error state on new fetch
-    setProviderFetchError(false);
+    // M1 HARDENING: Reset error state on new fetch
+    setProviderFetchError(null);
 
     try {
       const { data: result } = await api.post('get-ai-providers', {
@@ -84,8 +87,12 @@ export const AIAssistant = ({ deals = [] }) => {
 
       // Check for error response from backend
       if (result.error) {
-        console.error('[AIAssistant] Provider fetch returned error:', result.error);
-        setProviderFetchError(true);
+        console.error('[StageFlow][AI][ERROR] Provider fetch returned error:', result.error);
+        // M1 HARDENING: Store error message for UI display
+        setProviderFetchError(
+          "We couldn't reach your AI provider settings. This is likely temporary. Please try again."
+        );
+        setProvidersLoaded(true);
         return;
       }
 
@@ -97,16 +104,22 @@ export const AIAssistant = ({ deals = [] }) => {
       );
 
       setProviders(filteredProviders);
+      // M1 HARDENING: Mark as loaded successfully (no error)
+      setProvidersLoaded(true);
+      setProviderFetchError(null);
 
       // Auto-select first provider if none selected
       if (filteredProviders.length > 0 && !selectedProvider) {
         setSelectedProvider(filteredProviders[0]);
       }
     } catch (err) {
-      // P0 FIX: Distinguish between "no providers" and "provider fetch error"
+      // M1 HARDENING: Distinguish between "no providers" and "provider fetch error"
       // Network errors, 5xx, auth errors = fetch error (NOT "no providers")
-      console.error('[AIAssistant] Failed to fetch AI providers:', err);
-      setProviderFetchError(true);
+      console.error('[StageFlow][AI][ERROR] Failed to fetch AI providers:', err);
+      setProviderFetchError(
+        "We couldn't reach your AI provider settings. This is likely temporary. Please try again."
+      );
+      setProvidersLoaded(true);
       // DO NOT clear providers list - preserve any cached state
     }
   };
@@ -431,11 +444,13 @@ export const AIAssistant = ({ deals = [] }) => {
 
           {/* Input */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0D1F2D]">
-            {/* P0 FIX: Distinguish between "no providers" and "provider fetch error" */}
+            {/* M1 HARDENING: Distinguish between "provider fetch error" and "no providers configured" */}
             {providerFetchError ? (
+              // CASE 1: Provider fetch failed (network error, DB error, auth error)
+              // This is NOT "no providers" - it's an infrastructure issue
               <div className="text-center py-2">
                 <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-                  Unable to load AI providers. Please try again.
+                  {providerFetchError}
                 </p>
                 <button
                   onClick={() => fetchProviders()}
@@ -444,10 +459,12 @@ export const AIAssistant = ({ deals = [] }) => {
                   Retry
                 </button>
               </div>
-            ) : providers.length === 0 ? (
+            ) : providersLoaded && providers.length === 0 ? (
+              // CASE 2: Fetch succeeded but no providers are configured
+              // User needs to go to Settings → AI Providers to connect one
               <div className="text-center py-2">
                 <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-2">
-                  No AI providers configured
+                  No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.
                 </p>
                 <button
                   onClick={() => {
@@ -458,6 +475,13 @@ export const AIAssistant = ({ deals = [] }) => {
                 >
                   Configure AI Settings
                 </button>
+              </div>
+            ) : !providersLoaded ? (
+              // CASE 3: Still loading - show loading indicator
+              <div className="text-center py-2">
+                <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+                  Loading AI providers...
+                </p>
               </div>
             ) : (
               <div className="flex gap-2">

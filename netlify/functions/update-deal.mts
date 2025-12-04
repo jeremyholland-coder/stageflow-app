@@ -132,12 +132,31 @@ export default async (req: Request, context: Context) => {
     ];
 
     const sanitizedUpdates: Record<string, any> = {};
+    // M5 HARDENING 2025-12-04: Track ignored fields for debugging
+    // This helps catch typos in field names (e.g., "clinet" instead of "client")
+    const ignoredFields: string[] = [];
+
     for (const [key, value] of Object.entries(updates)) {
       // FIX 2025-12-02: Only include allowed fields AND filter out undefined values
       // Undefined values can break the Supabase JS client
       if (allowedFields.includes(key) && value !== undefined) {
         sanitizedUpdates[key] = value;
+      } else {
+        // M5 HARDENING: Track fields that were ignored
+        // Don't track undefined values - those are expected to be filtered
+        if (value !== undefined) {
+          ignoredFields.push(key);
+        }
       }
+    }
+
+    // M5 HARDENING: Log ignored fields for debugging
+    if (ignoredFields.length > 0) {
+      console.warn('[StageFlow][DEAL][WARN] update-deal ignored unknown fields:', {
+        dealId,
+        ignoredFields,
+        hint: 'Check for typos in field names or add fields to allowedFields list'
+      });
     }
 
     if (Object.keys(sanitizedUpdates).length === 0) {
@@ -306,10 +325,21 @@ export default async (req: Request, context: Context) => {
       }
     }
 
-    console.warn("[update-deal] Success:", { dealId, stage: updatedDeal.stage });
+    console.info("[StageFlow][DEAL][INFO] Update success:", { dealId, stage: updatedDeal.stage });
 
     // FIX 2025-12-02: Include success: true for proper frontend error handling
-    return new Response(JSON.stringify({ success: true, deal: updatedDeal }), {
+    // M5 HARDENING 2025-12-04: Include ignoredFields for debugging
+    const responseData: { success: boolean; deal: any; ignoredFields?: string[] } = {
+      success: true,
+      deal: updatedDeal
+    };
+
+    // Only include ignoredFields if there are any (keeps response clean)
+    if (ignoredFields.length > 0) {
+      responseData.ignoredFields = ignoredFields;
+    }
+
+    return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: corsHeaders,
     });

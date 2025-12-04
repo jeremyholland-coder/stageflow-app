@@ -3,6 +3,8 @@ import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+// M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
+import { AI_ERROR_CODES } from './lib/ai-error-codes';
 // CENTRALIZED CONFIG: Import thresholds from single source of truth
 import { STAGNATION_THRESHOLDS } from '../../src/config/pipelineConfig';
 // PHASE 3: Task-aware model selection
@@ -114,7 +116,7 @@ async function getPerformanceContext(organizationId: string, userId: string): Pr
 
     return performanceContext;
   } catch (error) {
-    console.error('Error fetching performance metrics:', error);
+    console.warn('[StageFlow][AI][WARN] Error fetching performance metrics (non-fatal):', error);
     return null;
   }
 }
@@ -1300,10 +1302,12 @@ export default async (req: Request, context: any) => {
       // Block request if limit reached (not unlimited)
       if (limit > 0 && used >= limit) {
         return new Response(JSON.stringify({
-          error: 'AI_LIMIT_REACHED',
+          error: AI_ERROR_CODES.AI_LIMIT_REACHED,
+          code: AI_ERROR_CODES.AI_LIMIT_REACHED,
           limitReached: true,
           used,
           limit,
+          message: `You've reached your monthly limit of ${limit} AI requests. Upgrade your plan to continue using AI features.`,
           response: `You've reached your monthly limit of ${limit} AI requests. Upgrade your plan to continue using AI features.`,
           suggestions: []
         }), {
@@ -1340,12 +1344,11 @@ export default async (req: Request, context: any) => {
       providers = await getActiveProviders(organizationId);
     } catch (providerError) {
       // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
-      console.error('[ai-assistant] Provider fetch failed:', providerError);
-      const isProviderFetchError = providerError instanceof ProviderFetchError;
+      console.error('[StageFlow][AI][ERROR] Provider fetch failed:', providerError);
       return new Response(JSON.stringify({
-        error: 'AI_PROVIDER_FETCH_FAILED',
-        message: 'Unable to load AI provider configuration. Please retry in a few moments.',
-        code: isProviderFetchError ? providerError.code : 'PROVIDER_FETCH_FAILED'
+        error: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
+        code: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
+        message: 'Unable to load AI provider configuration. Please retry in a few moments.'
       }), {
         status: 503,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -1360,8 +1363,10 @@ export default async (req: Request, context: any) => {
     if (runtimeProviders.length === 0) {
       // This is the REAL "no providers configured" case (empty list, no error)
       return new Response(JSON.stringify({
-        error: 'No AI provider configured',
-        response: "I'm not connected to any AI providers yet. Please configure an AI provider in Integrations → AI Settings.",
+        error: AI_ERROR_CODES.NO_PROVIDERS,
+        code: AI_ERROR_CODES.NO_PROVIDERS,
+        message: 'No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.',
+        response: "No AI provider is connected. Go to Settings → AI Providers to connect ChatGPT, Claude, or Gemini.",
         suggestions: []
       }), {
         status: 200,
@@ -1568,7 +1573,7 @@ export default async (req: Request, context: any) => {
     });
 
   } catch (error: any) {
-    console.error('AI Assistant error:', error);
+    console.error('[StageFlow][AI][ERROR] AI Assistant error:', error);
 
     // AI FALLBACK: Handle AllProvidersFailedError with detailed info
     if (error instanceof AllProvidersFailedError) {
@@ -1578,7 +1583,9 @@ export default async (req: Request, context: any) => {
         .join(', ');
 
       return new Response(JSON.stringify({
-        error: 'ALL_PROVIDERS_FAILED',
+        error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+        code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+        message: `All AI providers failed (${providerNames}). Please try again or check your API keys.`,
         response: `I tried all available AI providers (${providerNames}) but none could respond. This may be a temporary issue - please try again in a moment.`,
         providersAttempted: error.providersAttempted,
         errors: error.errors.map(e => ({
@@ -1595,7 +1602,9 @@ export default async (req: Request, context: any) => {
     // Check for auth/session errors - provide specific guidance
     if (error?.message?.includes('401') || error?.message?.includes('session') || error?.message?.includes('auth')) {
       return new Response(JSON.stringify({
-        error: 'SESSION_ERROR',
+        error: AI_ERROR_CODES.SESSION_ERROR,
+        code: AI_ERROR_CODES.SESSION_ERROR,
+        message: "Session expired or invalid. Please sign out and sign back in.",
         response: "We couldn't verify your session. Please sign out and sign back in, then try again.",
         suggestions: ['Sign out and sign back in', 'Clear your browser cache if the issue persists']
       }), {
