@@ -305,7 +305,7 @@ export function getTaskFallbackOrder(taskType) {
 /**
  * Get an ordered list of providers to try, starting with the primary
  *
- * @param {string} primaryProvider - The user's preferred/default provider_type (e.g., 'xai', 'openai')
+ * @param {string} primaryProvider - The user's preferred/default provider_type (e.g., 'openai', 'anthropic')
  * @param {Array} connectedProviders - Array of connected provider objects from Supabase
  * @param {string} taskType - Optional task type for task-aware provider selection
  * @returns {Array} Ordered array of provider_type values to try
@@ -366,7 +366,7 @@ export function isProviderErrorResponse(responseText) {
 /**
  * Get the display name for a provider type
  *
- * @param {string} providerType - The provider_type value (e.g., 'xai', 'openai')
+ * @param {string} providerType - The provider_type value (e.g., 'openai', 'anthropic', 'google')
  * @returns {string} Human-readable provider name
  */
 export function getProviderDisplayName(providerType) {

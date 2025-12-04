@@ -950,103 +950,9 @@ ${context.adaptationSnippet || ''}
   };
 }
 
-// Call Grok
-// PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
-async function callGrok(apiKey: string, message: string, context: any, modelName?: string, conversationHistory: any[] = []): Promise<any> {
-  // Build messages array with system prompt, conversation history, then current message
-  const messages = [
-    {
-      role: 'system',
-      content: `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform.
-
-**YOUR CORE VALUES:**
-- Partnership over transaction
-- Professionalism over pressure
-- Momentum over manipulation
-- Relationship development over pure follow-up
-
-**FORBIDDEN LANGUAGE:** Never use money-hungry phrases, hard-selling verbs (push, hammer, pressure), shaming tactics, or salesy framing.
-
-**Pipeline Context:** ${JSON.stringify(context, null, 2)}
-
-**RESPONSE FORMAT:**
-- Clean text - NO markdown syntax (##, ***, ---)
-- Plain text emphasis (CAPS for key items)
-- Simple bullet points (•) or numbered lists
-- Brief responses - max 3-4 sentences when charts shown
-- Professional, supportive tone
-
-**Momentum Awareness:**
-${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from attention:\n${context.stagnantDealsList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} (${d.age}d in ${d.stage})`).join('\n')}` : '✓ Pipeline momentum healthy'}
-
-**High-Value Opportunities:**
-${context.highValueAtRisk > 0 ? `${context.highValueAtRisk} high-value deals to nurture` : '✓ High-value deals progressing well'}
-${context.visualInstructions || ''}
-${context.adaptationSnippet || ''}
-**Your Role:** Be SPECIFIC and SUPPORTIVE. Name deals and values. Suggest 2-3 constructive next steps. Keep it brief - charts show data. Win rate: ${context.winRate}%.`
-    }
-  ];
-
-  // Add conversation history (exclude provider metadata, only role and content)
-  conversationHistory.forEach((msg: any) => {
-    if (msg.role && msg.content) {
-      messages.push({
-        role: msg.role,
-        content: msg.content
-      });
-    }
-  });
-
-  // Add current user message
-  messages.push({
-    role: 'user',
-    content: message
-  });
-
-  const response = await withTimeout(
-    fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: modelName || 'grok-beta', // Use database model, fallback to grok-beta
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 500
-      })
-    }),
-    TIMEOUTS.AI_PROVIDER,
-    'Grok API call'
-  );
-
-  // CRITICAL FIX A2: Handle Grok 403 permission errors gracefully
-  if (!response.ok) {
-    if (response.status === 403) {
-      return {
-        response: "I'm unable to connect to Grok right now. This usually means your xAI API key needs credits or permissions. Please check your xAI account at console.x.ai to verify your API key has available credits.",
-        provider: 'Grok'
-      };
-    }
-    const errorText = await response.text();
-    throw new Error(`Grok API error: ${response.status} - ${errorText}`);
-  }
-
-  const data = await response.json() as any;
-
-  // NULL CHECK: Validate response structure
-  if (!data?.choices?.[0]?.message?.content) {
-    throw new Error('Grok returned invalid response structure');
-  }
-
-  return {
-    response: data.choices[0].message.content,
-    provider: 'Grok'
-  };
-}
 
 // Model tier definitions (premium = 3, standard = 2, economy = 1)
+// FIX 2025-12-04: Removed xAI/Grok models - deprecated provider
 const MODEL_TIERS: { [key: string]: number } = {
   // OpenAI Premium
   'gpt-5': 3,
@@ -1067,60 +973,49 @@ const MODEL_TIERS: { [key: string]: number } = {
   'gemini-2.5-pro': 3,
   'gemini-2.5-flash': 2,
   'gemini-2.5-flash-lite': 1,
-  'gemini-1.5-pro': 2,
-
-  // xAI Premium
-  'grok-4': 3,
-  'grok-4-fast': 2,
-  'grok-3-mini': 1,
-  'grok-beta': 1
+  'gemini-1.5-pro': 2
 };
 
 // PHASE 18: Task-specific model preferences (ENHANCED)
 // Higher score = better fit for the task type
-// Priority: ChatGPT for RevOps, Claude for coaching, Grok/Gemini for visuals
+// Priority: ChatGPT for RevOps, Claude for coaching, Gemini for visuals
+// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
-  // Chart insights - ChatGPT excels at structured data, Grok/Gemini for visualization
+  // Chart insights - ChatGPT excels at structured data, Gemini for visualization
   'chart_insight': {
     'openai': 4,      // GPT excels at structured data analysis - PRIMARY
     'google': 3,      // Gemini strong for analytics
-    'anthropic': 2,   // Claude is capable
-    'xai': 3          // Grok good for visual interpretation
+    'anthropic': 2    // Claude is capable
   },
   // Coaching needs long-form reasoning and empathy - Claude is BEST
   'coaching': {
     'anthropic': 5,   // Claude excels at nuanced, helpful responses - PRIMARY
     'openai': 3,      // GPT is good but more clinical
-    'google': 2,      // Gemini is capable
-    'xai': 2          // Grok has personality but less consistent
+    'google': 2       // Gemini is capable
   },
   // Text analysis / RevOps - ChatGPT is the best all-arounder
   'text_analysis': {
     'openai': 4,      // GPT best for structured RevOps analysis - PRIMARY
     'anthropic': 3,   // Claude strong second
-    'google': 2,
-    'xai': 1
+    'google': 2
   },
-  // Image suitable - Grok and Gemini excel at visual content
+  // Image suitable - Gemini excels at visual content
   'image_suitable': {
-    'xai': 5,         // Grok excellent for image generation - PRIMARY
-    'google': 4,      // Gemini strong for visuals
-    'openai': 2,      // GPT can describe visuals
-    'anthropic': 1    // Claude as text fallback
+    'google': 5,      // Gemini strong for visuals - PRIMARY
+    'openai': 3,      // GPT can describe visuals
+    'anthropic': 2    // Claude as text fallback
   },
   // Planning tasks (Plan My Day, etc.) - ChatGPT excels
   'planning': {
     'openai': 5,      // GPT best for multi-step guidance - PRIMARY
     'anthropic': 4,   // Claude strong for planning
-    'google': 2,      // Gemini capable
-    'xai': 1          // Grok less reliable for structured tasks
+    'google': 2       // Gemini capable
   },
   // General Q&A - ChatGPT as default brain
   'general': {
     'openai': 4,      // GPT best all-arounder - PRIMARY
     'anthropic': 3,   // Claude strong second
-    'google': 2,      // Gemini capable
-    'xai': 1          // Grok as creative fallback
+    'google': 2       // Gemini capable
   }
 };
 
@@ -1213,6 +1108,7 @@ async function callAIProvider(provider: any, message: string, context: any, conv
     visualInstructions // Added to context for prompt building
   };
 
+  // FIX 2025-12-04: Only 3 providers supported (OpenAI, Anthropic, Google)
   switch (provider.provider_type) {
     case 'openai':
       return await callOpenAI(apiKey, message, enrichedContext, modelName, conversationHistory);
@@ -1223,11 +1119,8 @@ async function callAIProvider(provider: any, message: string, context: any, conv
     case 'google':
       return await callGemini(apiKey, message, enrichedContext, modelName, conversationHistory);
 
-    case 'xai':
-      return await callGrok(apiKey, message, enrichedContext, modelName, conversationHistory);
-
     default:
-      throw new Error('Unsupported AI provider');
+      throw new Error(`Unsupported AI provider: ${provider.provider_type}`);
   }
 }
 
@@ -1442,10 +1335,9 @@ export default async (req: Request, context: any) => {
     // Get all active providers
     const providers = await getActiveProviders(organizationId);
 
-    // FIX 2025-12-04: Remove xAI/Grok from runtime provider chain
-    // Grok is deprecated - filter it out at the boundary so it's never called
+    // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
     const runtimeProviders = providers.filter(
-      (p: any) => p.provider_type !== 'xai'
+      (p: any) => ['openai', 'anthropic', 'google'].includes(p.provider_type)
     );
 
     if (runtimeProviders.length === 0) {

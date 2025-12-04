@@ -1,6 +1,7 @@
 // FIX v1.7.62 (#5): AI Model Constants - REAL models as of November 2025
-// Removed speculative future models (GPT-5, Grok-4, Gemini 2.5) that don't exist yet
+// Removed speculative future models (GPT-5, Gemini 2.5) that don't exist yet
 // Updated to ACTUAL available models to prevent API errors
+// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 
 export const AI_MODELS = {
   openai: [
@@ -42,34 +43,29 @@ export const AI_MODELS = {
     // Gemini 1.5 Flash (Balanced)
     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Fast & cost-effective' },
     { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash (Latest)', description: 'Auto-updated flash model' },
-  ],
-
-  xai: [
-    // Grok Beta (Current Model)
-    { id: 'grok-beta', name: 'Grok', description: 'X.AI flagship with real-time X platform integration' },
   ]
 };
 
 // Recommended default models (PREMIUM tier - best quality)
+// FIX 2025-12-04: Only 3 providers supported
 export const DEFAULT_MODELS = {
   openai: 'gpt-4o',                         // Latest flagship
   anthropic: 'claude-sonnet-4-20250514',    // Best coding & analysis
-  google: 'gemini-1.5-pro',                 // 2M token context - best for large datasets
-  xai: 'grok-beta'                          // Flagship with X integration
+  google: 'gemini-1.5-pro'                  // 2M token context - best for large datasets
 };
 
 // Economy tier models (for cost-conscious users)
 export const ECONOMY_MODELS = {
   openai: 'gpt-4o-mini',
   anthropic: 'claude-haiku-3-5-20241022',
-  google: 'gemini-1.5-flash',
-  xai: 'grok-beta'
+  google: 'gemini-1.5-flash'
 };
 
 // Model pricing tiers
+// FIX 2025-12-04: Removed grok-beta - xAI/Grok deprecated
 export const MODEL_TIERS = {
   premium: ['gpt-4o', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'],
-  standard: ['gpt-4-turbo', 'claude-sonnet-3-7-20250219', 'gemini-1.5-flash', 'grok-beta'],
+  standard: ['gpt-4-turbo', 'claude-sonnet-3-7-20250219', 'gemini-1.5-flash'],
   economy: ['gpt-4o-mini', 'gpt-3.5-turbo', 'claude-haiku-3-5-20241022']
 };
 
@@ -89,6 +85,5 @@ export const CONTEXT_WINDOWS = {
   'gemini-1.5-pro': 2097152,
   'gemini-1.5-pro-latest': 2097152,
   'gemini-1.5-flash': 1048576,
-  'gemini-1.5-flash-latest': 1048576,
-  'grok-beta': 131072
+  'gemini-1.5-flash-latest': 1048576
 };

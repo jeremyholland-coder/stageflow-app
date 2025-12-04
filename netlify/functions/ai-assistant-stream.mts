@@ -51,8 +51,7 @@ const MODEL_TIERS: { [key: string]: number } = {
   'gpt-5': 3, 'gpt-5-mini': 2, 'gpt-4.1': 2, 'gpt-4.1-mini': 1, 'gpt-4o-mini': 1, 'gpt-4o': 1,
   'claude-sonnet-4-5-20250929': 3, 'claude-opus-4-1-20250805': 3, 'claude-sonnet-3-7-20250219': 2,
   'claude-haiku-4-5-20251001': 1, 'claude-3-5-sonnet-20241022': 2,
-  'gemini-2.5-pro': 3, 'gemini-2.5-flash': 2, 'gemini-2.5-flash-lite': 1, 'gemini-1.5-pro': 2,
-  'grok-4': 3, 'grok-4-fast': 2, 'grok-3-mini': 1, 'grok-beta': 1
+  'gemini-2.5-pro': 3, 'gemini-2.5-flash': 2, 'gemini-2.5-flash-lite': 1, 'gemini-1.5-pro': 2
 };
 
 function getModelTier(modelName: string | null): number {
@@ -61,11 +60,12 @@ function getModelTier(modelName: string | null): number {
 }
 
 // PHASE 3: Task-specific model preferences (mirrors ai-assistant.mts)
+// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
-  'chart_insight': { 'openai': 3, 'anthropic': 3, 'google': 2, 'xai': 1 },
-  'coaching': { 'anthropic': 3, 'openai': 2, 'google': 2, 'xai': 2 },
-  'text_analysis': { 'openai': 2, 'anthropic': 2, 'google': 2, 'xai': 2 },
-  'image_suitable': { 'openai': 2, 'anthropic': 2, 'google': 2, 'xai': 1 }
+  'chart_insight': { 'openai': 3, 'anthropic': 3, 'google': 2 },
+  'coaching': { 'anthropic': 3, 'openai': 2, 'google': 2 },
+  'text_analysis': { 'openai': 2, 'anthropic': 2, 'google': 2 },
+  'image_suitable': { 'openai': 2, 'anthropic': 2, 'google': 3 }
 };
 
 // PHASE 3 / QA FIX: Provider selection now uses unified selectProvider from lib/select-provider.ts
@@ -472,10 +472,9 @@ export default async (req: Request, context: any) => {
     // Get AI providers (TASK 1: Now uses 60s cache)
     const providers = await getProvidersWithCache(supabase, organizationId);
 
-    // FIX 2025-12-04: Remove xAI/Grok from runtime provider chain
-    // Grok is deprecated - filter it out at the boundary so it's never called
+    // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
     const runtimeProviders = providers.filter(
-      (p: any) => p.provider_type !== 'xai'
+      (p: any) => ['openai', 'anthropic', 'google'].includes(p.provider_type)
     );
 
     // FIX 2025-12-02: Return 422 (Unprocessable Entity) for NO_PROVIDERS
@@ -591,8 +590,8 @@ export default async (req: Request, context: any) => {
               successfulProvider = providerType;
               logProviderAttempt('streaming', providerType, claudeSoftFailure ? 'soft_failure' : 'success');
               break; // Success! Exit the loop
-            } else {
-              // CRITICAL-02 FIX: For Gemini/Grok, use non-streaming fallback
+            } else if (currentProvider.provider_type === 'google') {
+              // CRITICAL-02 FIX: For Gemini, use non-streaming fallback
               const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. ${enrichedContext}.
 
 YOUR CORE VALUES: Partnership over transaction. Professionalism over pressure. Momentum over manipulation. Relationship development over pure follow-up.
@@ -604,49 +603,24 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
               let providerName = PROVIDER_NAMES[providerType] || 'AI';
               let responseText = '';
 
-              if (currentProvider.provider_type === 'google') {
-                // Gemini non-streaming fallback
-                const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentProvider.model || 'gemini-1.5-pro'}:generateContent?key=${apiKey}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    contents: [
-                      { role: 'user', parts: [{ text: systemPrompt + '\n\nUser: ' + message }] }
-                    ],
-                    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-                  })
-                });
-                if (!geminiResponse.ok) {
-                  // FIX 2025-12-03: Better error classification for Google
-                  const { errorType } = classifyError({ message: `Gemini API error: ${geminiResponse.status}` }, geminiResponse.status);
-                  throw { message: `Gemini API error: ${geminiResponse.status}`, status: geminiResponse.status, errorType };
-                }
-                const geminiData = await geminiResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-                responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate response.';
-              } else if (currentProvider.provider_type === 'xai') {
-                // Grok non-streaming fallback
-                const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                  body: JSON.stringify({
-                    model: currentProvider.model || 'grok-beta',
-                    messages: [
-                      { role: 'system', content: systemPrompt },
-                      { role: 'user', content: message }
-                    ],
-                    temperature: 0.7, max_tokens: 500
-                  })
-                });
-                if (!grokResponse.ok) {
-                  // FIX 2025-12-03: Better error classification for XAI
-                  const { errorType } = classifyError({ message: `Grok API error: ${grokResponse.status}` }, grokResponse.status);
-                  throw { message: `Grok API error: ${grokResponse.status}`, status: grokResponse.status, errorType };
-                }
-                const grokData = await grokResponse.json() as { choices?: { message?: { content?: string } }[] };
-                responseText = grokData.choices?.[0]?.message?.content || 'Unable to generate response.';
-              } else {
-                throw new Error(`Unsupported provider type: ${currentProvider.provider_type}`);
+              // Gemini non-streaming fallback
+              const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentProvider.model || 'gemini-1.5-pro'}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [
+                    { role: 'user', parts: [{ text: systemPrompt + '\n\nUser: ' + message }] }
+                  ],
+                  generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+                })
+              });
+              if (!geminiResponse.ok) {
+                // FIX 2025-12-03: Better error classification for Google
+                const { errorType } = classifyError({ message: `Gemini API error: ${geminiResponse.status}` }, geminiResponse.status);
+                throw { message: `Gemini API error: ${geminiResponse.status}`, status: geminiResponse.status, errorType };
               }
+              const geminiData = await geminiResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+              responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate response.';
 
               // FIX 2025-12-04: Streaming soft-failure handling for last provider (match non-stream behavior)
               // Check if the response content indicates a soft failure (200 OK but error message)

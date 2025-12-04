@@ -12,8 +12,9 @@
 
 /**
  * Provider types
+ * FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
  */
-export type ProviderType = 'openai' | 'anthropic' | 'google' | 'xai';
+export type ProviderType = 'openai' | 'anthropic' | 'google';
 
 /**
  * Model definition with metadata
@@ -57,12 +58,8 @@ export const SUPPORTED_MODELS: Record<ProviderType, ModelDefinition[]> = {
     { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', tier: 'standard', isDefault: true },
     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', tier: 'economy' },
     // { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', tier: 'premium' },
-  ],
-
-  xai: [
-    { id: 'grok-beta', name: 'Grok Beta', tier: 'standard', isDefault: true },
-    // { id: 'grok-2', name: 'Grok 2', tier: 'premium' },
   ]
+  // FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 };
 
 /**

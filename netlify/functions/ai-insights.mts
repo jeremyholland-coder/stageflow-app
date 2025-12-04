@@ -116,40 +116,10 @@ async function callGemini(apiKey: string, prompt: string, model?: string): Promi
   return data.candidates[0].content.parts[0].text;
 }
 
-// Call xAI/Grok
-async function callGrok(apiKey: string, prompt: string, model?: string): Promise<string> {
-  const response = await withTimeout(
-    fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model || 'grok-beta',
-        messages: [
-          { role: 'system', content: 'You are a professional sales advisor. Provide clear, actionable insights. Be concise.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      })
-    }),
-    TIMEOUTS.AI_PROVIDER,
-    'Grok API'
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw Object.assign(new Error(`Grok: ${response.status}`), { status: response.status, details: error });
-  }
-
-  const data = await response.json() as any;
-  if (!data?.choices?.[0]?.message?.content) throw new Error('Grok: invalid response');
-  return data.choices[0].message.content;
-}
+// FIX 2025-12-04: Removed callGrok - xAI/Grok deprecated
 
 // Route to appropriate provider
+// FIX 2025-12-04: Only 3 providers supported (removed xAI/Grok)
 async function callProvider(provider: ConnectedProvider, apiKey: string, prompt: string): Promise<string> {
   switch (provider.provider_type) {
     case 'openai':
@@ -158,8 +128,6 @@ async function callProvider(provider: ConnectedProvider, apiKey: string, prompt:
       return callAnthropic(apiKey, prompt, provider.model || undefined);
     case 'google':
       return callGemini(apiKey, prompt, provider.model || undefined);
-    case 'xai':
-      return callGrok(apiKey, prompt, provider.model || undefined);
     default:
       throw new Error(`Unsupported provider: ${provider.provider_type}`);
   }

@@ -41,8 +41,8 @@ test.describe('AI Providers / Integrations', () => {
     await navigateTo(page, 'integrations');
     await waitForLoadingComplete(page);
 
-    // Look for provider cards (ChatGPT, Claude, Gemini, Grok)
-    const providers = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'OpenAI', 'Anthropic', 'Google'];
+    // Look for provider cards (ChatGPT, Claude, Gemini)
+    const providers = ['ChatGPT', 'Claude', 'Gemini', 'OpenAI', 'Anthropic', 'Google'];
 
     let foundProviders = 0;
     for (const provider of providers) {

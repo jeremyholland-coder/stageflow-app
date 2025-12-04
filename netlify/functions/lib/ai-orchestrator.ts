@@ -15,14 +15,14 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './encryption';
 
 // Provider types supported by StageFlow
-export type ProviderType = 'openai' | 'anthropic' | 'google' | 'xai';
+// FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
+export type ProviderType = 'openai' | 'anthropic' | 'google';
 
 // Provider display names for user-facing messages
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderType, string> = {
   openai: 'ChatGPT',
   anthropic: 'Claude',
-  google: 'Gemini',
-  xai: 'Grok'
+  google: 'Gemini'
 };
 
 // Connected provider from database
@@ -118,9 +118,9 @@ export async function getConnectedProvidersForOrg(orgId: string): Promise<Connec
   }
 
   // Filter out any with empty api_key_encrypted (extra safety)
-  // FIX 2025-12-04: Also filter out xAI/Grok - deprecated provider
+  // FIX 2025-12-04: Only allow 3 providers (OpenAI, Anthropic, Google)
   const validProviders = (data || []).filter(
-    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== '' && p.provider_type !== 'xai'
+    p => p.api_key_encrypted && p.api_key_encrypted.trim() !== '' && ['openai', 'anthropic', 'google'].includes(p.provider_type)
   );
 
   console.log(`[ai-orchestrator] Org ${orgId} has ${validProviders.length} connected provider(s):`,

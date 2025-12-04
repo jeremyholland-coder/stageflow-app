@@ -1,5 +1,6 @@
 // LLM Provider Configuration - Production Ready
-// Last Updated: October 19, 2025
+// Last Updated: December 4, 2025
+// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 
 export const LLM_PROVIDERS = {
   openai: {
@@ -115,43 +116,6 @@ export const LLM_PROVIDERS = {
     parseError: (error, status) => {
       if (status === 400) return 'Invalid API key';
       if (status === 403) return 'API not enabled in Google Cloud Console';
-      if (status === 429) return 'Rate limit exceeded';
-      return `API error: ${status}`;
-    }
-  },
-
-  xai: {
-    id: 'xai',
-    name: 'xAI',
-    displayName: 'Grok',
-    models: [
-      { id: 'grok-beta', name: 'Grok Beta', description: 'Latest model' },
-      { id: 'grok-vision-beta', name: 'Grok Vision', description: 'Multimodal' }
-    ],
-    endpoint: 'https://api.x.ai/v1/chat/completions',
-    headers: (apiKey) => ({
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    }),
-    validateFormat: (key) => {
-      if (!key || typeof key !== 'string') return false;
-      const trimmed = key.trim(); // CRITICAL: Match frontend/backend trimming behavior
-      // xAI/Grok keys: xai- prefix with variable length
-      // FUTURE-PROOF: Only check prefix and minimum length
-      return trimmed.startsWith('xai-') && trimmed.length >= 20;
-    },
-    testRequest: (model) => ({
-      model: model,
-      messages: [{ role: 'user', content: 'test' }],
-      max_tokens: 5
-    }),
-    parseResponse: (data) => ({
-      success: true,
-      text: data.choices?.[0]?.message?.content || ''
-    }),
-    parseError: (error, status) => {
-      if (status === 401) return 'Invalid API key';
-      if (status === 403) return 'Permission denied';
       if (status === 429) return 'Rate limit exceeded';
       return `API error: ${status}`;
     }

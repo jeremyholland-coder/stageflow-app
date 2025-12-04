@@ -58,14 +58,7 @@ async function verifyAIKey(providerType: string, apiKey: string): Promise<{ veri
         testHeaders = { 'Content-Type': 'application/json' };
         break;
 
-      case 'xai':
-        // xAI/Grok: Use models list endpoint
-        testUrl = 'https://api.x.ai/v1/models';
-        testHeaders = {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        };
-        break;
+      // FIX 2025-12-04: Removed xAI/Grok case - deprecated provider
 
       default:
         // Unknown provider - skip verification
@@ -278,19 +271,7 @@ export default async (req: Request, context: Context) => {
           // Length can vary, but typically 39-40 chars total
           return trimmed.startsWith('AIza') && trimmed.length >= 35;
 
-        case 'xai':
-          // PHASE G4 FIX: xAI/Grok keys from console.x.ai use various formats
-          // Known formats: xai-..., gsk_..., sk-..., sk-proj-...
-          // May contain periods, colons, or other token-standard characters
-          //
-          // Validation strategy:
-          // 1. Minimum length of 20 characters (catches empty/short garbage)
-          // 2. No whitespace characters (catches copy-paste errors with spaces)
-          // 3. Let the xAI API be the final authority on format validity
-          if (trimmed.length < 20) return false;
-          // Reject keys with whitespace (spaces, tabs, newlines)
-          // Allow all other printable characters - xAI API will validate
-          return !/\s/.test(trimmed);
+        // FIX 2025-12-04: Removed xAI/Grok validation - deprecated provider
 
         default:
           // Generic fallback: any non-empty string with reasonable length

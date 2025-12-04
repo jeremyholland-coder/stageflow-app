@@ -89,26 +89,8 @@ const getProviderConfig = (providerName: string, encryptedKey: string, modelName
         text: data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response',
         tokensUsed: data?.usageMetadata?.totalTokenCount || 0
       })
-    },
-    xai: {
-      name: 'Grok',
-      endpoint: 'https://api.x.ai/v1/chat/completions',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      requestFormatter: (prompt: string) => ({
-        model: modelName,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000,
-        temperature: 0.7,
-        stream: false
-      }),
-      responseFormatter: (data: any) => ({
-        text: data?.choices?.[0]?.message?.content || 'No response',
-        tokensUsed: data?.usage?.total_tokens || 0
-      })
     }
+    // FIX 2025-12-04: Removed xAI/Grok - deprecated provider
   };
 
   return providers[providerName] || null;
@@ -370,7 +352,8 @@ export default async (req: Request, context: Context) => {
     if (!responseText || responseText === 'No response') {
       console.error('All LLM providers failed:', lastError);
       const providerNames = providers.map(p => {
-        const configs = { openai: 'ChatGPT', anthropic: 'Claude', google: 'Gemini', xai: 'Grok' };
+        // FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
+        const configs: Record<string, string> = { openai: 'ChatGPT', anthropic: 'Claude', google: 'Gemini' };
         return configs[p.provider_type] || p.provider_type;
       }).join(', ');
 

@@ -83,7 +83,7 @@ export async function fetchConnectedProviders(organizationId) {
  * @param {string} options.message - The user's message/query
  * @param {Array} options.deals - Deal data to provide context
  * @param {Array} options.conversationHistory - Previous messages
- * @param {string} options.providerType - The provider_type to use (e.g., 'xai', 'openai')
+ * @param {string} options.providerType - The provider_type to use (e.g., 'openai', 'anthropic', 'google')
  * @param {Array} options.aiSignals - Optional AI signals for personalization
  * @returns {Promise<Object>} The AI response
  */
@@ -290,7 +290,7 @@ export async function runAIQueryWithFallback(options) {
 
         // FIX 2025-12-03: If this is the LAST provider, return the response with soft failure metadata
         // instead of throwing ALL_PROVIDERS_FAILED. This ensures the user sees the provider's
-        // error message (e.g., "Your Grok API key needs credits") rather than a generic banner.
+        // error message (e.g., "Your API key needs credits") rather than a generic banner.
         if (isLastProvider) {
           console.warn(`[ai-fallback] Last provider ${providerType} returned soft failure - returning response with warning`);
           return {

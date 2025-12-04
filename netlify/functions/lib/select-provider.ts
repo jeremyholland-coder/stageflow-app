@@ -45,62 +45,58 @@ export type TaskType =
  * This means:
  * - Task affinity is the PRIMARY factor (not tie-breaker)
  * - Earlier connections (lower connection_order) win ties
+ *
+ * FIX 2025-12-04: Removed xAI/Grok - only 3 providers supported
  */
 const TASK_MODEL_AFFINITY: Record<TaskType, Record<ProviderType, number>> = {
   // Coaching: Claude excels at nuanced, empathetic responses
   coaching: {
     anthropic: 5,
     openai: 3,
-    google: 2,
-    xai: 2
+    google: 2
   },
   // Planning: GPT excels at structured multi-step guidance
   planning: {
     openai: 5,
     anthropic: 4,
-    google: 2,
-    xai: 1
+    google: 2
   },
-  // Chart insights: GPT for structured data, Grok for visualization
+  // Chart insights: GPT for structured data, Gemini for visualization
   chart_insight: {
     openai: 4,
     google: 3,
-    anthropic: 2,
-    xai: 3
+    anthropic: 2
   },
   // Text analysis: GPT best for RevOps analysis
   text_analysis: {
     openai: 4,
     anthropic: 3,
-    google: 2,
-    xai: 1
+    google: 2
   },
-  // Image suitable: Grok and Gemini excel
+  // Image suitable: Gemini excels at visual content
   image_suitable: {
-    xai: 5,
-    google: 4,
-    openai: 2,
-    anthropic: 1
+    google: 5,
+    openai: 3,
+    anthropic: 2
   },
   // General: GPT as default all-rounder
   general: {
     openai: 4,
     anthropic: 3,
-    google: 2,
-    xai: 1
+    google: 2
   },
   // Default fallback (same as general)
   default: {
     openai: 3,
     anthropic: 3,
-    google: 2,
-    xai: 2
+    google: 2
   }
 };
 
 /**
  * Model tier definitions for secondary scoring
  * Premium = 3, Standard = 2, Economy = 1, Unknown = 0
+ * FIX 2025-12-04: Removed xAI/Grok models - deprecated provider
  */
 const MODEL_TIERS: Record<string, number> = {
   // OpenAI
@@ -121,12 +117,7 @@ const MODEL_TIERS: Record<string, number> = {
   'gemini-2.5-pro': 3,
   'gemini-2.5-flash': 2,
   'gemini-2.5-flash-lite': 1,
-  'gemini-1.5-pro': 2,
-  // xAI
-  'grok-4': 3,
-  'grok-4-fast': 2,
-  'grok-3-mini': 1,
-  'grok-beta': 1
+  'gemini-1.5-pro': 2
 };
 
 /**

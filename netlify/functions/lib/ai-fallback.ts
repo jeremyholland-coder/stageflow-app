@@ -12,15 +12,15 @@
 
 // DEPRECATED: This constant is kept for backwards compatibility only.
 // New code should use buildFallbackChain from lib/select-provider.ts
-export const PROVIDER_FALLBACK_ORDER = ['openai', 'anthropic', 'google', 'xai'] as const;
+// FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
+export const PROVIDER_FALLBACK_ORDER = ['openai', 'anthropic', 'google'] as const;
 export type ProviderType = typeof PROVIDER_FALLBACK_ORDER[number];
 
 // Provider display names for logging/UI
 export const PROVIDER_NAMES: Record<ProviderType, string> = {
   openai: 'ChatGPT',
   anthropic: 'Claude',
-  google: 'Gemini',
-  xai: 'Grok'
+  google: 'Gemini'
 };
 
 // Error types that should trigger fallback
@@ -68,16 +68,17 @@ export const SOFT_FAILURE_PATTERNS = [
 ] as const;
 
 // FIX 2025-12-04: Task-aware fallback order affinity scores
-// For planning tasks: ChatGPT(5) → Claude(4) → Gemini(2) → Grok(1)
+// For planning tasks: ChatGPT(5) → Claude(4) → Gemini(2)
 // Higher score = tried earlier in fallback chain
+// FIX 2025-12-04: Removed xAI/Grok - only 3 providers supported
 export const TASK_FALLBACK_AFFINITY: Record<string, Record<ProviderType, number>> = {
-  planning: { openai: 5, anthropic: 4, google: 2, xai: 1 },
-  coaching: { anthropic: 5, openai: 3, google: 2, xai: 2 },
-  chart_insight: { openai: 4, google: 3, anthropic: 2, xai: 3 },
-  text_analysis: { openai: 4, anthropic: 3, google: 2, xai: 1 },
-  image_suitable: { xai: 5, google: 4, openai: 2, anthropic: 1 },
-  general: { openai: 4, anthropic: 3, google: 2, xai: 1 },
-  default: { openai: 3, anthropic: 3, google: 2, xai: 2 }
+  planning: { openai: 5, anthropic: 4, google: 2 },
+  coaching: { anthropic: 5, openai: 3, google: 2 },
+  chart_insight: { openai: 4, google: 3, anthropic: 2 },
+  text_analysis: { openai: 4, anthropic: 3, google: 2 },
+  image_suitable: { google: 5, openai: 3, anthropic: 2 },
+  general: { openai: 4, anthropic: 3, google: 2 },
+  default: { openai: 3, anthropic: 3, google: 2 }
 };
 
 export interface ProviderError {
@@ -103,7 +104,6 @@ export interface FallbackResult<T> {
  * - "OpenAI API error: 429"
  * - "Anthropic API error: 401"
  * - "Gemini API error: 403"
- * - "Grok API error: 500"
  * - "Error: 429 Too Many Requests"
  * - HTTP status code in error.status or error.statusCode
  */
@@ -228,7 +228,7 @@ export function classifyError(error: any, statusCode?: number): { shouldFallback
  * FIX 2025-12-04: Detect soft failures in AI response content
  *
  * A "soft failure" is when the provider returns HTTP 200 but the response
- * content is an error message (e.g., Grok saying "I can't connect right now").
+ * content is an error message (e.g., "I can't connect right now").
  *
  * This is used by both streaming and non-streaming paths for consistency.
  *
@@ -255,7 +255,7 @@ export function detectSoftFailure(responseText: string | null | undefined): { is
  * Sort providers for fallback execution
  *
  * FIX 2025-12-04: Task-aware fallback ordering
- * For planning tasks: ChatGPT → Claude → Gemini → Grok (by affinity score)
+ * For planning tasks: ChatGPT → Claude → Gemini (by affinity score)
  * Falls back to connection order only when no taskType is specified.
  *
  * @param providers - Providers array (should be pre-sorted by created_at ascending)
@@ -385,7 +385,7 @@ export async function runWithFallback<T, P extends { provider_type: string }>(
   const errors: ProviderError[] = [];
 
   // Sort providers into fallback order
-  // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini → Grok for planning)
+  // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini for planning)
   const sortedProviders = sortProvidersForFallback(providers, preferredProvider, taskType);
 
   if (sortedProviders.length === 0) {
