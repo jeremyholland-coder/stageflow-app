@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, ensureValidSession } from '../lib/supabase';
-import { Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2, Pencil, X, Check } from 'lucide-react';
+import {
+  Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2,
+  Check, X, Search, ChevronDown, Building2, Pencil
+} from 'lucide-react';
 import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
 import { logger } from '../lib/logger';
@@ -21,51 +24,6 @@ const TEAM_PAGE_SIZE = 25;
  * 5) "Team Member" as last resort
  */
 function getTeamDisplayName(member) {
-  // Get profile data from various possible locations
-  const profile = member.profiles || member.user_profiles || member.profile || {};
-  const profilesData = member.profilesData || {}; // first_name, last_name, avatar_url from profiles table
-
-  // Extract fields (prefer profilesData for first/last, profile for email/full_name)
-  const first = profilesData.first_name?.trim() || profile.first_name?.trim();
-  const last = profilesData.last_name?.trim() || profile.last_name?.trim();
-  const fullName = profile.full_name?.trim();
-  const email = profile.email || member.email;
-
-  // Priority 1: First + last initial
-  if (first && last) {
-    return `${first} ${last.charAt(0).toUpperCase()}.`;
-  }
-
-  // Priority 2: First only
-  if (first) {
-    return first;
-  }
-
-  // Priority 3: full_name fallback
-  if (fullName) {
-    return fullName;
-  }
-
-  // Priority 4: full email
-  if (email) {
-    return email;
-  }
-
-  // Last resort
-  return 'Team Member';
-}
-
-/**
- * Get avatar initials for a team member (used when avatar_url is missing)
- * Priority:
- * 1) First + Last initials (e.g., "JH")
- * 2) First initial only (e.g., "J")
- * 3) full_name initials
- * 4) First character of email
- * 5) "U" as fallback
- */
-function getTeamAvatarInitials(member) {
-  // Get profile data from various possible locations
   const profile = member.profiles || member.user_profiles || member.profile || {};
   const profilesData = member.profilesData || {};
 
@@ -74,17 +32,39 @@ function getTeamAvatarInitials(member) {
   const fullName = profile.full_name?.trim();
   const email = profile.email || member.email;
 
-  // Priority 1: First + Last initials
+  if (first && last) {
+    return `${first} ${last.charAt(0).toUpperCase()}.`;
+  }
+  if (first) {
+    return first;
+  }
+  if (fullName) {
+    return fullName;
+  }
+  if (email) {
+    return email;
+  }
+  return 'Team Member';
+}
+
+/**
+ * Get avatar initials for a team member
+ */
+function getTeamAvatarInitials(member) {
+  const profile = member.profiles || member.user_profiles || member.profile || {};
+  const profilesData = member.profilesData || {};
+
+  const first = profilesData.first_name?.trim() || profile.first_name?.trim();
+  const last = profilesData.last_name?.trim() || profile.last_name?.trim();
+  const fullName = profile.full_name?.trim();
+  const email = profile.email || member.email;
+
   if (first && last) {
     return `${first[0]}${last[0]}`.toUpperCase();
   }
-
-  // Priority 2: First initial only
   if (first) {
     return first[0].toUpperCase();
   }
-
-  // Priority 3: full_name initials
   if (fullName) {
     const parts = fullName.split(/\s+/);
     if (parts.length >= 2) {
@@ -92,13 +72,9 @@ function getTeamAvatarInitials(member) {
     }
     return parts[0][0].toUpperCase();
   }
-
-  // Priority 4: First character of email
   if (email) {
     return email[0].toUpperCase();
   }
-
-  // Fallback
   return 'U';
 }
 
@@ -111,12 +87,52 @@ function getTeamAvatarUrl(member) {
   return profilesData.avatar_url || profile.avatar_url || null;
 }
 
+// ============================================================
+// STATUS BADGE COMPONENT
+// ============================================================
+
+const StatusBadge = ({ status, attainmentPct, projectedAttainmentPct, period }) => {
+  const statusConfig = {
+    'green': { bg: 'bg-emerald-500/20', text: 'text-emerald-400', label: 'On track' },
+    'yellow': { bg: 'bg-yellow-500/20', text: 'text-yellow-400', label: 'Watch' },
+    'red': { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Needs attention' },
+    'no-target': { bg: 'bg-white/10', text: 'text-white/50', label: 'No target' }
+  };
+
+  const config = statusConfig[status] || statusConfig['no-target'];
+  const periodLabel = period === 'month' ? 'monthly' : period === 'quarter' ? 'quarterly' : 'annual';
+
+  // Build summary text
+  let summaryText = '';
+  if (status === 'no-target') {
+    summaryText = 'No target set for this period';
+  } else if (projectedAttainmentPct !== null) {
+    const attained = Math.round((attainmentPct || 0) * 100);
+    const projected = Math.round(Math.min(projectedAttainmentPct * 100, 200));
+    summaryText = `${attained}% of ${periodLabel} goal so far • projected ${projected}%`;
+  } else {
+    const attained = Math.round((attainmentPct || 0) * 100);
+    summaryText = `${attained}% of ${periodLabel} goal so far`;
+  }
+
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+        {config.label}
+      </span>
+      <span className="text-xs text-white/50">{summaryText}</span>
+    </div>
+  );
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+
 export const TeamDashboard = () => {
-  // CRITICAL FIX: useApp() MUST be called at top of component (React Rules of Hooks)
-  // Cannot be called after conditional returns or it will cause "Cannot update component" error
-  // PRO TIER FIX: Get organization from context to check plan tier directly
   const { setActiveView, organization: contextOrganization } = useApp();
 
+  // Core state
   const [loading, setLoading] = useState(true);
   const [teamMetrics, setTeamMetrics] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -124,28 +140,37 @@ export const TeamDashboard = () => {
   const [organizationId, setOrganizationId] = useState(null);
   const debounceTimerRef = useRef(null);
 
-  // PAGINATION FIX: Track displayed member count and total
+  // Pagination
   const [displayedCount, setDisplayedCount] = useState(TEAM_PAGE_SIZE);
   const [totalMemberCount, setTotalMemberCount] = useState(0);
 
-  // User Goals State
-  const [userTargets, setUserTargets] = useState({});
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [editingGoals, setEditingGoals] = useState(null); // userId being edited
-  const [goalValues, setGoalValues] = useState({ monthly: '', quarterly: '', annual: '' });
-  const [savingGoals, setSavingGoals] = useState(false);
+  // Analytics state (from new endpoint)
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState('month');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // PHASE 20: Incremental rendering - render first batch immediately, rest via idle callbacks
+  // Organization targets state
+  const [orgTargetAnnual, setOrgTargetAnnual] = useState(0);
+  const [isEditingOrgTarget, setIsEditingOrgTarget] = useState(false);
+  const [editedOrgAnnual, setEditedOrgAnnual] = useState('');
+
+  // Team targets editing state
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isEditingTeamTargets, setIsEditingTeamTargets] = useState(false);
+  const [editedTargets, setEditedTargets] = useState({});
+  const [savingTargets, setSavingTargets] = useState(false);
+
+  const hasPaidPlan = contextOrganization?.plan && ['startup', 'growth', 'pro'].includes(contextOrganization.plan.toLowerCase());
+
   const INITIAL_RENDER_COUNT = 10;
   const BATCH_SIZE = 10;
 
-  // PRO TIER FIX: Check if user has a paid plan that unlocks team features
-  const hasPaidPlan = contextOrganization?.plan && ['startup', 'growth', 'pro'].includes(contextOrganization.plan.toLowerCase());
+  // ============================================================
+  // DATA FETCHING
+  // ============================================================
 
-  // Fetch user targets for the organization
-  const fetchUserTargets = useCallback(async (orgId) => {
+  const fetchAnalytics = useCallback(async (orgId, period = 'month') => {
     try {
-      // FIX 2025-12-03: Inject Authorization header for reliable auth
       await ensureValidSession();
       const { data: { session } } = await supabase.auth.getSession();
 
@@ -154,146 +179,47 @@ export const TeamDashboard = () => {
         headers['Authorization'] = `Bearer ${session.access_token}`;
       }
 
-      const response = await fetch('/.netlify/functions/user-targets-get', {
-        method: 'POST',
+      const response = await fetch(`/.netlify/functions/team-analytics-get?organization_id=${orgId}&period=${period}`, {
+        method: 'GET',
         headers,
-        credentials: 'include',
-        body: JSON.stringify({ organization_id: orgId })
+        credentials: 'include'
       });
 
       if (!response.ok) {
-        // FIX 2025-12-03: Handle auth errors gracefully
         if (response.status === 401 || response.status === 403) {
-          console.warn('[TeamDashboard] Session expired - cannot fetch user targets');
-          return;
+          console.warn('[TeamDashboard] Session expired - cannot fetch analytics');
+          return null;
         }
-        console.warn('[TeamDashboard] Failed to fetch user targets:', response.status);
-        return;
+        console.warn('[TeamDashboard] Failed to fetch analytics:', response.status);
+        return null;
       }
 
       const result = await response.json();
       if (result.success) {
-        setUserTargets(result.targets || {});
-        setIsAdmin(result.is_admin || false);
+        return result;
       }
+      return null;
     } catch (error) {
-      console.error('[TeamDashboard] Error fetching user targets:', error);
+      console.error('[TeamDashboard] Error fetching analytics:', error);
+      return null;
     }
   }, []);
-
-  // Save user targets
-  const saveUserTargets = useCallback(async (userId, targets) => {
-    if (!organizationId) return false;
-
-    setSavingGoals(true);
-    try {
-      // FIX 2025-12-03: Inject Authorization header for reliable auth
-      await ensureValidSession();
-      const { data: { session: saveSession } } = await supabase.auth.getSession();
-
-      const saveHeaders = { 'Content-Type': 'application/json' };
-      if (saveSession?.access_token) {
-        saveHeaders['Authorization'] = `Bearer ${saveSession.access_token}`;
-      }
-
-      const response = await fetch('/.netlify/functions/user-targets-save', {
-        method: 'POST',
-        headers: saveHeaders,
-        credentials: 'include',
-        body: JSON.stringify({
-          organization_id: organizationId,
-          user_targets: [{
-            user_id: userId,
-            monthly_target: targets.monthly || null,
-            quarterly_target: targets.quarterly || null,
-            annual_target: targets.annual || null
-          }]
-        })
-      });
-
-      if (!response.ok) {
-        // FIX 2025-12-03: Handle auth errors gracefully
-        if (response.status === 401 || response.status === 403) {
-          console.warn('[TeamDashboard] Session expired - cannot save user targets');
-        }
-        console.error('[TeamDashboard] Failed to save user targets:', response.status);
-        return false;
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        // Update local state
-        setUserTargets(prev => ({
-          ...prev,
-          [userId]: {
-            monthly_target: targets.monthly || null,
-            quarterly_target: targets.quarterly || null,
-            annual_target: targets.annual || null
-          }
-        }));
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('[TeamDashboard] Error saving user targets:', error);
-      return false;
-    } finally {
-      setSavingGoals(false);
-    }
-  }, [organizationId]);
-
-  // Start editing goals for a member
-  const startEditingGoals = useCallback((userId) => {
-    const targets = userTargets[userId] || {};
-    setGoalValues({
-      monthly: targets.monthly_target || '',
-      quarterly: targets.quarterly_target || '',
-      annual: targets.annual_target || ''
-    });
-    setEditingGoals(userId);
-  }, [userTargets]);
-
-  // Cancel editing
-  const cancelEditingGoals = useCallback(() => {
-    setEditingGoals(null);
-    setGoalValues({ monthly: '', quarterly: '', annual: '' });
-  }, []);
-
-  // Confirm save goals
-  const confirmSaveGoals = useCallback(async () => {
-    if (!editingGoals) return;
-
-    const success = await saveUserTargets(editingGoals, {
-      monthly: goalValues.monthly ? parseFloat(goalValues.monthly) : null,
-      quarterly: goalValues.quarterly ? parseFloat(goalValues.quarterly) : null,
-      annual: goalValues.annual ? parseFloat(goalValues.annual) : null
-    });
-
-    if (success) {
-      setEditingGoals(null);
-      setGoalValues({ monthly: '', quarterly: '', annual: '' });
-    }
-  }, [editingGoals, goalValues, saveUserTargets]);
 
   const loadTeamData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // FIX 2025-12-02: Ensure valid session before RLS-protected queries
       const sessionCheck = await ensureValidSession();
       if (!sessionCheck.valid) {
         logger.warn('[TeamDashboard] Session invalid:', sessionCheck.error);
-        // Don't throw - user might just need to refresh, show empty state
         setLoading(false);
         return;
       }
 
-      // CRITICAL FIX: Add timeout protection to all queries
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Team data query timed out')), 10000)
       );
 
-      // Get current user's organization
       const { data: { user } } = await Promise.race([
         supabase.auth.getUser(),
         timeoutPromise
@@ -309,7 +235,6 @@ export const TeamDashboard = () => {
         timeoutPromise
       ]);
 
-      // Gracefully handle no team membership - shows upgrade prompt
       if (memberError) {
         logger.log('No team membership found:', memberError.message);
         return;
@@ -321,10 +246,15 @@ export const TeamDashboard = () => {
       const orgId = member.organization_id;
       setOrganizationId(orgId);
 
-      // Fetch user targets for goals display
-      fetchUserTargets(orgId);
+      // Fetch analytics data (includes org targets, member targets, and performance)
+      const analytics = await fetchAnalytics(orgId, selectedPeriod);
+      if (analytics) {
+        setAnalyticsData(analytics);
+        setIsAdmin(analytics.isAdmin);
+        setOrgTargetAnnual(analytics.orgTarget?.annual || 0);
+      }
 
-      // Get all team members for this organization (simple query - no joins)
+      // Get all team members for this organization
       const { data: members, error: membersError } = await Promise.race([
         supabase
           .from('team_members')
@@ -343,12 +273,8 @@ export const TeamDashboard = () => {
         return;
       }
 
-      // Fetch profile data separately for all member user_ids
-      // FIX 2025-12-02: Use user_profiles view (has email, full_name) AND
-      // profiles table (has first_name, last_name, avatar_url) for complete data
       const userIds = members.map(m => m.user_id);
 
-      // Query both user_profiles view AND profiles table in parallel
       const [userProfilesResult, profilesTableResult] = await Promise.all([
         Promise.race([
           supabase
@@ -376,7 +302,6 @@ export const TeamDashboard = () => {
         console.error('[TeamDashboard] Error fetching profiles table:', profilesTableError);
       }
 
-      // Create maps for quick lookup
       const userProfileMap = new Map();
       if (userProfiles) {
         userProfiles.forEach(p => userProfileMap.set(p.id, p));
@@ -387,27 +312,21 @@ export const TeamDashboard = () => {
         profilesData.forEach(p => profilesDataMap.set(p.id, p));
       }
 
-      // Merge profile data into members (both sources)
       const membersWithProfiles = members.map(m => ({
         ...m,
-        profiles: userProfileMap.get(m.user_id) || null, // email, full_name
-        profilesData: profilesDataMap.get(m.user_id) || null // first_name, last_name, avatar_url
+        profiles: userProfileMap.get(m.user_id) || null,
+        profilesData: profilesDataMap.get(m.user_id) || null
       }));
 
-      // QA FIX: Deduplicate members by user_id (handles rare edge case of user in multiple orgs)
       const uniqueMembers = Array.from(
         new Map(membersWithProfiles.map(m => [m.user_id, m])).values()
       );
 
-      // FIX: Find org admin for attributing unassigned deals
-      // This prevents "Unknown Member" row by ensuring all deals belong to a real member
       const orgAdmin = uniqueMembers.find(m => m.role === 'owner') ||
                        uniqueMembers.find(m => m.role === 'admin') ||
                        uniqueMembers[0];
       const orgAdminId = orgAdmin?.user_id;
 
-      // Get all deals for the organization
-      // PHASE C FIX (B-DATA-01): Added soft delete filter - was counting deleted deals in metrics
       const { data: allDeals } = await Promise.race([
         supabase
           .from('deals')
@@ -419,7 +338,6 @@ export const TeamDashboard = () => {
 
       if (!allDeals) return;
 
-      // Calculate metrics for each team member
       const oneWeekAgo = new Date();
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
@@ -427,15 +345,10 @@ export const TeamDashboard = () => {
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
       const memberMetrics = await Promise.all(
-        uniqueMembers.map(async (member) => {
-          // FIX: Use assigned_to instead of created_by (created_by doesn't exist in schema)
-          // This fixes the "Unknown Member" issue where deals couldn't be attributed to users
-          // Also attribute unassigned deals to the org admin to prevent "Unknown Member" row
+        uniqueMembers.map(async (memberItem) => {
           const memberDeals = allDeals.filter(d => {
-            // Deal is assigned to this member
-            if (d.assigned_to === member.user_id) return true;
-            // Unassigned deals go to the org admin
-            if (!d.assigned_to && member.user_id === orgAdminId) return true;
+            if (d.assigned_to === memberItem.user_id) return true;
+            if (!d.assigned_to && memberItem.user_id === orgAdminId) return true;
             return false;
           });
 
@@ -457,18 +370,10 @@ export const TeamDashboard = () => {
           const dealsAddedTrend = dealsThisWeek.length >= dealsPreviousWeek.length ? 'up' : 'down';
           const dealsAddedValue = dealsThisWeek.reduce((sum, d) => sum + (d.value || 0), 0);
 
-          // FIX 2025-12-02: Improved name resolution with better fallback chain
-          // Now using user_profiles view which has full_name directly (not raw_user_meta_data)
-          const isCurrentUser = member.user_id === user.id;
-          const memberEmail = member.profiles?.email;
-          const memberFullName = member.profiles?.full_name;
+          const isCurrentUser = memberItem.user_id === user.id;
+          const memberEmail = memberItem.profiles?.email;
+          const memberFullName = memberItem.profiles?.full_name;
 
-          // Determine display name with fallback order:
-          // 1. Full name from user_profiles view
-          // 2. Email username (before @)
-          // 3. Full email address
-          // 4. Role-based fallback (e.g., "Team Owner", "Team Member")
-          // 5. Last resort: truncated user_id for debugging (never generic "Unknown Member")
           let userName;
           if (isCurrentUser) {
             userName = user.user_metadata?.full_name
@@ -480,17 +385,15 @@ export const TeamDashboard = () => {
           } else if (memberEmail) {
             userName = memberEmail.split('@')[0];
           } else {
-            // FIX: Better fallback for members without profiles
-            // This can happen with seeded/demo users or orphaned records
-            const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member';
+            const roleLabel = memberItem.role === 'owner' ? 'Owner' : memberItem.role === 'admin' ? 'Admin' : 'Member';
             userName = `Team ${roleLabel}`;
-            logger.warn('[TeamDashboard] Member without user_profile:', member.user_id?.substring(0, 8));
+            logger.warn('[TeamDashboard] Member without user_profile:', memberItem.user_id?.substring(0, 8));
           }
 
           return {
-            userId: member.user_id,
+            userId: memberItem.user_id,
             name: userName,
-            role: member.role,
+            role: memberItem.role,
             isCurrentUser,
             dealsAdded: dealsThisWeek.length,
             dealsAddedValue,
@@ -499,24 +402,20 @@ export const TeamDashboard = () => {
             dealsClosedValue: wonValue,
             activePipeline,
             expectedRevenue,
-            // Track if we have no activity for this user
             hasNoActivity: memberDeals.length === 0,
-            // Include profile data for display helpers (getTeamDisplayName, getTeamAvatarInitials)
-            profiles: member.profiles, // email, full_name from user_profiles view
-            profilesData: member.profilesData, // first_name, last_name, avatar_url from profiles table
-            email: member.profiles?.email
+            profiles: memberItem.profiles,
+            profilesData: memberItem.profilesData,
+            email: memberItem.profiles?.email
           };
         })
       );
 
-      // Calculate team totals
       const totalPipeline = memberMetrics.reduce((sum, m) => sum + m.activePipeline, 0);
       const totalExpectedRevenue = memberMetrics.reduce((sum, m) => sum + m.expectedRevenue, 0);
       const totalDealsAdded = memberMetrics.reduce((sum, m) => sum + m.dealsAdded, 0);
       const totalDealsClosed = memberMetrics.reduce((sum, m) => sum + m.dealsClosed, 0);
       const totalClosedValue = memberMetrics.reduce((sum, m) => sum + m.dealsClosedValue, 0);
 
-      // Calculate team trend (average of all member trends)
       const upTrends = memberMetrics.filter(m => m.dealsAddedTrend === 'up').length;
       const teamTrend = upTrends >= memberMetrics.length / 2 ? 'up' : 'down';
 
@@ -530,23 +429,18 @@ export const TeamDashboard = () => {
         memberCount: memberMetrics.length
       });
 
-      // Sort members: current user first, then by pipeline value
       const sortedMembers = memberMetrics.sort((a, b) => {
         if (a.isCurrentUser) return -1;
         if (b.isCurrentUser) return 1;
         return b.activePipeline - a.activePipeline;
       });
 
-      // PAGINATION FIX: Store all members and track total count
       setTeamMembers(sortedMembers);
       setTotalMemberCount(sortedMembers.length);
 
-      // PHASE 20: Incremental rendering - show first 10 immediately
-      // Then progressively load remaining members via idle callbacks
       if (sortedMembers.length > INITIAL_RENDER_COUNT) {
         setDisplayedCount(INITIAL_RENDER_COUNT);
 
-        // Schedule incremental rendering of remaining members
         const scheduleNextBatch = (currentCount) => {
           if (currentCount >= sortedMembers.length) return;
 
@@ -562,7 +456,6 @@ export const TeamDashboard = () => {
           }
         };
 
-        // Start incremental loading after initial render
         setTimeout(() => scheduleNextBatch(INITIAL_RENDER_COUNT), 100);
       } else {
         setDisplayedCount(sortedMembers.length);
@@ -572,26 +465,32 @@ export const TeamDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchUserTargets]); // fetchUserTargets is stable (no deps)
+  }, [fetchAnalytics, selectedPeriod]);
 
-  // Load team data on mount
   useEffect(() => {
     loadTeamData();
   }, [loadTeamData]);
 
-  // CRITICAL FIX: Debounced refresh to prevent query spam
-  // When deals change rapidly (e.g. bulk operations), this prevents
-  // loadTeamData() from being called dozens of times per second
+  // Refetch analytics when period changes
+  useEffect(() => {
+    if (organizationId) {
+      fetchAnalytics(organizationId, selectedPeriod).then(result => {
+        if (result) {
+          setAnalyticsData(result);
+        }
+      });
+    }
+  }, [selectedPeriod, organizationId, fetchAnalytics]);
+
   const debouncedRefresh = useCallback(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
       loadTeamData();
-    }, 500); // Wait 500ms after last change before refreshing
+    }, 500);
   }, [loadTeamData]);
 
-  // Clean up debounce timer on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
@@ -600,12 +499,130 @@ export const TeamDashboard = () => {
     };
   }, []);
 
-  // PERFORMANCE OPTIMIZATION: Centralized real-time subscription
-  // Uses shared subscription manager to reduce network traffic by 40%
-  // Subscribes to deal changes and refreshes team metrics (debounced)
   useRealTimeDeals(organizationId, () => {
     debouncedRefresh();
   });
+
+  // ============================================================
+  // TARGET EDITING
+  // ============================================================
+
+  const startEditingTeamTargets = useCallback(() => {
+    // Initialize edited targets from analytics data
+    const targets = {};
+    if (analyticsData?.members) {
+      analyticsData.members.forEach(m => {
+        targets[m.userId] = {
+          monthly: m.monthlyTarget || 0,
+          quarterly: m.quarterlyTarget || 0,
+          annual: m.annualTarget || 0
+        };
+      });
+    }
+    setEditedTargets(targets);
+    setEditedOrgAnnual(String(orgTargetAnnual || 0));
+    setIsEditingTeamTargets(true);
+  }, [analyticsData, orgTargetAnnual]);
+
+  const cancelEditingTeamTargets = useCallback(() => {
+    setIsEditingTeamTargets(false);
+    setEditedTargets({});
+    setEditedOrgAnnual('');
+    // Reload data to reset any unsaved changes
+    if (organizationId) {
+      fetchAnalytics(organizationId, selectedPeriod).then(result => {
+        if (result) {
+          setAnalyticsData(result);
+          setOrgTargetAnnual(result.orgTarget?.annual || 0);
+        }
+      });
+    }
+  }, [organizationId, selectedPeriod, fetchAnalytics]);
+
+  const saveTeamTargets = useCallback(async () => {
+    if (!organizationId) return;
+
+    setSavingTargets(true);
+    try {
+      await ensureValidSession();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      // Prepare payload
+      const membersPayload = Object.entries(editedTargets).map(([userId, targets]) => ({
+        userId,
+        monthlyTarget: parseFloat(targets.monthly) || 0,
+        quarterlyTarget: parseFloat(targets.quarterly) || 0,
+        annualTarget: parseFloat(targets.annual) || 0
+      }));
+
+      const payload = {
+        organization_id: organizationId,
+        orgTargetAnnual: parseFloat(editedOrgAnnual) || 0,
+        members: membersPayload
+      };
+
+      const response = await fetch('/.netlify/functions/team-targets-save', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (result.success || result.partial) {
+        // Update local state
+        setOrgTargetAnnual(parseFloat(editedOrgAnnual) || 0);
+        setIsEditingTeamTargets(false);
+        setEditedTargets({});
+        // Reload analytics
+        const analytics = await fetchAnalytics(organizationId, selectedPeriod);
+        if (analytics) {
+          setAnalyticsData(analytics);
+        }
+      } else {
+        console.error('[TeamDashboard] Failed to save targets:', result.errors);
+      }
+    } catch (error) {
+      console.error('[TeamDashboard] Error saving targets:', error);
+    } finally {
+      setSavingTargets(false);
+    }
+  }, [organizationId, editedTargets, editedOrgAnnual, selectedPeriod, fetchAnalytics]);
+
+  // Distribute to team
+  const distributeToTeam = useCallback(() => {
+    const annual = parseFloat(editedOrgAnnual) || 0;
+    if (annual <= 0 || !analyticsData?.members?.length) return;
+
+    const perMemberAnnual = Math.round(annual / analyticsData.members.length);
+    const perMemberQuarterly = Math.round(perMemberAnnual / 4);
+    const perMemberMonthly = Math.round(perMemberAnnual / 12);
+
+    const newTargets = {};
+    analyticsData.members.forEach(m => {
+      newTargets[m.userId] = {
+        annual: perMemberAnnual,
+        quarterly: perMemberQuarterly,
+        monthly: perMemberMonthly
+      };
+    });
+
+    setEditedTargets(newTargets);
+    // Ensure we're in edit mode
+    if (!isEditingTeamTargets) {
+      setIsEditingTeamTargets(true);
+    }
+  }, [editedOrgAnnual, analyticsData, isEditingTeamTargets]);
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -615,6 +632,32 @@ export const TeamDashboard = () => {
       maximumFractionDigits: 0
     }).format(value);
   };
+
+  // Filter members by search
+  const filteredMembers = useMemo(() => {
+    if (!searchQuery.trim()) return teamMembers;
+    const query = searchQuery.toLowerCase();
+    return teamMembers.filter(m =>
+      m.name?.toLowerCase().includes(query) ||
+      m.email?.toLowerCase().includes(query)
+    );
+  }, [teamMembers, searchQuery]);
+
+  // Get analytics for a specific member
+  const getMemberAnalytics = useCallback((userId) => {
+    if (!analyticsData?.analytics?.members) return null;
+    return analyticsData.analytics.members.find(m => m.userId === userId);
+  }, [analyticsData]);
+
+  // Get member target from analytics
+  const getMemberTarget = useCallback((userId) => {
+    if (!analyticsData?.members) return null;
+    return analyticsData.members.find(m => m.userId === userId);
+  }, [analyticsData]);
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   if (loading) {
     return (
@@ -627,11 +670,7 @@ export const TeamDashboard = () => {
     );
   }
 
-  // PRO TIER FIX: Show different UI based on plan tier
-  // For paid plans (startup/growth/pro): Show empty team state with invite prompt
-  // For free plan: Show upgrade prompt
   if (!teamMetrics) {
-    // Paid plan but no team data yet - show invite prompt instead of upgrade prompt
     if (hasPaidPlan) {
       return (
         <div className="p-6 space-y-8 min-h-screen">
@@ -658,7 +697,6 @@ export const TeamDashboard = () => {
                 type="button"
                 className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white py-3.5 px-7 rounded-2xl font-semibold hover:from-[#0CE3B1] hover:to-[#16A085] transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
                 onClick={() => {
-                  // Navigate to Settings general tab for team management
                   const url = new URL(window.location);
                   url.searchParams.set('tab', 'general');
                   window.history.pushState({}, '', url);
@@ -673,7 +711,6 @@ export const TeamDashboard = () => {
       );
     }
 
-    // Free plan - show upgrade prompt
     return (
       <div className="p-6 space-y-8 min-h-screen">
         <div>
@@ -696,12 +733,9 @@ export const TeamDashboard = () => {
               type="button"
               className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white py-3.5 px-7 rounded-2xl font-semibold hover:from-[#0CE3B1] hover:to-[#16A085] transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => {
-                // Navigate to Settings and set URL parameter for billing tab
                 const url = new URL(window.location);
                 url.searchParams.set('tab', 'billing');
-                logger.log('TeamDashboard: Setting URL to', url.toString());
                 window.history.pushState({}, '', url);
-                logger.log('TeamDashboard: Navigating to settings view');
                 setActiveView('settings');
               }}
             >
@@ -713,8 +747,17 @@ export const TeamDashboard = () => {
     );
   }
 
+  // Derived values
+  const orgQuarterly = Math.round((orgTargetAnnual || 0) / 4);
+  const orgMonthly = Math.round((orgTargetAnnual || 0) / 12);
+  const editedQuarterly = Math.round((parseFloat(editedOrgAnnual) || 0) / 4);
+  const editedMonthly = Math.round((parseFloat(editedOrgAnnual) || 0) / 12);
+
+  const summary = analyticsData?.analytics?.summary || {};
+  const canDistribute = (parseFloat(editedOrgAnnual) || 0) > 0 && (analyticsData?.members?.length || 0) > 0;
+
   return (
-    <div className="p-6 space-y-8 min-h-screen">
+    <div className="p-6 space-y-6 min-h-screen">
       {/* Header */}
       <div>
         <h1 className="text-title-1 text-white tracking-tight mb-2">
@@ -725,313 +768,441 @@ export const TeamDashboard = () => {
         </p>
       </div>
 
-      {/* Team Overview Metrics */}
-      {/* CRITICAL FIX: Show honest empty state when no pipeline data */}
-      {/* Don't show misleading "Trending up" or "70% probability" with $0 */}
-      {(teamMetrics?.totalPipeline ?? 0) === 0 && (teamMetrics?.totalDealsAdded ?? 0) === 0 ? (
-        <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-12 border border-white/[0.08] text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
-          <div className="w-[72px] h-[72px] bg-white/[0.05] rounded-2xl flex items-center justify-center mx-auto mb-5 border border-white/[0.08]">
-            <TrendingUp className="w-9 h-9 text-white/40" />
-          </div>
-          <h3 className="text-xl font-semibold text-white mb-2 tracking-tight">
-            No pipeline performance data yet.
-          </h3>
-          <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
-            Once your team starts closing deals, you'll see trends and performance graphs here.
-          </p>
-        </div>
-      ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Total Pipeline */}
-        <div className="bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 backdrop-blur-md rounded-2xl p-6 border border-emerald-400/25 shadow-[0_4px_20px_rgba(16,185,129,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(16,185,129,0.15)] hover:border-emerald-400/35">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm text-white/60 mb-1.5 font-medium">Total Pipeline</p>
-              <p className="text-3xl font-bold text-emerald-400 tracking-tight">
-                {formatCurrency(teamMetrics?.totalPipeline ?? 0)}
-              </p>
-              {/* CRITICAL FIX: Only show trend if there's actual pipeline data */}
-              {(teamMetrics?.totalPipeline ?? 0) > 0 && (
-                <p className="text-sm text-white/50 mt-2.5 flex items-center gap-1.5">
-                  {teamMetrics?.teamTrend === 'up' ? (
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <TrendingDown className="w-4 h-4 text-rose-400" />
-                  )}
-                  <span className={teamMetrics?.teamTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}>
-                    {teamMetrics?.teamTrend === 'up' ? 'Trending up' : 'Trending down'}
-                  </span>
-                </p>
-              )}
+      {/* ============================================================ */}
+      {/* ORGANIZATION REVENUE TARGETS CARD */}
+      {/* ============================================================ */}
+      <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-6 border border-[#0CE3B1]/20 shadow-[0_4px_20px_rgba(12,227,177,0.08)]">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-[#0CE3B1]/20 to-[#0CE3B1]/10 rounded-xl flex items-center justify-center border border-[#0CE3B1]/20">
+              <Building2 className="w-5 h-5 text-[#0CE3B1]" />
             </div>
-            <DollarSign className="w-10 h-10 text-emerald-400/30" />
-          </div>
-        </div>
-
-        {/* Expected Revenue */}
-        <div className="bg-gradient-to-br from-sky-500/15 to-sky-600/5 backdrop-blur-md rounded-2xl p-6 border border-sky-400/25 shadow-[0_4px_20px_rgba(14,165,233,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(14,165,233,0.15)] hover:border-sky-400/35">
-          <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-white/60 mb-1.5 font-medium">Expected Revenue</p>
-              <p className="text-3xl font-bold text-sky-400 tracking-tight">
-                {formatCurrency(teamMetrics?.totalExpectedRevenue ?? 0)}
-              </p>
-              {/* CRITICAL FIX: Only show probability if there's actual revenue data */}
-              {(teamMetrics?.totalExpectedRevenue ?? 0) > 0 && (teamMetrics?.totalPipeline ?? 0) > 0 && (
-                <p className="text-sm text-white/50 mt-2.5">
-                  {Math.round((teamMetrics.totalExpectedRevenue / teamMetrics.totalPipeline) * 100)}% avg probability
-                </p>
-              )}
+              <h2 className="text-lg font-semibold text-white tracking-tight">Organization Revenue Targets</h2>
+              <p className="text-xs text-white/50">Set your top-line revenue goals and cascade them down to your team.</p>
             </div>
-            <Target className="w-10 h-10 text-sky-400/30" />
+          </div>
+          {isAdmin && !isEditingTeamTargets && (
+            <button
+              onClick={startEditingTeamTargets}
+              className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl text-sm text-white hover:bg-white/[0.08] transition-colors"
+            >
+              <Pencil className="w-4 h-4" />
+              Edit targets
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="p-4 bg-white/[0.02] rounded-xl text-center">
+            <p className="text-xs text-white/50 mb-1">Monthly</p>
+            <p className="text-xl font-bold text-white">
+              {isEditingTeamTargets ? formatCurrency(editedMonthly) : formatCurrency(orgMonthly)}
+            </p>
+            <p className="text-xs text-white/40 mt-1">auto-derived</p>
+          </div>
+          <div className="p-4 bg-white/[0.02] rounded-xl text-center">
+            <p className="text-xs text-white/50 mb-1">Quarterly</p>
+            <p className="text-xl font-bold text-white">
+              {isEditingTeamTargets ? formatCurrency(editedQuarterly) : formatCurrency(orgQuarterly)}
+            </p>
+            <p className="text-xs text-white/40 mt-1">auto-derived</p>
+          </div>
+          <div className="p-4 bg-white/[0.02] rounded-xl text-center border border-[#0CE3B1]/20">
+            <p className="text-xs text-[#0CE3B1] mb-1 font-medium">Annual (source)</p>
+            {isEditingTeamTargets ? (
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                <input
+                  type="number"
+                  value={editedOrgAnnual}
+                  onChange={(e) => setEditedOrgAnnual(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 bg-white/[0.05] border border-[#0CE3B1]/30 rounded-lg text-white text-center text-xl font-bold focus:outline-none focus:border-[#0CE3B1]/60"
+                  placeholder="0"
+                />
+              </div>
+            ) : (
+              <p className="text-xl font-bold text-[#0CE3B1]">{formatCurrency(orgTargetAnnual)}</p>
+            )}
+            <p className="text-xs text-white/40 mt-1">editable</p>
           </div>
         </div>
 
-        {/* Deals Added This Week */}
-        <div className="bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 backdrop-blur-md rounded-2xl p-6 border border-emerald-400/25 shadow-[0_4px_20px_rgba(16,185,129,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(16,185,129,0.15)] hover:border-emerald-400/35">
+        {/* Distribute to Team button (only in edit mode) */}
+        {isEditingTeamTargets && (
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={distributeToTeam}
+              disabled={!canDistribute}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                canDistribute
+                  ? 'bg-[#0CE3B1]/20 text-[#0CE3B1] border border-[#0CE3B1]/30 hover:bg-[#0CE3B1]/30'
+                  : 'bg-white/[0.03] text-white/30 border border-white/[0.05] cursor-not-allowed'
+              }`}
+            >
+              Distribute to team
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================ */}
+      {/* TEAM PERFORMANCE SNAPSHOT DASHBOARD */}
+      {/* ============================================================ */}
+      <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)]">
+        <div className="flex items-center justify-between mb-5">
           <div>
-            <p className="text-sm text-white/60 mb-1.5 font-medium">Deals Added (This Week)</p>
-            <p className="text-3xl font-bold text-emerald-400 tracking-tight">{teamMetrics?.totalDealsAdded ?? 0}</p>
+            <h2 className="text-lg font-semibold text-white tracking-tight">Team Performance Snapshot</h2>
+            <p className="text-xs text-white/50">Quick view of how your team is tracking against their revenue targets.</p>
+          </div>
+          {/* Period Selector */}
+          <div className="flex gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.08]">
+            {['month', 'quarter', 'year'].map((p) => (
+              <button
+                key={p}
+                onClick={() => setSelectedPeriod(p)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  selectedPeriod === p
+                    ? 'bg-[#0CE3B1]/20 text-[#0CE3B1]'
+                    : 'text-white/50 hover:text-white/70'
+                }`}
+              >
+                {p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Annual'}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Deals Closed This Week */}
-        <div className="bg-gradient-to-br from-purple-500/15 to-purple-600/5 backdrop-blur-md rounded-2xl p-6 border border-purple-400/25 shadow-[0_4px_20px_rgba(168,85,247,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(168,85,247,0.15)] hover:border-purple-400/35">
-          <div>
-            <p className="text-sm text-white/60 mb-1.5 font-medium">Deals Closed (This Week)</p>
-            <p className="text-3xl font-bold text-purple-400 tracking-tight">{teamMetrics?.totalDealsClosed ?? 0}</p>
-            <p className="text-sm text-white/50 mt-2.5">{formatCurrency(teamMetrics?.totalClosedValue ?? 0)}</p>
+        {/* Key Gauges */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Team Attainment */}
+          <div className="p-4 bg-white/[0.02] rounded-xl">
+            <p className="text-xs text-white/50 mb-2">Team Attainment</p>
+            <div className="flex items-end gap-2">
+              <span className="text-2xl font-bold text-white">
+                {summary.totalTarget > 0
+                  ? Math.round((summary.totalClosed / summary.totalTarget) * 100)
+                  : 0}%
+              </span>
+              <span className="text-xs text-white/40 mb-1">of target</span>
+            </div>
+            {summary.totalTarget > 0 && (
+              <div className="mt-2 h-1.5 bg-white/[0.1] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#0CE3B1] rounded-full transition-all"
+                  style={{ width: `${Math.min((summary.totalClosed / summary.totalTarget) * 100, 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Status Counts */}
+          <div className="p-4 bg-white/[0.02] rounded-xl">
+            <p className="text-xs text-white/50 mb-2">Team Status</p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-sm text-white">{summary.greenCount || 0}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                <span className="text-sm text-white">{summary.yellowCount || 0}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-400" />
+                <span className="text-sm text-white">{summary.redCount || 0}</span>
+              </div>
+            </div>
+            <p className="text-xs text-white/40 mt-2">on track / watch / needs attention</p>
+          </div>
+
+          {/* Total Closed */}
+          <div className="p-4 bg-white/[0.02] rounded-xl">
+            <p className="text-xs text-white/50 mb-2">Total Closed</p>
+            <p className="text-2xl font-bold text-[#0CE3B1]">{formatCurrency(summary.totalClosed || 0)}</p>
+            <p className="text-xs text-white/40 mt-1">this {selectedPeriod}</p>
+          </div>
+
+          {/* Avg Attainment */}
+          <div className="p-4 bg-white/[0.02] rounded-xl">
+            <p className="text-xs text-white/50 mb-2">Avg Rep Attainment</p>
+            <p className="text-2xl font-bold text-white">
+              {summary.avgAttainmentPct !== null
+                ? `${Math.round(summary.avgAttainmentPct * 100)}%`
+                : '—'}
+            </p>
+            <p className="text-xs text-white/40 mt-1">
+              {summary.noTargetCount > 0 && `${summary.noTargetCount} without targets`}
+            </p>
           </div>
         </div>
       </div>
-      )}
 
-      {/* Team Members Performance */}
-      {/* TODO: Per-user revenue targets
-          Once the user_targets table is integrated with TeamDashboard (via a new query or
-          backend endpoint), this section will display and allow editing of annual, quarterly,
-          and monthly targets for each team member. The backend already supports user_targets
-          (see user-targets-save Netlify function), but TeamDashboard does not currently load
-          this data. When ready, add a "Targets" row per member showing their goals. */}
+      {/* ============================================================ */}
+      {/* TEAM MEMBER PERFORMANCE */}
+      {/* ============================================================ */}
       <div>
-        <h2 className="text-title-2 text-white tracking-tight mb-5">
-          Team Member Performance
-        </h2>
-        {/* FIX H3: Empty state for no team members */}
-        {teamMembers.length === 0 ? (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-title-2 text-white tracking-tight">
+            Team Member Performance
+          </h2>
+          <div className="flex items-center gap-3">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search team members..."
+                className="pl-9 pr-4 py-2 bg-white/[0.03] border border-white/[0.08] rounded-xl text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-[#0CE3B1]/40 w-64"
+              />
+            </div>
+            {/* Edit mode controls */}
+            {isEditingTeamTargets && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelEditingTeamTargets}
+                  className="px-4 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl text-sm text-white hover:bg-white/[0.08] transition-colors"
+                  disabled={savingTargets}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveTeamTargets}
+                  disabled={savingTargets}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0CE3B1] text-white rounded-xl text-sm font-medium hover:bg-[#0CE3B1]/90 transition-colors disabled:opacity-50"
+                >
+                  {savingTargets ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Save changes
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {filteredMembers.length === 0 ? (
           <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-12 border border-white/[0.08] text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
             <div className="w-[72px] h-[72px] bg-white/[0.05] rounded-2xl flex items-center justify-center mx-auto mb-5 border border-white/[0.08]">
               <Users className="w-9 h-9 text-white/40" />
             </div>
             <h3 className="text-xl font-semibold text-white mb-2 tracking-tight">
-              No Team Members Yet
+              {searchQuery ? 'No matching team members' : 'No Team Members Yet'}
             </h3>
             <p className="text-sm text-white/50 max-w-md mx-auto leading-relaxed">
-              Invite your first team member from Settings to start collaborating on deals.
+              {searchQuery
+                ? 'Try a different search term'
+                : 'Invite your first team member from Settings to start collaborating on deals.'}
             </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {/* PAGINATION FIX: Only show displayedCount members */}
-            {/* FIX G2: Tightened spacing (space-y-3, p-5, mb-4) for Apple-tight layout */}
-            {teamMembers.slice(0, displayedCount).map((member) => (
-            <div
-              key={member.userId}
-              className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-5 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  {/* Avatar with image or initials fallback */}
-                  <div className="relative">
-                    {getTeamAvatarUrl(member) ? (
-                      <img
-                        src={getTeamAvatarUrl(member)}
-                        alt={getTeamDisplayName(member)}
-                        className="w-10 h-10 rounded-full object-cover border border-white/[0.1]"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0CE3B1]/30 to-[#0CE3B1]/10 border border-[#0CE3B1]/20 flex items-center justify-center">
-                        <span className="text-sm font-semibold text-[#0CE3B1]">
-                          {getTeamAvatarInitials(member)}
+            {filteredMembers.slice(0, displayedCount).map((member) => {
+              const memberAnalytics = getMemberAnalytics(member.userId);
+              const memberTarget = getMemberTarget(member.userId);
+              const editedMemberTargets = editedTargets[member.userId] || {};
+
+              return (
+                <div
+                  key={member.userId}
+                  className="bg-white/[0.03] backdrop-blur-md rounded-2xl p-5 border-l-4 border-[#0CE3B1] border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)] transition-all duration-300 hover:shadow-[0_6px_28px_rgba(0,0,0,0.15)] hover:bg-white/[0.05]"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        {getTeamAvatarUrl(member) ? (
+                          <img
+                            src={getTeamAvatarUrl(member)}
+                            alt={getTeamDisplayName(member)}
+                            className="w-10 h-10 rounded-full object-cover border border-white/[0.1]"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0CE3B1]/30 to-[#0CE3B1]/10 border border-[#0CE3B1]/20 flex items-center justify-center">
+                            <span className="text-sm font-semibold text-[#0CE3B1]">
+                              {getTeamAvatarInitials(member)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-white tracking-tight">
+                            {getTeamDisplayName(member)}
+                            {member.isCurrentUser && (
+                              <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
+                            )}
+                          </h3>
+                          <span className="px-2 py-0.5 text-xs rounded-full bg-white/[0.05] text-white/50">
+                            {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
+                          </span>
+                        </div>
+                        {/* Status Badge */}
+                        {memberAnalytics && (
+                          <StatusBadge
+                            status={memberAnalytics.status}
+                            attainmentPct={memberAnalytics.attainmentPct}
+                            projectedAttainmentPct={memberAnalytics.projectedAttainmentPct}
+                            period={selectedPeriod}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metrics */}
+                  {member.hasNoActivity && !member.isCurrentUser ? (
+                    <div className="p-4 bg-white/[0.02] rounded-xl text-center">
+                      <p className="text-sm text-white/40">No recent deal activity yet</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                      <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                        <span className="text-sm text-white/50">Deals Added:</span>
+                        <span className="font-semibold text-white">
+                          {member.dealsAdded} ({formatCurrency(member.dealsAddedValue)})
+                          {member.dealsAdded > 0 && (
+                            member.dealsAddedTrend === 'up' ? (
+                              <TrendingUp className="inline w-4 h-4 ml-1.5 text-emerald-400" />
+                            ) : (
+                              <TrendingDown className="inline w-4 h-4 ml-1.5 text-rose-400" />
+                            )
+                          )}
                         </span>
+                      </div>
+
+                      <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                        <span className="text-sm text-white/50">Deals Closed:</span>
+                        <span className="font-semibold text-white">
+                          {member.dealsClosed} won ({formatCurrency(member.dealsClosedValue)})
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
+                        <span className="text-sm text-white/50">Active Pipeline:</span>
+                        <span className="font-semibold text-white">
+                          {formatCurrency(member.activePipeline)} → {formatCurrency(member.expectedRevenue)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Revenue Targets Section */}
+                  <div className="pt-4 border-t border-white/[0.05]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Target className="w-4 h-4 text-sky-400" />
+                      <span className="text-sm font-medium text-white/70">Revenue Targets</span>
+                    </div>
+
+                    {isEditingTeamTargets ? (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Monthly</label>
+                          <input
+                            type="number"
+                            value={editedMemberTargets.monthly ?? ''}
+                            onChange={(e) => setEditedTargets(prev => ({
+                              ...prev,
+                              [member.userId]: {
+                                ...prev[member.userId],
+                                monthly: e.target.value
+                              }
+                            }))}
+                            placeholder="0"
+                            className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Quarterly</label>
+                          <input
+                            type="number"
+                            value={editedMemberTargets.quarterly ?? ''}
+                            onChange={(e) => setEditedTargets(prev => ({
+                              ...prev,
+                              [member.userId]: {
+                                ...prev[member.userId],
+                                quarterly: e.target.value
+                              }
+                            }))}
+                            placeholder="0"
+                            className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Annual</label>
+                          <input
+                            type="number"
+                            value={editedMemberTargets.annual ?? ''}
+                            onChange={(e) => setEditedTargets(prev => ({
+                              ...prev,
+                              [member.userId]: {
+                                ...prev[member.userId],
+                                annual: e.target.value
+                              }
+                            }))}
+                            placeholder="0"
+                            className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                          <p className="text-xs text-white/40 mb-0.5">Monthly</p>
+                          <p className="text-sm font-medium text-white">
+                            {memberTarget?.monthlyTarget
+                              ? formatCurrency(memberTarget.monthlyTarget)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                          <p className="text-xs text-white/40 mb-0.5">Quarterly</p>
+                          <p className="text-sm font-medium text-white">
+                            {memberTarget?.quarterlyTarget
+                              ? formatCurrency(memberTarget.quarterlyTarget)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="p-2 bg-white/[0.02] rounded-lg text-center">
+                          <p className="text-xs text-white/40 mb-0.5">Annual</p>
+                          <p className="text-sm font-medium text-white">
+                            {memberTarget?.annualTarget
+                              ? formatCurrency(memberTarget.annualTarget)
+                              : '—'}
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-white tracking-tight">
-                      {getTeamDisplayName(member)}
-                      {member.isCurrentUser && (
-                        <span className="ml-2 text-sm font-normal text-[#0CE3B1]">(You)</span>
-                      )}
-                    </h3>
-                    <p className="text-sm text-white/50 mt-0.5">
-                      {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
-                    </p>
-                  </div>
                 </div>
-              </div>
+              );
+            })}
 
-              {/* Show metrics or "no activity" message */}
-              {member.hasNoActivity && !member.isCurrentUser ? (
-                <div className="p-4 bg-white/[0.02] rounded-xl text-center">
-                  <p className="text-sm text-white/40">No recent deal activity yet</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                    <span className="text-sm text-white/50">Deals Added:</span>
-                    <span className="font-semibold text-white">
-                      {member.dealsAdded} ({formatCurrency(member.dealsAddedValue)})
-                      {member.dealsAdded > 0 && (
-                        member.dealsAddedTrend === 'up' ? (
-                          <TrendingUp className="inline w-4 h-4 ml-1.5 text-emerald-400" />
-                        ) : (
-                          <TrendingDown className="inline w-4 h-4 ml-1.5 text-rose-400" />
-                        )
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                    <span className="text-sm text-white/50">Deals Closed:</span>
-                    <span className="font-semibold text-white">
-                      {member.dealsClosed} won ({formatCurrency(member.dealsClosedValue)})
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl">
-                    <span className="text-sm text-white/50">Active Pipeline:</span>
-                    <span className="font-semibold text-white">
-                      {formatCurrency(member.activePipeline)} → {formatCurrency(member.expectedRevenue)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Revenue Goals Section */}
-              <div className="mt-4 pt-4 border-t border-white/[0.05]">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Target className="w-4 h-4 text-sky-400" />
-                    <span className="text-sm font-medium text-white/70">Revenue Goals</span>
-                  </div>
-                  {isAdmin && editingGoals !== member.userId && (
-                    <button
-                      onClick={() => startEditingGoals(member.userId)}
-                      className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
-                      title="Edit goals"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-white/40 hover:text-white/70" />
-                    </button>
-                  )}
-                </div>
-
-                {editingGoals === member.userId ? (
-                  // Editing mode
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-xs text-white/40 mb-1 block">Monthly</label>
-                        <input
-                          type="number"
-                          value={goalValues.monthly}
-                          onChange={(e) => setGoalValues(prev => ({ ...prev, monthly: e.target.value }))}
-                          placeholder="0"
-                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-white/40 mb-1 block">Quarterly</label>
-                        <input
-                          type="number"
-                          value={goalValues.quarterly}
-                          onChange={(e) => setGoalValues(prev => ({ ...prev, quarterly: e.target.value }))}
-                          placeholder="0"
-                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-white/40 mb-1 block">Annual</label>
-                        <input
-                          type="number"
-                          value={goalValues.annual}
-                          onChange={(e) => setGoalValues(prev => ({ ...prev, annual: e.target.value }))}
-                          placeholder="0"
-                          className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm focus:outline-none focus:border-sky-500/50"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={cancelEditingGoals}
-                        className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
-                        disabled={savingGoals}
-                      >
-                        <X className="w-4 h-4 text-white/50" />
-                      </button>
-                      <button
-                        onClick={confirmSaveGoals}
-                        disabled={savingGoals}
-                        className="p-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 transition-colors"
-                      >
-                        {savingGoals ? (
-                          <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
-                        ) : (
-                          <Check className="w-4 h-4 text-sky-400" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  // Display mode
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
-                      <p className="text-xs text-white/40 mb-0.5">Monthly</p>
-                      <p className="text-sm font-medium text-white">
-                        {userTargets[member.userId]?.monthly_target
-                          ? formatCurrency(userTargets[member.userId].monthly_target)
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
-                      <p className="text-xs text-white/40 mb-0.5">Quarterly</p>
-                      <p className="text-sm font-medium text-white">
-                        {userTargets[member.userId]?.quarterly_target
-                          ? formatCurrency(userTargets[member.userId].quarterly_target)
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="p-2 bg-white/[0.02] rounded-lg text-center">
-                      <p className="text-xs text-white/40 mb-0.5">Annual</p>
-                      <p className="text-sm font-medium text-white">
-                        {userTargets[member.userId]?.annual_target
-                          ? formatCurrency(userTargets[member.userId].annual_target)
-                          : '—'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-            {/* PAGINATION FIX: Load More button when there are more members */}
-            {displayedCount < totalMemberCount && (
+            {/* Load More button */}
+            {displayedCount < filteredMembers.length && (
               <div className="flex justify-center pt-6">
                 <button
                   onClick={() => setDisplayedCount(prev => prev + TEAM_PAGE_SIZE)}
                   className="flex items-center gap-2.5 px-7 py-3.5 bg-white/[0.03] border border-white/[0.1] text-white rounded-2xl hover:bg-white/[0.06] hover:border-[#0CE3B1]/30 transition-all duration-300 font-medium shadow-[0_4px_16px_rgba(0,0,0,0.1)] hover:shadow-[0_6px_20px_rgba(12,227,177,0.1)]"
                 >
                   <Users className="w-4 h-4 text-[#0CE3B1]" />
-                  Load More ({totalMemberCount - displayedCount} remaining)
+                  Load More ({filteredMembers.length - displayedCount} remaining)
                 </button>
               </div>
             )}
 
-            {/* PAGINATION FIX: Show count indicator */}
+            {/* Count indicator */}
             <div className="text-center pt-4">
               <p className="text-xs text-white/40">
-                Showing {Math.min(displayedCount, totalMemberCount)} of {totalMemberCount} team members
+                Showing {Math.min(displayedCount, filteredMembers.length)} of {filteredMembers.length} team members
               </p>
             </div>
           </div>
