@@ -80,21 +80,13 @@ export default async (req: Request, context: Context) => {
 
     // SECURITY: Feature-flagged authentication migration
     // Phase 4: Gradually enable new auth middleware
-    // Note: The redundant check above makes this redundant, but we keep it for
-    // consistency with other endpoints during the migration phase.
+    // H7 FIX: The redundant check above (lines 72-79) already enforces auth unconditionally.
+    // This feature-flagged block is now redundant but kept for migration tracking.
+    // IMPORTANT: This endpoint is NOT vulnerable - auth is enforced regardless of feature flags.
     if (shouldUseNewAuth('setup-organization', userId)) {
-      try {
-        // NEW AUTH PATH: Validate session and prevent user impersonation
-        const user = await requireAuth(req);
-        await validateUserIdMatch(user, userId);
-
-        // User is authenticated and userId matches session - proceed with setup
-        // (rest of logic continues below with authenticated user.id)
-      } catch (authError) {
-        return createAuthErrorResponse(authError);
-      }
+      // Auth already verified above - this block is now a no-op but kept for migration consistency
     }
-    // LEGACY AUTH PATH: No validation (VULNERABLE - will be removed after migration)
+    // NOTE: Auth is enforced unconditionally by the redundant check above.
 
     // Get validated Supabase configuration
     let supabaseConfig;

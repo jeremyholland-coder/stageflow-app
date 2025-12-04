@@ -1,6 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
+import { safeRequestJson } from "./lib/timeout-wrapper";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
@@ -57,8 +58,17 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[delete-deal] Authenticated user:", userId);
 
-    // STEP 2: Parse request body
-    const body = await req.json();
+    // STEP 2: Parse request body with safe JSON handling (C3 fix)
+    let body;
+    try {
+      body = await safeRequestJson(req);
+    } catch (e: any) {
+      console.error('[delete-deal] JSON parsing failed:', e.message);
+      return new Response(
+        JSON.stringify({ error: 'Invalid request body', code: 'INVALID_JSON' }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
     const { dealId, organizationId } = body;
 
     if (!dealId || !organizationId) {

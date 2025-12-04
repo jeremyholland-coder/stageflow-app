@@ -10,9 +10,12 @@
  * - Org-wide win rates and velocity
  * - Per-user win rates and velocity
  * - Per-stage conversion rates and time-in-stage
+ *
+ * SECURITY: C6 FIX - Added authentication and org membership verification
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { requireAuth } from './lib/auth-middleware';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -30,11 +33,13 @@ async function calculateMetricsForPeriod(
 
   console.log(`[Metrics] Calculating ${periodName} metrics for org ${organizationId}`);
 
-  // Get all deals for this organization
+  // C14 FIX: Add limit to prevent unbounded queries
+  // 5000 deals is a reasonable upper bound for performance calculations
   const { data: deals, error: dealsError } = await supabase
     .from('deals')
     .select('*')
-    .eq('organization_id', organizationId);
+    .eq('organization_id', organizationId)
+    .limit(5000);
 
   if (dealsError) {
     console.error('Error fetching deals:', dealsError);
@@ -46,13 +51,14 @@ async function calculateMetricsForPeriod(
     return;
   }
 
-  // Get stage history for this period
+  // Get stage history for this period (with limit for safety)
   const { data: history, error: historyError } = await supabase
     .from('deal_stage_history')
     .select('*')
     .eq('organization_id', organizationId)
     .gte('changed_at', cutoffDate.toISOString())
-    .order('changed_at', { ascending: true });
+    .order('changed_at', { ascending: true })
+    .limit(10000);
 
   if (historyError) {
     console.error('Error fetching history:', historyError);
@@ -209,22 +215,83 @@ async function calculateMetricsForPeriod(
 }
 
 export default async (req: Request, context: any) => {
+  const headers = { 'Content-Type': 'application/json' };
+
   // Only allow POST or scheduled invocations
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
   }
 
   try {
+    // C6 FIX: Require authentication for metrics recalculation
+    // This prevents unauthorized users from triggering expensive calculations
+    let authenticatedUser;
+    try {
+      authenticatedUser = await requireAuth(req);
+    } catch (authError: any) {
+      console.error('[Metrics] Authentication failed:', authError.message);
+      return new Response(JSON.stringify({
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      }), {
+        status: 401,
+        headers
+      });
+    }
+
     // Parse request body for optional org filter
     let targetOrgId: string | null = null;
     try {
       const body = await req.json();
       targetOrgId = body.organizationId || null;
     } catch {
-      // No body or invalid JSON - process all orgs
+      // No body or invalid JSON - will require org verification below
+    }
+
+    // C6 FIX: If specific org requested, verify user is a member
+    if (targetOrgId) {
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('user_id', authenticatedUser.id)
+        .eq('organization_id', targetOrgId)
+        .maybeSingle();
+
+      if (memberError || !membership) {
+        console.error('[Metrics] User not authorized for org:', targetOrgId);
+        return new Response(JSON.stringify({
+          error: 'Not authorized for this organization',
+          code: 'NOT_AUTHORIZED'
+        }), {
+          status: 403,
+          headers
+        });
+      }
+    } else {
+      // If no specific org, only process orgs the user belongs to
+      // This prevents users from triggering processing for all orgs
+      const { data: userOrgs, error: orgsError } = await supabase
+        .from('team_members')
+        .select('organization_id')
+        .eq('user_id', authenticatedUser.id);
+
+      if (orgsError || !userOrgs || userOrgs.length === 0) {
+        console.error('[Metrics] User has no organizations');
+        return new Response(JSON.stringify({
+          error: 'No organizations found for user',
+          code: 'NO_ORGS'
+        }), {
+          status: 404,
+          headers
+        });
+      }
+
+      // Process only user's first org for safety (prevent processing all orgs)
+      targetOrgId = userOrgs[0].organization_id;
+      console.log('[Metrics] Auto-selected org:', targetOrgId);
     }
 
     // Get all organizations (or specific one)
@@ -245,7 +312,7 @@ export default async (req: Request, context: any) => {
         processed: 0
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
     }
 
@@ -273,7 +340,7 @@ export default async (req: Request, context: any) => {
       timestamp: new Date().toISOString()
     }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
 
   } catch (error: any) {
@@ -282,7 +349,7 @@ export default async (req: Request, context: any) => {
       error: error.message || 'Internal server error'
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
   }
 };

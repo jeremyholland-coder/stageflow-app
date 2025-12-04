@@ -163,6 +163,26 @@ export const handler: Handler = async (event: HandlerEvent, _context: HandlerCon
       errors: []
     };
 
+    // C13 FIX: Batch fetch all org members instead of N+1 queries
+    const targetUserIds = user_targets.map(t => t.user_id).filter(Boolean);
+    const { data: orgMembers, error: membersError } = await supabase
+      .from('team_members')
+      .select('user_id')
+      .eq('organization_id', organization_id)
+      .in('user_id', targetUserIds);
+
+    if (membersError) {
+      console.error('[User Targets] Failed to fetch org members:', membersError);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Failed to verify team members', details: membersError.message })
+      };
+    }
+
+    // Create a Set for O(1) lookup
+    const validMemberIds = new Set((orgMembers || []).map(m => m.user_id));
+
     for (const target of user_targets) {
       if (!target.user_id) {
         results.failed++;
@@ -170,15 +190,8 @@ export const handler: Handler = async (event: HandlerEvent, _context: HandlerCon
         continue;
       }
 
-      // Verify target user is in the organization
-      const { data: targetMember } = await supabase
-        .from('team_members')
-        .select('user_id')
-        .eq('user_id', target.user_id)
-        .eq('organization_id', organization_id)
-        .maybeSingle();
-
-      if (!targetMember) {
+      // C13 FIX: Use pre-fetched membership data instead of individual query
+      if (!validMemberIds.has(target.user_id)) {
         results.failed++;
         results.errors.push(`User ${target.user_id} not in organization`);
         continue;

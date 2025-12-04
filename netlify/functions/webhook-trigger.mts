@@ -1,5 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import { createHmac } from "crypto";
 import { z } from "zod";
 import { createErrorResponse } from "./lib/error-sanitizer";
 import { getSupabaseConfig } from "./lib/validate-config";
@@ -43,18 +44,21 @@ export default async (req: Request, context: Context) => {
 
     const { webhook_id, event, data } = validation.data;
 
-    // SECURITY: Feature-flagged authentication migration
-    // Phase 4 Batch 8: Add authentication to webhook trigger function
-    if (shouldUseNewAuth('webhook-trigger', webhook_id)) {
-      try {
-        // NEW AUTH PATH: Require authentication for webhook operations
-        await requireAuth(req);
-        // Note: requireOrgAccess will be added after fetching webhook details
-      } catch (authError) {
-        return createAuthErrorResponse(authError);
-      }
+    // C2 FIX: DEFENSE IN DEPTH - Redundant authentication check
+    // Critical endpoints like webhook-trigger ALWAYS require authentication,
+    // regardless of ENABLE_AUTH_MIDDLEWARE setting.
+    // This prevents webhook abuse/spam if feature flags are accidentally disabled.
+    try {
+      await requireAuth(req);
+    } catch (redundantAuthError) {
+      console.error('❌ Webhook auth failed (critical endpoint protection)');
+      return createAuthErrorResponse(redundantAuthError);
     }
-    // LEGACY AUTH PATH: No authentication (allows webhook spam/abuse)
+
+    // SECURITY: Feature-flagged authentication migration (redundant with above, kept for migration tracking)
+    if (shouldUseNewAuth('webhook-trigger', webhook_id)) {
+      // Auth already verified above - this block is now a no-op but kept for migration consistency
+    }
 
     // Get validated Supabase configuration
     let supabaseConfig;
@@ -134,15 +138,24 @@ export default async (req: Request, context: Context) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for external service
 
+      // C5 FIX: Generate HMAC signature instead of sending raw secret
+      // This proves payload authenticity without exposing the secret
+      const payloadString = JSON.stringify(payload);
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const signaturePayload = `${timestamp}.${payloadString}`;
+      const signature = createHmac('sha256', webhook.secret)
+        .update(signaturePayload)
+        .digest('hex');
+
       const webhookResponse = await fetch(webhook.url, {
         method: "POST",
         signal: controller.signal, // CRITICAL FIX: Add abort signal
         headers: {
           "Content-Type": "application/json",
-          "X-Webhook-Signature": webhook.secret,
+          "X-Webhook-Signature": `t=${timestamp},v1=${signature}`,
           "User-Agent": "StageFlow-Webhooks/1.0",
         },
-        body: JSON.stringify(payload),
+        body: payloadString,
       });
 
       clearTimeout(timeoutId); // CRITICAL FIX: Clear timeout on success
