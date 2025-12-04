@@ -16,6 +16,24 @@
 
 import { getProvidersWithCache, ProviderFetchError } from './provider-cache';
 
+// ============================================================================
+// [StageFlow][AI][DIAGNOSTICS] COLD-START ENVIRONMENT CHECK
+// This runs ONCE when the module loads to verify environment config
+// ============================================================================
+console.log("[StageFlow][AI][DIAGNOSTICS][provider-registry]", {
+  // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
+  // These checks confirm they're NOT being read from env (which is correct)
+  OPENAI_KEY_PRESENT: !!process.env.OPENAI_API_KEY,       // Should be FALSE
+  ANTHROPIC_KEY_PRESENT: !!process.env.ANTHROPIC_API_KEY, // Should be FALSE
+  GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
+  // These are the ACTUAL required env vars for AI functionality:
+  ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
+  SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
+  SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  BUILD_TIMESTAMP: new Date().toISOString()
+});
+
 /**
  * ALLOWED_PROVIDERS: The only supported AI provider types
  * FIX 2025-12-04: Removed xAI/Grok - deprecated provider
@@ -170,10 +188,60 @@ export function getProviderDisplayName(providerType: string): string {
   return PROVIDER_DISPLAY_NAMES[providerType as AllowedProviderType] || providerType;
 }
 
+/**
+ * DIAGNOSTICS 2025-12-04: Verify provider environment configuration
+ *
+ * This function checks for missing environment variables that are ACTUALLY
+ * required for AI provider functionality.
+ *
+ * IMPORTANT: AI provider API keys (OpenAI, Anthropic, Gemini) are NOT
+ * environment variables! They are stored encrypted in the database.
+ *
+ * The critical env vars are:
+ * - ENCRYPTION_KEY: Required to decrypt stored API keys
+ * - SUPABASE_URL or VITE_SUPABASE_URL: Database connectivity
+ * - SUPABASE_SERVICE_ROLE_KEY: Database access
+ *
+ * @returns Array of problem descriptions (empty = all good)
+ */
+export function verifyProviderEnvironment(): string[] {
+  const problems: string[] = [];
+
+  // Check ENCRYPTION_KEY - CRITICAL for decrypting stored API keys
+  if (!process.env.ENCRYPTION_KEY) {
+    problems.push("ENCRYPTION_KEY missing - cannot decrypt stored API keys");
+  }
+
+  // Check Supabase URL
+  if (!process.env.VITE_SUPABASE_URL && !process.env.SUPABASE_URL) {
+    problems.push("SUPABASE_URL (or VITE_SUPABASE_URL) missing - cannot connect to database");
+  }
+
+  // Check Supabase service role key
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    problems.push("SUPABASE_SERVICE_ROLE_KEY missing - cannot access database");
+  }
+
+  // Informational: Check if someone mistakenly set API keys as env vars
+  // (This is NOT how StageFlow works - keys are in the database)
+  if (process.env.OPENAI_API_KEY) {
+    problems.push("WARNING: OPENAI_API_KEY is set as env var but StageFlow uses database-stored keys");
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    problems.push("WARNING: ANTHROPIC_API_KEY is set as env var but StageFlow uses database-stored keys");
+  }
+  if (process.env.GEMINI_API_KEY) {
+    problems.push("WARNING: GEMINI_API_KEY is set as env var but StageFlow uses database-stored keys");
+  }
+
+  return problems;
+}
+
 export default {
   ALLOWED_PROVIDERS,
   getConnectedProviders,
   isAllowedProvider,
   getProviderDisplayName,
+  verifyProviderEnvironment,
   PROVIDER_DISPLAY_NAMES
 };

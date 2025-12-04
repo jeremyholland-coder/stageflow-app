@@ -13,6 +13,24 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './encryption';
+
+// ============================================================================
+// [StageFlow][AI][DIAGNOSTICS] COLD-START ENVIRONMENT CHECK
+// This runs ONCE when the module loads to verify environment config
+// ============================================================================
+console.log("[StageFlow][AI][DIAGNOSTICS][ai-orchestrator]", {
+  // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
+  // These checks confirm they're NOT being read from env (which is correct)
+  OPENAI_KEY_PRESENT: !!process.env.OPENAI_API_KEY,       // Should be FALSE
+  ANTHROPIC_KEY_PRESENT: !!process.env.ANTHROPIC_API_KEY, // Should be FALSE
+  GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
+  // These are the ACTUAL required env vars for AI functionality:
+  ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
+  SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
+  SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  BUILD_TIMESTAMP: new Date().toISOString()
+});
 // M4 HARDENING 2025-12-04: Import from shared provider registry
 import { ALLOWED_PROVIDERS, PROVIDER_DISPLAY_NAMES as REGISTRY_DISPLAY_NAMES, AllowedProviderType } from './provider-registry';
 

@@ -5,6 +5,26 @@ import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
 // M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
 import { AI_ERROR_CODES } from './lib/ai-error-codes';
+// DIAGNOSTICS 2025-12-04: Import environment verification
+import { verifyProviderEnvironment } from './lib/provider-registry';
+
+// ============================================================================
+// [StageFlow][AI][DIAGNOSTICS] COLD-START ENVIRONMENT CHECK
+// This runs ONCE when the function cold-starts to verify environment config
+// ============================================================================
+console.log("[StageFlow][AI][DIAGNOSTICS]", {
+  // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
+  // These checks confirm they're NOT being read from env (which is correct)
+  OPENAI_KEY_PRESENT: !!process.env.OPENAI_API_KEY,       // Should be FALSE
+  ANTHROPIC_KEY_PRESENT: !!process.env.ANTHROPIC_API_KEY, // Should be FALSE
+  GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
+  // These are the ACTUAL required env vars for AI functionality:
+  ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
+  SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
+  SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  BUILD_TIMESTAMP: new Date().toISOString()
+});
 // CENTRALIZED CONFIG: Import thresholds from single source of truth
 import { STAGNATION_THRESHOLDS } from '../../src/config/pipelineConfig';
 // PHASE 3: Task-aware model selection
@@ -1158,6 +1178,12 @@ export default async (req: Request, context: any) => {
   }
 
   try {
+    // DIAGNOSTICS 2025-12-04: Runtime environment health check
+    const envProblems = verifyProviderEnvironment();
+    if (envProblems.length > 0) {
+      console.warn("[StageFlow][AI][CONFIG][WARN] Missing provider keys:", envProblems);
+    }
+
     const body = await req.json() as any;
     const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [] } = body;
 
