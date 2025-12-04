@@ -21,6 +21,7 @@ export default async (req: Request, context: Context) => {
   // CORS headers
   const allowedOrigins = [
     'https://stageflow.startupstage.com',
+    'https://stageflow-app.netlify.app',
     'http://localhost:8888',
     'http://localhost:5173'
   ];
