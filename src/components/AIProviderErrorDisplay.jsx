@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ExternalLink, RefreshCw, Sparkles, CheckCircle, ArrowRight } from 'lucide-react';
+import { AlertTriangle, ExternalLink, RefreshCw, Sparkles, CheckCircle, ArrowRight, Activity, Users, DollarSign, Target } from 'lucide-react';
 
 /**
  * PHASE 4: AI Provider Error Display
@@ -95,10 +95,131 @@ const ProviderErrorRow = ({ provider, code, message, dashboardUrl }) => {
 };
 
 /**
+ * Traffic light status indicator styles
+ */
+const STATUS_STYLES = {
+  green: {
+    bg: 'bg-emerald-500/10',
+    border: 'border-emerald-500/30',
+    text: 'text-emerald-400',
+    dot: 'bg-emerald-500'
+  },
+  yellow: {
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/30',
+    text: 'text-amber-400',
+    dot: 'bg-amber-500'
+  },
+  red: {
+    bg: 'bg-rose-500/10',
+    border: 'border-rose-500/30',
+    text: 'text-rose-400',
+    dot: 'bg-rose-500'
+  },
+  unknown: {
+    bg: 'bg-white/5',
+    border: 'border-white/10',
+    text: 'text-white/50',
+    dot: 'bg-white/30'
+  }
+};
+
+/**
+ * Single RevOps health metric display
+ */
+const RevOpsMetricCard = ({ label, status, description, icon: Icon, value }) => {
+  const styles = STATUS_STYLES[status] || STATUS_STYLES.unknown;
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ${styles.bg} border ${styles.border}`}>
+      <div className={`w-2 h-2 rounded-full ${styles.dot}`} />
+      <Icon className={`w-3.5 h-3.5 ${styles.text}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-white/90">{label}</span>
+          {value !== undefined && (
+            <span className={`text-[10px] font-semibold ${styles.text}`}>{value}</span>
+          )}
+        </div>
+        <p className="text-[10px] text-white/50 truncate">{description}</p>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * RevOps Health Summary Section
+ */
+const RevOpsHealthSection = ({ revOpsMetrics }) => {
+  if (!revOpsMetrics) return null;
+
+  const { followupHealth, retentionHealth, arHealth, monthlyGoal } = revOpsMetrics;
+
+  return (
+    <div className="mb-4">
+      <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+        RevOps Health
+      </span>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        {/* Follow-up Health */}
+        {followupHealth && followupHealth.totalActiveDeals > 0 && (
+          <RevOpsMetricCard
+            label="Follow-up"
+            status={followupHealth.summary.status}
+            description={followupHealth.summary.description}
+            icon={Activity}
+          />
+        )}
+
+        {/* Retention Health */}
+        {retentionHealth && retentionHealth.totalRetentionDeals > 0 && (
+          <RevOpsMetricCard
+            label="Retention"
+            status={retentionHealth.summary.status}
+            description={retentionHealth.summary.description}
+            icon={Users}
+          />
+        )}
+
+        {/* AR Health (if available) */}
+        {arHealth && arHealth.available && arHealth.summary && (
+          <RevOpsMetricCard
+            label="AR"
+            status={arHealth.summary.status}
+            description={arHealth.summary.description}
+            icon={DollarSign}
+          />
+        )}
+
+        {/* Monthly Goal */}
+        {monthlyGoal && (
+          <RevOpsMetricCard
+            label="Monthly Goal"
+            status={monthlyGoal.status}
+            description={`${monthlyGoal.attainmentPct}% achieved, ${monthlyGoal.projectedPct}% projected`}
+            icon={Target}
+            value={`${monthlyGoal.attainmentPct}%`}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
  * Fallback plan display component
  */
 const FallbackPlanDisplay = ({ plan }) => {
   if (!plan) return null;
+
+  // Filter out RevOps text bullets (they're now in the dedicated section)
+  const nonRevOpsBullets = plan.bullets?.filter(b =>
+    !b.includes('active deals') &&
+    !b.includes('customers overdue') &&
+    !b.includes('Monthly goal:') &&
+    !b.includes('Customer retention') &&
+    !b.includes('past-due invoices')
+  ) || [];
 
   return (
     <div className="mt-4 pt-4 border-t border-white/10">
@@ -112,10 +233,13 @@ const FallbackPlanDisplay = ({ plan }) => {
         </span>
       </div>
 
-      {/* Bullets */}
-      {plan.bullets && plan.bullets.length > 0 && (
+      {/* RevOps Health Section (traffic lights) */}
+      <RevOpsHealthSection revOpsMetrics={plan.revOpsMetrics} />
+
+      {/* Non-RevOps Bullets */}
+      {nonRevOpsBullets.length > 0 && (
         <ul className="space-y-1.5 mb-4">
-          {plan.bullets.map((bullet, idx) => (
+          {nonRevOpsBullets.map((bullet, idx) => (
             <li key={idx} className="flex items-start gap-2 text-xs text-white/70">
               <CheckCircle className="w-3.5 h-3.5 text-[#0CE3B1] mt-0.5 flex-shrink-0" />
               <span>{bullet}</span>

@@ -1494,6 +1494,34 @@ export default async (req: Request, context: any) => {
     // PHASE 3: Build Mission Control context for both AI and fallback use
     // This is done early so we have context ready for fallback if AI fails
     const performanceContext = await getPerformanceContext(organizationId, user.id);
+
+    // Fetch user's monthly target for RevOps goal tracking
+    let monthlyTarget = 0;
+    try {
+      const { data: userTarget } = await supabase
+        .from('user_targets')
+        .select('monthly_target')
+        .eq('user_id', user.id)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+
+      if (userTarget?.monthly_target) {
+        monthlyTarget = userTarget.monthly_target;
+      } else {
+        // Fallback to org target if no user target
+        const { data: orgTarget } = await supabase
+          .from('organization_targets')
+          .select('monthly_target')
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+        if (orgTarget?.monthly_target) {
+          monthlyTarget = orgTarget.monthly_target;
+        }
+      }
+    } catch (targetError) {
+      console.warn('[ai-assistant] Failed to fetch monthly target (non-fatal):', targetError);
+    }
+
     const missionControlContext = buildMissionControlContext(deals, performanceContext ? {
       userWinRate: performanceContext.userWinRate ? parseFloat(performanceContext.userWinRate) : undefined,
       avgDaysToClose: performanceContext.orgAvgDaysToClose
@@ -1504,7 +1532,7 @@ export default async (req: Request, context: any) => {
     if (isBasicMode) {
       console.log('[ai-assistant] Basic mode requested - returning non-AI fallback');
 
-      const basicPlan = buildBasicMissionControlPlan(missionControlContext);
+      const basicPlan = buildBasicMissionControlPlan(missionControlContext, deals, monthlyTarget);
       const textResponse = formatBasicPlanAsText(basicPlan);
 
       return new Response(JSON.stringify({
@@ -1530,7 +1558,7 @@ export default async (req: Request, context: any) => {
     if (runtimeProviders.length === 0) {
       // This is the REAL "no providers configured" case (empty list, no error)
       // PHASE 3: Include basic fallback plan so users still get value
-      const basicPlan = buildBasicMissionControlPlan(missionControlContext);
+      const basicPlan = buildBasicMissionControlPlan(missionControlContext, deals, monthlyTarget);
 
       return new Response(JSON.stringify({
         ok: false,
@@ -1779,8 +1807,9 @@ export default async (req: Request, context: any) => {
       let fallbackPlan: BasicMissionControlPlan | null = null;
       try {
         // Use requestDeals which is stored at top level for catch block access
+        // Note: monthlyTarget not available in catch block, RevOps goal tracking skipped
         const fallbackContext = buildMissionControlContext(requestDeals, null);
-        fallbackPlan = buildBasicMissionControlPlan(fallbackContext);
+        fallbackPlan = buildBasicMissionControlPlan(fallbackContext, requestDeals, 0);
       } catch (fallbackError) {
         console.error('[ai-assistant] Failed to build fallback plan:', fallbackError);
       }

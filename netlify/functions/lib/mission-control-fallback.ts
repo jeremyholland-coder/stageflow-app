@@ -13,6 +13,7 @@
  * - Stagnant deals requiring attention
  * - High-value opportunities at risk
  * - Upcoming activities
+ * - RevOps metrics (follow-up health, retention health, goal tracking)
  *
  * @author StageFlow Engineering
  * @since 2025-12-04
@@ -20,6 +21,13 @@
 
 // Import stagnation thresholds from centralized config
 import { STAGNATION_THRESHOLDS } from '../../../src/config/pipelineConfig';
+
+// Import RevOps metrics engine
+import {
+  buildRevOpsMetrics,
+  formatRevOpsMetricsAsText,
+  RevOpsMetrics
+} from './revops-metrics';
 
 /**
  * Mission Control context built from database data
@@ -74,6 +82,8 @@ export interface BasicMissionControlPlan {
     stagnantCount: number;
     highValueAtRiskCount: number;
   };
+  // RevOps metrics for dashboard display
+  revOpsMetrics: RevOpsMetrics | null;
   generatedAt: string;
 }
 
@@ -85,10 +95,12 @@ export interface BasicMissionControlPlan {
  *
  * @param deals - Array of deals from the database
  * @param performanceMetrics - Optional performance metrics from the metrics table
+ * @param monthlyTarget - Optional monthly revenue target for goal tracking
  */
 export function buildMissionControlContext(
   deals: any[],
-  performanceMetrics?: { userWinRate?: number; avgDaysToClose?: number } | null
+  performanceMetrics?: { userWinRate?: number; avgDaysToClose?: number } | null,
+  monthlyTarget?: number
 ): MissionControlContext {
   const now = new Date();
   const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -188,9 +200,13 @@ export function buildMissionControlContext(
  * It analyzes the context and generates actionable recommendations based on rules.
  *
  * @param context - Mission Control context from buildMissionControlContext
+ * @param deals - Optional raw deals array for RevOps metrics calculation
+ * @param monthlyTarget - Optional monthly target for goal tracking
  */
 export function buildBasicMissionControlPlan(
-  context: MissionControlContext
+  context: MissionControlContext,
+  deals?: any[],
+  monthlyTarget?: number
 ): BasicMissionControlPlan {
   const bullets: string[] = [];
   const recommendedActions: BasicMissionControlPlan['recommendedActions'] = [];
@@ -304,6 +320,20 @@ export function buildBasicMissionControlPlan(
   // Limit to 5 actions
   const limitedActions = recommendedActions.slice(0, 5);
 
+  // Build RevOps metrics if deals are provided
+  let revOpsMetrics: RevOpsMetrics | null = null;
+  if (deals && deals.length > 0) {
+    revOpsMetrics = buildRevOpsMetrics({
+      deals,
+      monthlyTarget: monthlyTarget || 0,
+      invoices: null // No invoice data yet - graceful no-op
+    });
+
+    // Add RevOps insights to bullets
+    const revOpsBullets = formatRevOpsMetricsAsText(revOpsMetrics);
+    bullets.push(...revOpsBullets);
+  }
+
   return {
     mode: 'basic',
     headline,
@@ -315,6 +345,7 @@ export function buildBasicMissionControlPlan(
       stagnantCount: context.stagnantDeals.length,
       highValueAtRiskCount: context.highValueAtRisk.length
     },
+    revOpsMetrics,
     generatedAt: new Date().toISOString()
   };
 }
