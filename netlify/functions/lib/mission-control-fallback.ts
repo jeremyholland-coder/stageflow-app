@@ -379,7 +379,7 @@ export function formatBasicPlanAsText(plan: BasicMissionControlPlan): string {
   }
 
   lines.push('');
-  lines.push('(Generated without AI - connect a provider for personalized insights)');
+  lines.push('(Basic summary • Set up AI in Settings for personalized insights)');
 
   return lines.join('\n');
 }

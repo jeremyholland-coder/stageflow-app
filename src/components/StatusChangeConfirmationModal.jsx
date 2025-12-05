@@ -1,19 +1,31 @@
 import React from 'react';
 import { X, AlertTriangle, TrendingDown } from 'lucide-react';
 
-export const StatusChangeConfirmationModal = ({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
+// APPLE UX: Humanize stage IDs to readable names
+const formatStageName = (stageId) => {
+  if (!stageId) return 'Unknown';
+  // Convert snake_case to Title Case (e.g., "proposal_sent" → "Proposal Sent")
+  return stageId
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+export const StatusChangeConfirmationModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
   dealName,
   currentStatus,
-  targetStage 
+  targetStage
 }) => {
   if (!isOpen) return null;
 
   const handleConfirm = () => {
     onConfirm();
   };
+
+  // Humanize stage name for display
+  const targetStageName = formatStageName(targetStage);
 
   // Use proper conditional classes instead of template literals
   const isWon = currentStatus === 'won';
@@ -80,7 +92,7 @@ export const StatusChangeConfirmationModal = ({
                 This deal is currently marked as <span className="font-bold capitalize">"{currentStatus}"</span>.
               </p>
               <p className="text-sm text-gray-300">
-                Moving it to "<span className="font-semibold capitalize">{targetStage}</span>" will change its status to <span className="font-bold">"Active"</span>.
+                Moving it to "<span className="font-semibold">{targetStageName}</span>" will change its status to <span className="font-bold">"Active"</span>.
               </p>
               <p className="text-sm font-medium text-gray-300">
                 ⚠️ This will affect your dashboard statistics and win/loss metrics.
@@ -99,10 +111,10 @@ export const StatusChangeConfirmationModal = ({
           </button>
           <button
             onClick={handleConfirm}
-            title={`Move ${dealName} to ${targetStage} stage`}
+            title={`Move ${dealName} to ${targetStageName} stage`}
             className="flex-1 px-6 py-3 min-h-touch bg-teal-500 hover:bg-teal-600 text-white rounded-xl font-semibold transition shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98]"
           >
-            Move to {targetStage}
+            Move to {targetStageName}
           </button>
         </div>
 

@@ -549,9 +549,10 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
 
       {/* Lost Reason – only for truly lost deals */}
       {isLost && deal.lost_reason && (
-        <p className="text-sm truncate mb-3 text-red-400" title={deal.lost_reason_notes || deal.lost_reason}>
-          {deal.lost_reason === 'other' && deal.lost_reason_notes
-            ? deal.lost_reason_notes
+        <p className="text-sm truncate mb-3 text-red-400" title={deal.lost_reason}>
+          {/* Strip "Other: " prefix to show just the custom note */}
+          {deal.lost_reason.startsWith('Other:')
+            ? deal.lost_reason.substring(7).trim()
             : deal.lost_reason}
         </p>
       )}
