@@ -1,5 +1,5 @@
-import React, { useState, useEffect, memo } from 'react';
-import { X, Loader2, Trash2, Calendar, XCircle, Receipt, DollarSign, CheckCircle2, UserCircle } from 'lucide-react';
+import React, { useState, useEffect, memo, useRef, useCallback } from 'react';
+import { X, Loader2, Trash2, Calendar, XCircle, Receipt, DollarSign, CheckCircle2, UserCircle, Check } from 'lucide-react';
 // P2 FIX 2025-12-04: Removed direct supabase import - use backend endpoint instead (RLS-safe)
 import { useApp } from './AppShell';
 // FIX CRITICAL #1: Import default pipeline as fallback if pipelineStages fails to load
@@ -16,12 +16,15 @@ import { isDemoEmail, getDemoUserData } from '../lib/demo-users';
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, onDealDeleted, pipelineStages = [] }) => {
   const { addNotification, organization } = useApp();
-  const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showLostModal, setShowLostModal] = useState(false);
   const [pendingStageChange, setPendingStageChange] = useState(null);
   const closeButtonRef = React.useRef(null);
-  // H6-D HARDENING 2025-12-04: Track if form has unsaved changes
+  // UX FRICTION FIX: Auto-save state
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedDataRef = useRef(null);
+  // Track if form has changes (used for auto-save trigger, not blocking close)
   const [isDirty, setIsDirty] = useState(false);
 
   // PRO TIER FIX: Team members for deal assignment
@@ -47,7 +50,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 
   useEffect(() => {
     if (deal) {
-      setFormData({
+      const initialData = {
         client: deal.client || '',
         email: deal.email || '',
         phone: deal.phone || '',
@@ -57,11 +60,105 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         notes: deal.notes || '',
         lost_reason: deal.lost_reason || '',
         assigned_to: deal.assigned_to || ''
-      });
-      // H6-D HARDENING 2025-12-04: Reset dirty state when deal changes (new data loaded)
+      };
+      setFormData(initialData);
+      // Store initial data for comparison
+      lastSavedDataRef.current = JSON.stringify(initialData);
       setIsDirty(false);
+      setAutoSaveStatus('idle');
     }
   }, [deal]);
+
+  // UX FRICTION FIX: Auto-save function with 800ms debounce
+  const performAutoSave = useCallback(async (dataToSave) => {
+    if (!deal || !organization?.id) return;
+
+    // Don't auto-save if data hasn't actually changed
+    const currentDataStr = JSON.stringify(dataToSave);
+    if (currentDataStr === lastSavedDataRef.current) return;
+
+    // Don't auto-save if stage is lost and no reason provided
+    if (dataToSave.stage === 'lost' && !dataToSave.lost_reason) return;
+
+    setAutoSaveStatus('saving');
+
+    try {
+      const finalStatus = getStatusForStage(dataToSave.stage);
+
+      const sanitizedData = {
+        client: sanitizeText(dataToSave.client),
+        email: sanitizeText(dataToSave.email),
+        phone: sanitizeText(dataToSave.phone),
+        notes: sanitizeText(dataToSave.notes),
+        value: parseFloat(dataToSave.value) || 0,
+        stage: dataToSave.stage,
+        status: finalStatus,
+        lost_reason: dataToSave.lost_reason || null,
+        last_activity: new Date().toISOString(),
+        assigned_to: dataToSave.assigned_to || null,
+        assigned_at: dataToSave.assigned_to && dataToSave.assigned_to !== deal.assigned_to
+          ? new Date().toISOString()
+          : deal.assigned_at
+      };
+
+      const { data: result } = await api.post('update-deal', {
+        dealId: deal.id,
+        updates: sanitizedData,
+        organizationId: organization.id
+      });
+
+      if (!result.success && result.error) {
+        throw new Error(result.error);
+      }
+
+      // Update last saved data
+      lastSavedDataRef.current = currentDataStr;
+      setIsDirty(false);
+      setAutoSaveStatus('saved');
+
+      // Notify parent of update
+      if (result.deal) {
+        onDealUpdated(result.deal);
+      }
+
+      // Reset status after 2 seconds
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
+    } catch (error) {
+      console.error('Auto-save error:', error);
+      setAutoSaveStatus('idle');
+      // Silent fail for auto-save - user can still manually save
+    }
+  }, [deal, organization?.id, onDealUpdated]);
+
+  // UX FRICTION FIX: Trigger auto-save with debounce when form changes
+  useEffect(() => {
+    if (!isDirty || !isOpen) return;
+
+    // Clear existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Set new timer for 800ms debounce
+    autoSaveTimerRef.current = setTimeout(() => {
+      performAutoSave(formData);
+    }, 800);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [formData, isDirty, isOpen, performAutoSave]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   // PRO TIER FIX: Fetch team members for deal assignment dropdown
   // P2 FIX 2025-12-04: Use backend endpoint instead of direct Supabase query
@@ -129,13 +226,18 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     setIsDirty(true);
   };
 
-  // H6-D HARDENING 2025-12-04: Handle close with unsaved changes confirmation
+  // UX FRICTION FIX: Close without confirmation - auto-save handles persistence
   const handleClose = () => {
+    // Clear any pending auto-save timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    // If there are unsaved changes, trigger immediate save before closing
     if (isDirty) {
-      const confirmed = window.confirm('You have unsaved changes. Discard them?');
-      if (!confirmed) return;
+      performAutoSave(formData);
     }
     setIsDirty(false);
+    setAutoSaveStatus('idle');
     onClose();
   };
 
@@ -175,116 +277,6 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   const handleLostReasonCancel = () => {
     setPendingStageChange(null);
     setShowLostModal(false);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!deal) return;
-
-    // Prevent double submission
-    if (loading) return;
-
-    // FIX H10: CRITICAL - Require lost reason before saving lost deals
-    if (formData.stage === 'lost' && !formData.lost_reason) {
-      addNotification('Please provide a reason for marking this deal as lost', 'error');
-      setShowLostModal(true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // FIX C9: Use centralized stage-to-status mapping
-      const finalStatus = getStatusForStage(formData.stage);
-
-      // CRITICAL: Auto-timestamp notes if they changed
-      let finalNotes = formData.notes;
-      if (formData.notes !== deal.notes && formData.notes.trim()) {
-        const timestamp = new Date().toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        });
-        // Prepend timestamp to new note content
-        // FIX: Use substring instead of replace to avoid regex issues
-        const oldNotesLength = (deal.notes || '').length;
-        const newContent = formData.notes.length > oldNotesLength
-          ? formData.notes.substring(oldNotesLength).trim()
-          : '';
-        if (newContent) {
-          finalNotes = `[${timestamp}] ${newContent}${deal.notes ? '\n\n' + deal.notes : ''}`;
-        }
-      }
-
-      // Sanitize all text inputs before saving
-      const sanitizedData = {
-        client: sanitizeText(formData.client),
-        email: sanitizeText(formData.email),
-        phone: sanitizeText(formData.phone),
-        notes: sanitizeText(finalNotes),
-        value: parseFloat(formData.value) || 0,
-        stage: formData.stage,
-        status: finalStatus,
-        lost_reason: formData.lost_reason || null,
-        last_activity: new Date().toISOString(),
-        // PRO TIER FIX: Include assignment fields
-        assigned_to: formData.assigned_to || null,
-        assigned_at: formData.assigned_to && formData.assigned_to !== deal.assigned_to
-          ? new Date().toISOString()
-          : deal.assigned_at
-      };
-
-      // Store original data for rollback
-      const originalData = {
-        client: deal.client,
-        email: deal.email,
-        phone: deal.phone,
-        notes: deal.notes,
-        value: deal.value,
-        stage: deal.stage,
-        status: deal.status
-      };
-
-      // PHASE J: Use auth-aware api-client with Authorization header
-      const { data: result } = await api.post('update-deal', {
-        dealId: deal.id,
-        updates: sanitizedData,
-        organizationId: organization.id
-      });
-
-      if (!result.success && result.error) {
-        throw new Error(result.error);
-      }
-
-      const data = result.deal;
-
-      // NOTE: Stage history tracking is handled by useDealManagement hook
-      // Don't track here to avoid duplicates
-
-      if (data) {
-        // Update was successful
-        onDealUpdated(data);
-
-        // Success message based on what changed
-        let message = 'Deal updated successfully';
-        if (formData.stage === 'lost') {
-          message = 'Deal marked as Lost. Keep learning from each experience!';
-        } else if (formData.stage === 'retention') {
-          message = 'Deal marked as Won! 🎉 Celebration time!';
-        }
-
-        addNotification(message, 'success');
-        onClose();
-        // FIX: Removed early return to allow finally block to execute
-      }
-    } catch (error) {
-      console.error('Error updating deal:', error);
-      addNotification(error.message || 'Failed to update deal', 'error');
-    } finally {
-      setLoading(false);
-    }
   };
 
   // PHASE J: Use auth-aware api-client with Authorization header
@@ -377,7 +369,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={(e) => e.preventDefault()} className="p-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-white mb-2">
                 Client Name *
@@ -572,7 +564,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               </div>
             )}
 
-            <div className="flex gap-3 pt-4 border-t border-gray-700">
+            {/* UX FRICTION FIX: Auto-save footer with status indicator */}
+            <div className="flex gap-3 pt-4 border-t border-gray-700 items-center">
               <button
                 type="button"
                 onClick={handleDelete}
@@ -581,22 +574,34 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                 className="px-4 py-3 min-h-touch border border-red-500/50 text-red-400 rounded-xl hover:bg-red-500/10 transition flex items-center gap-2 disabled:opacity-50"
               >
                 {deleting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                Delete Deal
+                Delete
               </button>
-              <div className="flex-1" />
+
+              {/* Auto-save status indicator */}
+              <div className="flex-1 flex justify-center">
+                {autoSaveStatus === 'saving' && (
+                  <span className="flex items-center gap-2 text-sm text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </span>
+                )}
+                {autoSaveStatus === 'saved' && (
+                  <span className="flex items-center gap-2 text-sm text-teal-400">
+                    <Check className="w-4 h-4" />
+                    Saved
+                  </span>
+                )}
+                {autoSaveStatus === 'idle' && !isDirty && (
+                  <span className="text-xs text-gray-500">Changes auto-save</span>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={handleClose}
-                className="px-4 py-3 min-h-touch border border-gray-700 text-gray-400 hover:text-white rounded-xl hover:bg-gray-800/50 transition"
+                className="px-6 py-3 min-h-touch bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold transition"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 min-h-touch rounded-xl font-semibold flex items-center gap-2 transition disabled:opacity-50 shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Changes'}
+                Done
               </button>
             </div>
           </form>

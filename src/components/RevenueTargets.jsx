@@ -1,12 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Target, TrendingUp, Loader2, DollarSign, Calendar, Save } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Target, TrendingUp, Loader2, DollarSign, Calendar, Check } from 'lucide-react';
 // FIX 2025-12-03: Import auth utilities for proper Authorization header injection
 import { supabase, ensureValidSession } from '../lib/supabase';
 import { sanitizeNumberInput, toNumberOrNull } from '../utils/numberSanitizer';
 
 export const RevenueTargets = ({ organization, userRole, addNotification }) => {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   // Store as strings for controlled input, convert to numbers on submit
   const [orgTargets, setOrgTargets] = useState({
@@ -21,6 +20,11 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
     monthly_target: null
   });
   const [userTargets, setUserTargets] = useState([]);
+
+  // UX FRICTION FIX: Auto-save state
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedDataRef = useRef(null);
 
   const isAdmin = ['owner', 'admin'].includes(userRole);
 
@@ -64,11 +68,14 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
           // Don't throw - continue with null targets
         } else if (orgResult.targets) {
           // Map response shape to local state shape (convert to strings for controlled inputs)
-          setOrgTargets({
+          const initialData = {
             annual_target: orgResult.targets.yearly != null ? String(orgResult.targets.yearly) : '',
             quarterly_target: orgResult.targets.quarterly != null ? String(orgResult.targets.quarterly) : '',
             monthly_target: orgResult.targets.monthly != null ? String(orgResult.targets.monthly) : ''
-          });
+          };
+          setOrgTargets(initialData);
+          // UX FRICTION FIX: Store initial data for auto-save comparison
+          lastSavedDataRef.current = JSON.stringify(initialData);
         }
         // If orgResult.targets is null, keep default empty state
 
@@ -123,68 +130,45 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
     loadTargets();
   }, [loadTargets]);
 
-  const saveOrgTargets = async () => {
-    if (!isAdmin) {
-      addNotification('Only admins can save organization targets', 'error');
-      return;
-    }
+  // UX FRICTION FIX: Auto-save function with 800ms debounce
+  const performAutoSave = useCallback(async (dataToSave) => {
+    if (!isAdmin || !organization?.id) return;
 
-    if (!organization) {
-      console.error('Cannot save targets: organization is null/undefined');
-      addNotification('Organization not loaded. Please refresh the page.', 'error');
-      return;
-    }
+    // Don't auto-save if data hasn't actually changed
+    const currentDataStr = JSON.stringify(dataToSave);
+    if (currentDataStr === lastSavedDataRef.current) return;
 
-    if (!organization.id) {
-      console.error('Cannot save targets: organization.id is missing', organization);
-      addNotification('Organization ID missing. Please contact support.', 'error');
-      return;
-    }
+    // Validate targets
+    const annualValue = toNumberOrNull(dataToSave.annual_target);
+    const quarterlyValue = toNumberOrNull(dataToSave.quarterly_target);
+    const monthlyValue = toNumberOrNull(dataToSave.monthly_target);
 
-    // Clear previous errors
-    setOrgTargetErrors({ annual_target: null, quarterly_target: null, monthly_target: null });
-
-    // Validate and convert targets using sanitization helper
-    const annualValue = toNumberOrNull(orgTargets.annual_target);
-    const quarterlyValue = toNumberOrNull(orgTargets.quarterly_target);
-    const monthlyValue = toNumberOrNull(orgTargets.monthly_target);
-
-    // Validate: if user entered something but it's not a valid number, show error
+    // Check for validation errors
     let hasErrors = false;
     const newErrors = { annual_target: null, quarterly_target: null, monthly_target: null };
 
-    if (orgTargets.annual_target && annualValue === null) {
-      newErrors.annual_target = 'Enter a valid number (digits only, optional decimal)';
+    if (dataToSave.annual_target && annualValue === null) {
+      newErrors.annual_target = 'Enter a valid number';
       hasErrors = true;
     }
-    if (orgTargets.quarterly_target && quarterlyValue === null) {
-      newErrors.quarterly_target = 'Enter a valid number (digits only, optional decimal)';
+    if (dataToSave.quarterly_target && quarterlyValue === null) {
+      newErrors.quarterly_target = 'Enter a valid number';
       hasErrors = true;
     }
-    if (orgTargets.monthly_target && monthlyValue === null) {
-      newErrors.monthly_target = 'Enter a valid number (digits only, optional decimal)';
+    if (dataToSave.monthly_target && monthlyValue === null) {
+      newErrors.monthly_target = 'Enter a valid number';
       hasErrors = true;
     }
 
     if (hasErrors) {
       setOrgTargetErrors(newErrors);
-      addNotification('Please fix the invalid target values', 'error');
       return;
     }
 
-    setSaving(true);
-    try {
-      console.log('[RevenueTargets] Saving org targets:', {
-        orgId: organization.id,
-        annual: annualValue,
-        quarterly: quarterlyValue,
-        monthly: monthlyValue
-      });
+    setOrgTargetErrors({ annual_target: null, quarterly_target: null, monthly_target: null });
+    setAutoSaveStatus('saving');
 
-      // CRITICAL FIX v1.7.89: Use backend endpoint with HttpOnly cookie auth
-      // PROBLEM: Direct Supabase queries fail RLS because auth.uid() unavailable with HttpOnly cookies
-      // SOLUTION: Backend endpoint uses service role to bypass RLS (same pattern as notification-preferences-save)
-      // FIX 2025-12-03: Inject Authorization header for reliable auth
+    try {
       await ensureValidSession();
       const { data: { session: saveSession } } = await supabase.auth.getSession();
 
@@ -195,7 +179,7 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
 
       const response = await fetch('/.netlify/functions/organization-targets-save', {
         method: 'POST',
-        credentials: 'include', // Include HttpOnly cookies
+        credentials: 'include',
         headers: saveHeaders,
         body: JSON.stringify({
           organization_id: organization.id,
@@ -208,29 +192,50 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.success) {
-        console.error('[RevenueTargets] Save failed:', response.status, responseData);
-        throw new Error(responseData.error || responseData.details || 'Failed to save targets');
+        throw new Error(responseData.error || 'Failed to save targets');
       }
 
-      console.log('[RevenueTargets] Save successful:', responseData);
+      // Update last saved data
+      lastSavedDataRef.current = currentDataStr;
+      setAutoSaveStatus('saved');
 
-      // Update local state from returned targets to ensure consistency (convert to strings)
-      if (responseData.targets) {
-        setOrgTargets({
-          annual_target: responseData.targets.yearly != null ? String(responseData.targets.yearly) : '',
-          quarterly_target: responseData.targets.quarterly != null ? String(responseData.targets.quarterly) : '',
-          monthly_target: responseData.targets.monthly != null ? String(responseData.targets.monthly) : ''
-        });
-      }
-
-      addNotification('Organization targets saved', 'success');
+      // Reset status after 2 seconds
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
     } catch (error) {
-      console.error('[RevenueTargets] Error saving org targets:', error);
-      addNotification(`Failed to save organization targets: ${error.message}`, 'error');
-    } finally {
-      setSaving(false);
+      console.error('[RevenueTargets] Auto-save error:', error);
+      setAutoSaveStatus('idle');
     }
-  };
+  }, [isAdmin, organization?.id]);
+
+  // UX FRICTION FIX: Trigger auto-save with 800ms debounce
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    // Clear existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Set new timer for 800ms debounce
+    autoSaveTimerRef.current = setTimeout(() => {
+      performAutoSave(orgTargets);
+    }, 800);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [orgTargets, isAdmin, performAutoSave]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   const formatCurrency = (value) => {
     if (!value || isNaN(value)) return '$0';
@@ -308,6 +313,7 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
     <div className="space-y-6">
       {/* Organization-Wide Targets */}
       <div className="p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+        {/* UX FRICTION FIX: Header with auto-save status indicator */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#1ABC9C]/10 rounded-lg flex items-center justify-center">
@@ -318,23 +324,24 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
               <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">Company-wide revenue goals</p>
             </div>
           </div>
-          <button
-            onClick={saveOrgTargets}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1ABC9C] hover:bg-[#16A085] disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
-          >
-            {saving ? (
-              <>
+          {/* Auto-save status indicator */}
+          <div className="flex items-center gap-2">
+            {autoSaveStatus === 'saving' && (
+              <span className="flex items-center gap-2 text-sm text-[#6B7280] dark:text-[#9CA3AF]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save Organization Targets
-              </>
+              </span>
             )}
-          </button>
+            {autoSaveStatus === 'saved' && (
+              <span className="flex items-center gap-2 text-sm text-[#1ABC9C]">
+                <Check className="w-4 h-4" />
+                Saved
+              </span>
+            )}
+            {autoSaveStatus === 'idle' && (
+              <span className="text-xs text-[#9CA3AF]">Auto-saves</span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-6">

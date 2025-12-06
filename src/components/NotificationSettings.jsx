@@ -1,5 +1,5 @@
-import React, { useState, useEffect, memo } from 'react';
-import { Bell, Mail, Monitor, Loader2, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
+import React, { useState, useEffect, memo, useRef, useCallback } from 'react';
+import { Bell, Mail, Monitor, Loader2, AlertCircle, Check, Shield } from 'lucide-react';
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences';
 import { GlassCard } from './ui/GlassCard';
 
@@ -132,14 +132,13 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
   const {
     categories,
     loading,
-    saving,
     error,
-    savePreferences,
-    updateCategoryLocally
+    savePreferences
   } = useNotificationPreferences();
 
-  // Track if there are unsaved changes
-  const [hasChanges, setHasChanges] = useState(false);
+  // UX FRICTION FIX: Auto-save state
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const autoSaveTimerRef = useRef(null);
 
   // Local state for editable preferences
   const [localPrefs, setLocalPrefs] = useState([]);
@@ -157,29 +156,14 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
         channel_in_app: cat.userPreference?.channel_in_app ?? true,
         channel_push: cat.userPreference?.channel_push ?? false
       })));
-      setHasChanges(false);
     }
   }, [categories]);
 
-  // Handle toggling a category's enabled state
-  const handleToggleEnabled = (code, newValue) => {
-    setLocalPrefs(prev => prev.map(p =>
-      p.code === code ? { ...p, enabled: newValue } : p
-    ));
-    setHasChanges(true);
-  };
+  // UX FRICTION FIX: Auto-save function
+  const performAutoSave = useCallback(async (prefsToSave) => {
+    setAutoSaveStatus('saving');
 
-  // Handle toggling a channel
-  const handleToggleChannel = (code, channelKey, newValue) => {
-    setLocalPrefs(prev => prev.map(p =>
-      p.code === code ? { ...p, [channelKey]: newValue } : p
-    ));
-    setHasChanges(true);
-  };
-
-  // Save preferences
-  const handleSave = async () => {
-    const payload = localPrefs.map(p => ({
+    const payload = prefsToSave.map(p => ({
       categoryCode: p.code,
       enabled: p.enabled,
       channel_email: p.channel_email,
@@ -190,19 +174,52 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
     const result = await savePreferences(payload);
 
     if (result.success) {
-      setHasChanges(false);
-      if (addNotification) {
-        // FIX: addNotification expects (message: string, type: string), not an object
-        // Passing an object caused React error #31 (Objects are not valid as React children)
-        addNotification('Your notification preferences have been updated.', 'success');
-      }
+      setAutoSaveStatus('saved');
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
     } else {
+      setAutoSaveStatus('idle');
       if (addNotification) {
-        // FIX: addNotification expects (message: string, type: string)
         addNotification(result.error || 'Could not save notification preferences.', 'error');
       }
     }
-  };
+  }, [savePreferences, addNotification]);
+
+  // UX FRICTION FIX: Handle toggling with instant auto-save
+  const handleToggleEnabled = useCallback((code, newValue) => {
+    setLocalPrefs(prev => {
+      const updated = prev.map(p =>
+        p.code === code ? { ...p, enabled: newValue } : p
+      );
+
+      // Clear existing timer and trigger auto-save with short delay
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => performAutoSave(updated), 300);
+
+      return updated;
+    });
+  }, [performAutoSave]);
+
+  // UX FRICTION FIX: Handle toggling a channel with instant auto-save
+  const handleToggleChannel = useCallback((code, channelKey, newValue) => {
+    setLocalPrefs(prev => {
+      const updated = prev.map(p =>
+        p.code === code ? { ...p, [channelKey]: newValue } : p
+      );
+
+      // Clear existing timer and trigger auto-save with short delay
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => performAutoSave(updated), 300);
+
+      return updated;
+    });
+  }, [performAutoSave]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   // Loading state
   if (loading) {
@@ -252,12 +269,24 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
   // Main content (used in both bare and wrapped modes)
   const mainContent = (
     <>
-      {/* Unsaved changes indicator */}
-      {hasChanges && (
-        <div className="mb-4 px-3 py-2 bg-amber-500/10 rounded-lg border border-amber-500/20">
-          <span className="text-xs text-amber-400">You have unsaved changes</span>
-        </div>
-      )}
+      {/* UX FRICTION FIX: Auto-save status indicator */}
+      <div className="flex items-center justify-end mb-4">
+        {autoSaveStatus === 'saving' && (
+          <span className="flex items-center gap-2 text-sm text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Saving...
+          </span>
+        )}
+        {autoSaveStatus === 'saved' && (
+          <span className="flex items-center gap-2 text-sm text-[#1ABC9C]">
+            <Check className="w-4 h-4" />
+            Saved
+          </span>
+        )}
+        {autoSaveStatus === 'idle' && (
+          <span className="text-xs text-slate-500">Changes auto-save</span>
+        )}
+      </div>
 
       {/* Error banner if there was a save error */}
       {error && (
@@ -292,36 +321,6 @@ const NotificationSettingsComponent = ({ addNotification, bare = false }) => {
         <div className="text-center py-8 text-slate-400">
           <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p className="text-sm">No notification categories available.</p>
-        </div>
-      )}
-
-      {/* Save Button */}
-      {localPrefs.length > 0 && (
-        <div className="flex items-center justify-end mt-4 pt-4 border-t border-white/5">
-          <button
-            onClick={handleSave}
-            disabled={saving || !hasChanges}
-            className={`
-              flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all
-              ${hasChanges
-                ? 'bg-[#1ABC9C] text-white hover:bg-[#16a085] shadow-lg shadow-[#1ABC9C]/20'
-                : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/10'
-              }
-              ${saving ? 'opacity-70' : ''}
-            `}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4" />
-                Save preferences
-              </>
-            )}
-          </button>
         </div>
       )}
     </>

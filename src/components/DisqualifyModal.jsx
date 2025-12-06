@@ -24,13 +24,11 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
 
   if (!isOpen) return null;
 
+  // UX FRICTION FIX: Submit for "Other" reason only
   const handleSubmit = async () => {
-    if (!selectedReason) {
-      setError('Please select a reason');
-      return;
-    }
+    if (selectedReason !== 'other') return;
 
-    if (selectedReason === 'other' && !otherText.trim()) {
+    if (!otherText.trim()) {
       setError('Please provide details for "Other"');
       return;
     }
@@ -39,22 +37,49 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
     setError('');
 
     try {
-      const reasonLabel = DISQUALIFY_REASONS.find(r => r.id === selectedReason)?.label || selectedReason;
-      const notes = selectedReason === 'other' ? otherText.trim() : '';
-
       await onConfirm({
-        reasonCategory: selectedReason,
-        reasonLabel,
-        notes
+        reasonCategory: 'other',
+        reasonLabel: 'Other',
+        notes: otherText.trim()
       });
 
-      // Reset state on success
       setSelectedReason('');
       setOtherText('');
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to disqualify deal');
     } finally {
+      setSaving(false);
+    }
+  };
+
+  // UX FRICTION FIX: One-click action for predefined reasons
+  const handleReasonClick = async (reasonId) => {
+    if (reasonId === 'other') {
+      // For "Other", just select it and show text input
+      setSelectedReason(reasonId);
+      setError('');
+      return;
+    }
+
+    // For predefined reasons, immediately disqualify
+    setSaving(true);
+    setError('');
+
+    try {
+      const reasonLabel = DISQUALIFY_REASONS.find(r => r.id === reasonId)?.label || reasonId;
+
+      await onConfirm({
+        reasonCategory: reasonId,
+        reasonLabel,
+        notes: ''
+      });
+
+      setSelectedReason('');
+      setOtherText('');
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to disqualify deal');
       setSaving(false);
     }
   };
@@ -111,7 +136,7 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           </p>
         </div>
 
-        {/* Reason selection */}
+        {/* UX FRICTION FIX: One-click reasons (except "Other") */}
         <div className="space-y-3 mb-6">
           <label className="block text-sm font-medium text-white mb-2">
             Reason for disqualification <span className="text-amber-400">*</span>
@@ -119,16 +144,16 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           {DISQUALIFY_REASONS.map(reason => (
             <button
               key={reason.id}
-              onClick={() => {
-                setSelectedReason(reason.id);
-                setError('');
-              }}
-              className={`w-full p-4 min-h-touch rounded-xl border-2 transition-all text-left flex items-center gap-3 ${
+              onClick={() => handleReasonClick(reason.id)}
+              disabled={saving}
+              className={`w-full p-4 min-h-touch rounded-xl border-2 transition-all text-left flex items-center gap-3 disabled:opacity-50 ${
                 selectedReason === reason.id
                   ? 'border-amber-500/50 bg-amber-500/10'
                   : 'border-gray-700 bg-gray-800/30 hover:border-amber-500/30'
               }`}
-              aria-label={`Select ${reason.label} as disqualification reason`}
+              aria-label={reason.id === 'other'
+                ? `Select ${reason.label} to provide custom reason`
+                : `Disqualify deal: ${reason.label}`}
               aria-pressed={selectedReason === reason.id}
             >
               <span className="text-2xl">{reason.icon}</span>
@@ -136,13 +161,19 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
                 <p className="font-semibold text-white">
                   {reason.label}
                 </p>
+                {reason.id !== 'other' && (
+                  <p className="text-xs text-gray-400 mt-0.5">Click to disqualify</p>
+                )}
               </div>
-              {selectedReason === reason.id && (
+              {selectedReason === reason.id && reason.id === 'other' && (
                 <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
                   <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
+              )}
+              {saving && reason.id !== 'other' && (
+                <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
               )}
             </button>
           ))}
@@ -180,7 +211,7 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           </div>
         )}
 
-        {/* Action buttons */}
+        {/* UX FRICTION FIX: Only show submit button for "Other" reason */}
         <div className="flex gap-3">
           <button
             onClick={handleClose}
@@ -189,24 +220,26 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           >
             Cancel
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving || !selectedReason}
-            title={!selectedReason ? 'Select a reason first' : `Disqualify ${dealName}`}
-            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-4 py-3 min-h-touch rounded-xl font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98]"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Disqualifying...
-              </>
-            ) : (
-              <>
-                <Ban className="w-4 h-4" />
-                Disqualify Deal
-              </>
-            )}
-          </button>
+          {selectedReason === 'other' && (
+            <button
+              onClick={handleSubmit}
+              disabled={saving || !otherText.trim()}
+              title={!otherText.trim() ? 'Please provide details' : `Disqualify ${dealName}`}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-4 py-3 min-h-touch rounded-xl font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Disqualifying...
+                </>
+              ) : (
+                <>
+                  <Ban className="w-4 h-4" />
+                  Disqualify Deal
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

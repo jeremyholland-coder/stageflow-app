@@ -2,11 +2,11 @@ import React, { useState, useMemo, memo, useEffect, useCallback, useRef, Suspens
 import { GripVertical, Plus, TrendingUp, AlertCircle, DollarSign, FileText, CheckCircle, Package, Users, Trophy, CheckCircle2, XCircle, Clock, Mail, Edit2, ArrowRight, Inbox, MoreVertical, Ban, UserCircle } from 'lucide-react';
 import { useApp } from './AppShell';
 import { LostReasonModal } from './LostReasonModal';
-import { StatusChangeConfirmationModal } from './StatusChangeConfirmationModal';
+// UX FRICTION FIX: Removed StatusChangeConfirmationModal - now uses instant move with undo toast
 import { ConfidenceTooltip } from './ConfidenceTooltip';
 import { STAGE_STATUS_MAP, isWonStage, isLostStage } from '../config/pipelineTemplates';
 import { StageMenuDropdown } from './StageMenuDropdown';
-import { HideStageConfirmationModal } from './HideStageConfirmationModal';
+// UX FRICTION FIX: Removed HideStageConfirmationModal - now uses instant hide with toast
 import { ReorderStagesModal } from './ReorderStagesModal';
 import { useStageVisibility } from '../hooks/useStageVisibility';
 import { buildUserPerformanceProfiles, calculateDealConfidence, getConfidenceLabel, getConfidenceColor } from '../utils/aiConfidence';
@@ -1039,9 +1039,7 @@ export const KanbanBoard = memo(({
     applyStageOrder
   } = useStageVisibility(user?.id, organization?.id);
 
-  // State for hide stage confirmation modal
-  const [showHideStageModal, setShowHideStageModal] = useState(false);
-  const [stageToHide, setStageToHide] = useState(null);
+  // UX FRICTION FIX: Removed hide stage confirmation modal state - now uses instant hide
 
   // State for reorder stages modal
   const [showReorderModal, setShowReorderModal] = useState(false);
@@ -1134,8 +1132,9 @@ export const KanbanBoard = memo(({
 
   const [showLostModal, setShowLostModal] = useState(false);
   const [pendingLostDeal, setPendingLostDeal] = useState(null);
-  const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
-  const [pendingStatusChange, setPendingStatusChange] = useState(null);
+  // UX FRICTION FIX: Removed status change modal - now uses instant move with undo
+  const [undoableStatusChange, setUndoableStatusChange] = useState(null);
+  const undoTimerRef = useRef(null);
 
   // State for disqualify modal
   const [showDisqualifyModal, setShowDisqualifyModal] = useState(false);
@@ -1158,21 +1157,47 @@ export const KanbanBoard = memo(({
   // NEXT-LEVEL: Memoize modal handlers to prevent breaking KanbanColumn child memoization
   // These handlers are passed as props to KanbanColumn → KanbanCard (3-level deep)
   // Without useCallback, they recreate on every render, breaking child memo optimizations
-  const handleLostReasonRequired = useCallback((dealId, dealName, targetStage, currentStatus = null, modalType = 'lost-reason') => {
+  const handleLostReasonRequired = useCallback(async (dealId, dealName, targetStage, currentStatus = null, modalType = 'lost-reason') => {
     // PHASE C FIX (B-RACE-02): Prevent opening multiple modals simultaneously
-    // Check if any modal is already open to avoid race conditions
-    if (showLostModal || showStatusChangeModal) {
+    if (showLostModal) {
       return; // Already showing a modal, ignore rapid clicks
     }
 
+    // UX FRICTION FIX: Status change is now instant with undo (no modal)
     if (modalType === 'status-change') {
-      setPendingStatusChange({ dealId, dealName, targetStage, currentStatus });
-      setShowStatusChangeModal(true);
+      // Store original state for undo
+      const originalData = { dealId, dealName, originalStage: currentStatus === 'won' ? 'retention' : 'lost', originalStatus: currentStatus };
+
+      // Perform instant update
+      await onUpdateDeal(dealId, {
+        stage: targetStage,
+        status: 'active',
+        lost_reason: null
+      });
+
+      // Clear any existing undo timer
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+      }
+
+      // Set undoable action
+      setUndoableStatusChange(originalData);
+
+      // Show undo toast
+      addNotification(
+        `Moved "${dealName}" to active. Status changed from ${currentStatus}.`,
+        'success'
+      );
+
+      // Auto-clear undo option after 5 seconds
+      undoTimerRef.current = setTimeout(() => {
+        setUndoableStatusChange(null);
+      }, 5000);
     } else {
       setPendingLostDeal({ dealId, dealName, targetStage });
       setShowLostModal(true);
     }
-  }, [showLostModal, showStatusChangeModal]); // PHASE C: Added modal state as dependencies
+  }, [showLostModal, onUpdateDeal, addNotification]); // Updated dependencies
 
   const handleLostReasonConfirm = useCallback(async (reason) => {
     if (!pendingLostDeal) return;
@@ -1190,21 +1215,25 @@ export const KanbanBoard = memo(({
     setShowLostModal(false);
   }, []); // No dependencies - only updates state
 
-  const handleStatusChangeConfirm = useCallback(async () => {
-    if (!pendingStatusChange) return;
-    await onUpdateDeal(pendingStatusChange.dealId, {
-      stage: pendingStatusChange.targetStage,
-      status: 'active',
-      lost_reason: null
-    });
-    setPendingStatusChange(null);
-    setShowStatusChangeModal(false);
-  }, [pendingStatusChange, onUpdateDeal]); // Depends on pendingStatusChange and onUpdateDeal
+  // UX FRICTION FIX: Undo status change handler
+  const handleUndoStatusChange = useCallback(async () => {
+    if (!undoableStatusChange) return;
 
-  const handleStatusChangeCancel = useCallback(() => {
-    setPendingStatusChange(null);
-    setShowStatusChangeModal(false);
-  }, []); // No dependencies - only updates state
+    // Clear the undo timer
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+
+    // Revert to original state
+    await onUpdateDeal(undoableStatusChange.dealId, {
+      stage: undoableStatusChange.originalStage,
+      status: undoableStatusChange.originalStatus,
+      lost_reason: undoableStatusChange.originalStatus === 'lost' ? 'Restored from undo' : null
+    });
+
+    setUndoableStatusChange(null);
+    addNotification(`"${undoableStatusChange.dealName}" restored to ${undoableStatusChange.originalStatus}`, 'success');
+  }, [undoableStatusChange, onUpdateDeal, addNotification]);
 
   // Handle disqualify deal request
   const handleDisqualifyRequest = useCallback((deal) => {
@@ -1248,20 +1277,11 @@ export const KanbanBoard = memo(({
     }
   }, [onUpdateDeal]);
 
-  // PERFORMANCE FIX: Memoize handlers to prevent breaking KanbanColumn memoization
-  // Handle hide stage request
-  const handleHideStageRequest = useCallback((stageId, stageName) => {
-    setStageToHide({ id: stageId, name: stageName });
-    setShowHideStageModal(true);
-  }, []);
-
-  // Confirm hiding a stage
-  const handleHideStageConfirm = useCallback(async () => {
-    if (!stageToHide) return;
-    await hideStage(stageToHide.id);
-    setStageToHide(null);
-    setShowHideStageModal(false);
-  }, [stageToHide, hideStage]);
+  // UX FRICTION FIX: Instant hide stage with toast notification (no confirmation modal)
+  const handleHideStageRequest = useCallback(async (stageId, stageName) => {
+    await hideStage(stageId);
+    addNotification(`"${stageName}" hidden. Unhide anytime in Settings → Pipeline`, 'success');
+  }, [hideStage, addNotification]);
 
   // Handle moving a column left or right
   const handleMoveStage = useCallback(async (currentIndex, direction) => {
@@ -1523,21 +1543,24 @@ export const KanbanBoard = memo(({
         dealName={pendingLostDeal?.dealName || ''}
       />
 
-      <StatusChangeConfirmationModal
-        isOpen={showStatusChangeModal}
-        onClose={handleStatusChangeCancel}
-        onConfirm={handleStatusChangeConfirm}
-        dealName={pendingStatusChange?.dealName || ''}
-        currentStatus={pendingStatusChange?.currentStatus || 'won'}
-        targetStage={pendingStatusChange?.targetStage || ''}
-      />
+      {/* UX FRICTION FIX: StatusChangeConfirmationModal removed - replaced with instant move + undo toast */}
+      {undoableStatusChange && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-gray-900 border border-teal-500/30 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-4">
+            <span className="text-sm text-white">
+              Deal moved to active
+            </span>
+            <button
+              onClick={handleUndoStatusChange}
+              className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg transition"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
 
-      <HideStageConfirmationModal
-        isOpen={showHideStageModal}
-        onClose={() => setShowHideStageModal(false)}
-        onConfirm={handleHideStageConfirm}
-        stageName={stageToHide?.name || ''}
-      />
+      {/* UX FRICTION FIX: HideStageConfirmationModal removed - now uses instant hide with toast */}
 
       <ReorderStagesModal
         isOpen={showReorderModal}

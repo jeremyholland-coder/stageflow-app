@@ -18,13 +18,11 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
 
   if (!isOpen) return null;
 
+  // UX FRICTION FIX: Submit for "Other" reason only
   const handleSubmit = async () => {
-    if (!selectedReason) {
-      setError('Please select a reason');
-      return;
-    }
+    if (selectedReason !== 'other') return;
 
-    if (selectedReason === 'other' && !otherText.trim()) {
+    if (!otherText.trim()) {
       setError('Please provide details for "Other"');
       return;
     }
@@ -33,15 +31,35 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
     setError('');
 
     try {
-      const reason = selectedReason === 'other' 
-        ? `Other: ${otherText.trim()}`
-        : LOST_REASONS.find(r => r.id === selectedReason)?.label;
-
+      const reason = `Other: ${otherText.trim()}`;
       await onConfirm(reason);
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to mark as lost');
     } finally {
+      setSaving(false);
+    }
+  };
+
+  // UX FRICTION FIX: One-click action for predefined reasons
+  const handleReasonClick = async (reasonId) => {
+    if (reasonId === 'other') {
+      // For "Other", just select it and show text input
+      setSelectedReason(reasonId);
+      setError('');
+      return;
+    }
+
+    // For predefined reasons, immediately mark as lost
+    setSaving(true);
+    setError('');
+
+    try {
+      const reason = LOST_REASONS.find(r => r.id === reasonId)?.label;
+      await onConfirm(reason);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to mark as lost');
       setSaving(false);
     }
   };
@@ -83,30 +101,40 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           </button>
         </div>
 
+        {/* UX FRICTION FIX: One-click reasons (except "Other") */}
         <div className="space-y-3 mb-6">
           {LOST_REASONS.map(reason => (
             <button
               key={reason.id}
-              onClick={() => setSelectedReason(reason.id)}
-              className={`w-full p-4 min-h-touch rounded-xl border-2 transition-all text-left flex items-center gap-3 ${
+              onClick={() => handleReasonClick(reason.id)}
+              disabled={saving}
+              className={`w-full p-4 min-h-touch rounded-xl border-2 transition-all text-left flex items-center gap-3 disabled:opacity-50 ${
                 selectedReason === reason.id
                   ? 'border-red-500/50 bg-red-500/10'
                   : 'border-gray-700 bg-gray-800/30 hover:border-red-500/30'
               }`}
-              aria-label={`Select ${reason.label} as reason for marking deal as lost`}
+              aria-label={reason.id === 'other'
+                ? `Select ${reason.label} to provide custom reason`
+                : `Mark deal as lost: ${reason.label}`}
             >
               <span className="text-2xl">{reason.icon}</span>
               <div className="flex-1">
                 <p className="font-semibold text-white">
                   {reason.label}
                 </p>
+                {reason.id !== 'other' && (
+                  <p className="text-xs text-gray-400 mt-0.5">Click to mark as lost</p>
+                )}
               </div>
-              {selectedReason === reason.id && (
+              {selectedReason === reason.id && reason.id === 'other' && (
                 <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
                   <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
+              )}
+              {saving && reason.id !== 'other' && (
+                <Loader2 className="w-5 h-5 animate-spin text-red-400" />
               )}
             </button>
           ))}
@@ -145,6 +173,7 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           </div>
         )}
 
+        {/* UX FRICTION FIX: Only show submit button for "Other" reason */}
         <div className="flex gap-3">
           <button
             onClick={handleClose}
@@ -153,21 +182,23 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
           >
             Cancel
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving || !selectedReason}
-            title={!selectedReason ? "Select a reason first" : `Mark ${dealName} as lost`}
-            className="flex-1 bg-red-500 hover:bg-red-600 text-white px-4 py-3 min-h-touch rounded-xl font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98]"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Marking Deal as Lost...
-              </>
-            ) : (
-              'Mark Deal as Lost'
-            )}
-          </button>
+          {selectedReason === 'other' && (
+            <button
+              onClick={handleSubmit}
+              disabled={saving || !otherText.trim()}
+              title={!otherText.trim() ? "Please provide details" : `Mark ${dealName} as lost`}
+              className="flex-1 bg-red-500 hover:bg-red-600 text-white px-4 py-3 min-h-touch rounded-xl font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Marking as Lost...
+                </>
+              ) : (
+                'Mark Deal as Lost'
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

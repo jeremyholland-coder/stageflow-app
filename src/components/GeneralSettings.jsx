@@ -1,7 +1,7 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import {
   Bot, Database, Shield, AlertCircle, XCircle, ExternalLink,
-  CheckCircle2, Sparkles, Loader2
+  CheckCircle2, Sparkles, Loader2, Check
 } from 'lucide-react';
 import { supabase, VIEWS } from '../lib/supabase';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
@@ -130,6 +130,48 @@ const GeneralSettingsComponent = ({
   setAvatarUrl,
   addNotification
 }) => {
+  // UX FRICTION FIX: Auto-save state for profile name fields
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const initialValuesRef = useRef({ firstName: firstName || '', lastName: lastName || '' });
+  const autoSaveTimerRef = useRef(null);
+
+  // Track initial values when they change from parent
+  useEffect(() => {
+    initialValuesRef.current = { firstName: firstName || '', lastName: lastName || '' };
+  }, []);
+
+  // UX FRICTION FIX: Auto-save on blur if values changed
+  const handleBlur = useCallback(async () => {
+    const currentFirst = firstName || '';
+    const currentLast = lastName || '';
+
+    // Only save if values have changed
+    if (currentFirst !== initialValuesRef.current.firstName ||
+        currentLast !== initialValuesRef.current.lastName) {
+
+      // Clear any pending timer
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+
+      setAutoSaveStatus('saving');
+
+      try {
+        await onSaveProfile();
+        initialValuesRef.current = { firstName: currentFirst, lastName: currentLast };
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      } catch (error) {
+        setAutoSaveStatus('idle');
+      }
+    }
+  }, [firstName, lastName, onSaveProfile]);
+
+  // Watch for savingProfile prop to update status (in case parent also saves)
+  useEffect(() => {
+    if (savingProfile) {
+      setAutoSaveStatus('saving');
+    }
+  }, [savingProfile]);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
@@ -552,28 +594,51 @@ const GeneralSettingsComponent = ({
 
             {/* Name Fields */}
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+              {/* UX FRICTION FIX: Auto-save status header */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-[#6B7280] dark:text-[#9CA3AF]">Display Name</span>
+                <div className="flex items-center gap-2">
+                  {autoSaveStatus === 'saving' && (
+                    <span className="flex items-center gap-1.5 text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Saving...
+                    </span>
+                  )}
+                  {autoSaveStatus === 'saved' && (
+                    <span className="flex items-center gap-1.5 text-xs text-[#1ABC9C]">
+                      <Check className="w-3 h-3" />
+                      Saved
+                    </span>
+                  )}
+                  {autoSaveStatus === 'idle' && (
+                    <span className="text-xs text-[#9CA3AF]">Auto-saves on blur</span>
+                  )}
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm font-medium text-[#6B7280] dark:text-[#9CA3AF] block mb-1">
+                  <label className="text-xs text-[#9CA3AF] block mb-1">
                     First Name
                   </label>
                   <input
                     type="text"
                     value={firstName || ''}
                     onChange={(e) => setFirstName(e.target.value)}
+                    onBlur={handleBlur}
                     placeholder="Jeremy"
                     maxLength={100}
                     className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-[#1A1A1A] dark:text-[#E0E0E0] placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent transition"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-[#6B7280] dark:text-[#9CA3AF] block mb-1">
+                  <label className="text-xs text-[#9CA3AF] block mb-1">
                     Last Name
                   </label>
                   <input
                     type="text"
                     value={lastName || ''}
                     onChange={(e) => setLastName(e.target.value)}
+                    onBlur={handleBlur}
                     placeholder="Holland"
                     maxLength={100}
                     className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-[#1A1A1A] dark:text-[#E0E0E0] placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-[#1ABC9C] focus:border-transparent transition"
@@ -583,24 +648,6 @@ const GeneralSettingsComponent = ({
               <p className="text-xs text-[#9CA3AF] mt-2">
                 Your name will be displayed instead of your email throughout the app.
               </p>
-            </div>
-
-            {/* Save Profile Button */}
-            <div className="pt-4">
-              <button
-                onClick={onSaveProfile}
-                disabled={savingProfile || uploadingImage}
-                className="w-full px-4 py-2.5 bg-[#1ABC9C] hover:bg-[#16A085] disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 disabled:cursor-not-allowed"
-              >
-                {savingProfile ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  'Save Profile'
-                )}
-              </button>
             </div>
           </div>
         </SettingCard>

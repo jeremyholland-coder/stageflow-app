@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, GripVertical, Save } from 'lucide-react';
+import { X, GripVertical, Check, Loader2 } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -93,7 +93,7 @@ const SortableStageItem = ({ stage }) => {
  */
 export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
   const [orderedStages, setOrderedStages] = useState(stages);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
 
   // Configure drag sensors with Apple-level precision
   const sensors = useSensors(
@@ -113,34 +113,34 @@ export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
     })
   );
 
-  const handleDragEnd = (event) => {
+  // UX FRICTION FIX: Auto-save on drop
+  const handleDragEnd = async (event) => {
     const { active, over } = event;
 
     if (active.id !== over?.id) {
-      setOrderedStages((items) => {
-        const oldIndex = items.findIndex(item => item.id === active.id);
-        const newIndex = items.findIndex(item => item.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
-      });
+      const newItems = arrayMove(
+        orderedStages,
+        orderedStages.findIndex(item => item.id === active.id),
+        orderedStages.findIndex(item => item.id === over.id)
+      );
+      setOrderedStages(newItems);
+
+      // Auto-save immediately after reorder
+      setSaveStatus('saving');
+      try {
+        const newOrderIds = newItems.map(s => s.id);
+        await onSave(newOrderIds);
+        setSaveStatus('saved');
+        // Reset status after 2 seconds
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch (error) {
+        console.error('Error saving stage order:', error);
+        setSaveStatus('idle');
+      }
     }
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const newOrderIds = orderedStages.map(s => s.id);
-      await onSave(newOrderIds);
-      onClose();
-    } catch (error) {
-      console.error('Error saving stage order:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    // Reset to original order
-    setOrderedStages(stages);
+  const handleClose = () => {
     onClose();
   };
 
@@ -151,7 +151,7 @@ export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/95 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
-        onClick={handleCancel}
+        onClick={handleClose}
       />
 
       {/* Modal */}
@@ -171,7 +171,7 @@ export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
               </p>
             </div>
             <button
-              onClick={handleCancel}
+              onClick={handleClose}
               className="p-2 hover:bg-gray-800/50 rounded-lg transition text-gray-400 hover:text-white"
               aria-label="Close"
             >
@@ -199,32 +199,32 @@ export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
             </DndContext>
           </div>
 
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-700">
-            <button
-              onClick={handleCancel}
-              disabled={isSaving}
-              className="px-6 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-xl transition disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              title={isSaving ? "Saving changes..." : "Save stage order"}
-              className="px-6 py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl font-semibold flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              {isSaving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Saving Stage Order...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Changes
-                </>
+          {/* UX FRICTION FIX: Simplified footer with auto-save status */}
+          <div className="flex items-center justify-between p-6 border-t border-gray-700">
+            {/* Auto-save status indicator */}
+            <div className="flex items-center gap-2">
+              {saveStatus === 'saving' && (
+                <span className="flex items-center gap-2 text-sm text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </span>
               )}
+              {saveStatus === 'saved' && (
+                <span className="flex items-center gap-2 text-sm text-teal-400">
+                  <Check className="w-4 h-4" />
+                  Order saved
+                </span>
+              )}
+              {saveStatus === 'idle' && (
+                <span className="text-xs text-gray-500">Drag to reorder • Changes save automatically</span>
+              )}
+            </div>
+
+            <button
+              onClick={handleClose}
+              className="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold transition"
+            >
+              Done
             </button>
           </div>
         </div>

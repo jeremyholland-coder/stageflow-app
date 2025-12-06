@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { LayoutGrid, GripVertical, Eye, EyeOff, RotateCcw, Save, Loader2, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { LayoutGrid, GripVertical, Eye, EyeOff, RotateCcw, Loader2, Info, Check } from 'lucide-react';
 import { DASHBOARD_CARDS } from '../config/dashboardCards';
 import { useDashboardPreferences } from '../hooks/useDashboardPreferences';
 import {
@@ -131,7 +131,6 @@ export const DashboardCardsSettings = ({ user, organization, userRole, addNotifi
     preferences,
     orgDefaults,
     loading,
-    saving,
     savePreferences,
     saveOrgDefaults,
     resetToOrgDefaults
@@ -140,6 +139,10 @@ export const DashboardCardsSettings = ({ user, organization, userRole, addNotifi
   const [localPrefs, setLocalPrefs] = useState(null);
   const [showOrgDefaults, setShowOrgDefaults] = useState(false);
   const [activeId, setActiveId] = useState(null);
+
+  // UX FRICTION FIX: Auto-save state
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const autoSaveTimerRef = useRef(null);
 
   const isAdmin = ['owner', 'admin'].includes(userRole);
 
@@ -171,52 +174,83 @@ export const DashboardCardsSettings = ({ user, organization, userRole, addNotifi
     );
   }
 
-  const handleToggleCard = (cardId) => {
-    setLocalPrefs(prev => ({
-      ...prev,
-      [`show_${cardId}`]: !prev[`show_${cardId}`],
-      use_org_defaults: false // User is customizing, so disable org defaults
-    }));
-  };
+  // UX FRICTION FIX: Auto-save function
+  const performAutoSave = useCallback(async (prefsToSave) => {
+    if (!prefsToSave) return;
+
+    setAutoSaveStatus('saving');
+    const result = await savePreferences(prefsToSave);
+
+    if (result.success) {
+      setAutoSaveStatus('saved');
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
+    } else {
+      setAutoSaveStatus('idle');
+      addNotification('Failed to save preferences', 'error');
+    }
+  }, [savePreferences, addNotification]);
+
+  // UX FRICTION FIX: Toggle card with auto-save
+  const handleToggleCard = useCallback((cardId) => {
+    setLocalPrefs(prev => {
+      const updated = {
+        ...prev,
+        [`show_${cardId}`]: !prev[`show_${cardId}`],
+        use_org_defaults: false
+      };
+
+      // Clear existing timer and trigger auto-save
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => performAutoSave(updated), 500);
+
+      return updated;
+    });
+  }, [performAutoSave]);
 
   const handleToggleUseOrgDefaults = async () => {
     const newValue = !localPrefs.use_org_defaults;
     setLocalPrefs(prev => ({ ...prev, use_org_defaults: newValue }));
 
     if (newValue) {
-      // Immediately reset to org defaults
+      setAutoSaveStatus('saving');
       const result = await resetToOrgDefaults();
       if (result.success) {
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
         addNotification('Reset to organization defaults', 'success');
       } else {
+        setAutoSaveStatus('idle');
         addNotification('Failed to reset preferences', 'error');
       }
     }
   };
 
-  const handleSaveUserPreferences = async () => {
-    const result = await savePreferences(localPrefs);
-    if (result.success) {
-      addNotification('Dashboard preferences saved', 'success');
-    } else {
-      addNotification('Failed to save preferences', 'error');
-    }
-  };
-
   const handleResetToDefaults = async () => {
+    setAutoSaveStatus('saving');
     const result = await resetToOrgDefaults();
     if (result.success) {
+      setAutoSaveStatus('saved');
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
       addNotification('Reset to default settings', 'success');
     } else {
+      setAutoSaveStatus('idle');
       addNotification('Failed to reset preferences', 'error');
     }
   };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   // Drag and drop handlers
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
   };
 
+  // UX FRICTION FIX: Drag end with auto-save
   const handleDragEnd = (event) => {
     const { active, over } = event;
 
@@ -226,11 +260,17 @@ export const DashboardCardsSettings = ({ user, organization, userRole, addNotifi
         const newIndex = prev.card_order.indexOf(over.id);
         const newOrder = arrayMove(prev.card_order, oldIndex, newIndex);
 
-        return {
+        const updated = {
           ...prev,
           card_order: newOrder,
-          use_org_defaults: false // User is customizing, so disable org defaults
+          use_org_defaults: false
         };
+
+        // Auto-save after reorder
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = setTimeout(() => performAutoSave(updated), 500);
+
+        return updated;
       });
     }
 
@@ -253,25 +293,24 @@ export const DashboardCardsSettings = ({ user, organization, userRole, addNotifi
               Customize which cards appear on your dashboard
             </p>
           </div>
-          {!localPrefs.use_org_defaults && (
-            <button
-              onClick={handleSaveUserPreferences}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1ABC9C] hover:bg-[#16A085] disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Changes
-                </>
-              )}
-            </button>
-          )}
+          {/* UX FRICTION FIX: Auto-save status indicator */}
+          <div className="flex items-center gap-2">
+            {autoSaveStatus === 'saving' && (
+              <span className="flex items-center gap-2 text-sm text-[#6B7280] dark:text-[#9CA3AF]">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span className="flex items-center gap-2 text-sm text-[#1ABC9C]">
+                <Check className="w-4 h-4" />
+                Saved
+              </span>
+            )}
+            {autoSaveStatus === 'idle' && (
+              <span className="text-xs text-[#9CA3AF]">Changes auto-save</span>
+            )}
+          </div>
         </div>
 
         {/* Use Org Defaults Toggle */}
