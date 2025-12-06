@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { UserCircle, ChevronDown, Check, Loader2, X, Users } from 'lucide-react';
-import { supabase, ensureValidSession } from '../lib/supabase';
+// PRODUCTION FIX 2025-12-06: Removed direct Supabase import
+// Direct client queries fail with RLS when persistSession: false (auth.uid() is NULL)
+// All queries now go through API client which uses backend service role
 import { useApp } from './AppShell';
 import { api } from '../lib/api-client';
 import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
@@ -40,67 +42,38 @@ export const AssigneeSelector = memo(({
   const [userRole, setUserRole] = useState(null);
 
   // Fetch team members when dropdown opens
+  // PRODUCTION FIX 2025-12-06: Use API client instead of direct Supabase queries
+  // Direct client queries fail with RLS when persistSession: false
   const fetchTeamMembers = useCallback(async () => {
     if (teamMembers.length > 0) return; // Already fetched
 
     setLoadingMembers(true);
     try {
-      // FIX 2025-12-02: Ensure valid session before RLS-protected queries
-      // Without this, queries fail with empty results if session is stale
-      const sessionCheck = await ensureValidSession();
-      if (!sessionCheck.valid) {
-        console.warn('[AssigneeSelector] Session invalid:', sessionCheck.error);
-        // If session is truly invalid (not just expired), show appropriate error
-        if (sessionCheck.code === 'SESSION_INVALID' || sessionCheck.code === 'NO_SESSION') {
-          throw new Error('Please log in to view team members');
-        }
-        // For other errors, still try the query (might work with cached session)
+      // Use get-team-members endpoint which uses service role (bypasses RLS)
+      const response = await api.post('get-team-members', {
+        organization_id: organizationId
+      });
+
+      // Handle response - API returns { success, teamMembers, organizationId }
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch team members');
       }
 
-      const { data: members, error } = await supabase
-        .from('team_members')
-        .select('user_id, role, created_at')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: true });
+      const members = response.teamMembers || [];
 
-      if (error) throw error;
-
-      // FIX: Handle empty members gracefully (might indicate RLS issue)
-      if (!members || members.length === 0) {
+      // Handle empty members gracefully
+      if (members.length === 0) {
         console.warn('[AssigneeSelector] No team members found for org:', organizationId);
-        // Set empty array to prevent infinite retries
         setTeamMembers([]);
         setLoadingMembers(false);
         return;
       }
 
-      // Fetch user profiles for all members
-      // FIX 2025-12-02: Use user_profiles view (has email, full_name) instead of
-      // profiles table (only has avatar_url, first_name, last_name)
-      const userIds = members.map(m => m.user_id);
-      const { data: profiles, error: profilesError } = await supabase
-        .from('user_profiles')
-        .select('id, email, full_name')
-        .in('id', userIds);
-
-      if (profilesError) throw profilesError;
-
-      // Map profiles to members
-      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
-
-      const formattedMembers = members.map(m => {
-        const profile = profileMap.get(m.user_id);
-        const fullName = profile?.full_name;
-        const email = profile?.email;
-
-        return {
-          id: m.user_id,
-          name: fullName || email?.split('@')[0] || 'Team Member',
-          email: email,
-          role: m.role,
-          initials: getInitials(fullName || email?.split('@')[0] || 'TM')
-        };
-      });
+      // Add initials to each member (backend doesn't provide them)
+      const formattedMembers = members.map(m => ({
+        ...m,
+        initials: getInitials(m.name || 'TM')
+      }));
 
       // Sort: owner first, then admins, then members alphabetically
       formattedMembers.sort((a, b) => {
@@ -114,14 +87,14 @@ export const AssigneeSelector = memo(({
       setTeamMembers(formattedMembers);
 
       // Set current user's role
-      const currentUserMember = members.find(m => m.user_id === user?.id);
+      const currentUserMember = formattedMembers.find(m => m.id === user?.id);
       setUserRole(currentUserMember?.role || 'member');
 
     } catch (error) {
       console.error('[AssigneeSelector] Error fetching team members:', error);
-      // FIX: More specific error messages based on error type
-      const message = error.message?.includes('log in')
-        ? error.message
+      // Provide user-friendly error messages
+      const message = error.message?.toLowerCase().includes('auth')
+        ? 'Please log in to view team members'
         : 'Failed to load team members. Try refreshing the page.';
       addNotification?.(message, 'error');
     } finally {
