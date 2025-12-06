@@ -113,6 +113,137 @@ const TabButton = ({ tab, isActive, onClick }) => {
 };
 
 /**
+ * MicroKPIChip Component - Glass-like compact KPI button
+ * Displays MTD/QTD/YTD progress with color-coded status indicator
+ */
+const MicroKPIChip = ({ label, percent, onClick }) => {
+  // Determine status color based on percent-to-goal
+  const getStatusColor = () => {
+    if (percent >= 100) return { dot: 'bg-emerald-400', text: 'text-emerald-400', glow: 'shadow-[0_0_8px_rgba(52,211,153,0.4)]' };
+    if (percent >= 70) return { dot: 'bg-amber-400', text: 'text-amber-400', glow: 'shadow-[0_0_8px_rgba(251,191,36,0.4)]' };
+    return { dot: 'bg-rose-400', text: 'text-rose-400', glow: 'shadow-[0_0_8px_rgba(251,113,133,0.4)]' };
+  };
+
+  const status = getStatusColor();
+
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 group"
+      title={`${label}: ${percent}% to goal - Click to view insights`}
+    >
+      {/* Status dot with glow */}
+      <span className={`w-1.5 h-1.5 rounded-full ${status.dot} ${status.glow} transition-all duration-300`} />
+      {/* Label */}
+      <span className="text-[10px] font-medium text-white/50 uppercase tracking-wider">{label}</span>
+      {/* Percent value */}
+      <span className={`text-xs font-bold ${status.text} transition-all duration-300`}>{percent}%</span>
+    </button>
+  );
+};
+
+/**
+ * MicroKPIBar Component - Responsive container for micro KPI chips
+ * Collapses to dropdown menu on mobile
+ */
+const MicroKPIBar = ({ performanceData, hasTargets, onChipClick }) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  if (!hasTargets) return null;
+
+  const kpis = [];
+  if (performanceData.month.target > 0) {
+    kpis.push({
+      label: 'MTD',
+      percent: Math.round((performanceData.month.current / performanceData.month.target) * 100)
+    });
+  }
+  if (performanceData.quarter.target > 0) {
+    kpis.push({
+      label: 'QTD',
+      percent: Math.round((performanceData.quarter.current / performanceData.quarter.target) * 100)
+    });
+  }
+  if (performanceData.year.target > 0) {
+    kpis.push({
+      label: 'YTD',
+      percent: Math.round((performanceData.year.current / performanceData.year.target) * 100)
+    });
+  }
+
+  if (kpis.length === 0) return null;
+
+  return (
+    <>
+      {/* Desktop: Show all chips inline */}
+      <div className="hidden sm:flex items-center gap-1.5">
+        {kpis.map((kpi) => (
+          <MicroKPIChip
+            key={kpi.label}
+            label={kpi.label}
+            percent={kpi.percent}
+            onClick={onChipClick}
+          />
+        ))}
+      </div>
+
+      {/* Mobile: Dropdown menu */}
+      <div className="sm:hidden relative">
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] backdrop-blur-md transition-all duration-300"
+          aria-label="View KPI metrics"
+        >
+          <Target className="w-3.5 h-3.5 text-[#0CE3B1]" />
+          <span className="text-[10px] font-medium text-white/60">KPIs</span>
+        </button>
+
+        {/* Dropdown panel */}
+        {mobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            {/* Menu */}
+            <div className="absolute right-0 top-full mt-2 z-50 bg-[#0D1419]/95 backdrop-blur-xl border border-white/[0.1] rounded-xl p-2 shadow-[0_8px_32px_rgba(0,0,0,0.4)] min-w-[140px]">
+              <div className="text-[10px] font-semibold text-white/40 uppercase tracking-wider px-2 py-1 mb-1">
+                Goal Progress
+              </div>
+              {kpis.map((kpi) => (
+                <button
+                  key={kpi.label}
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onChipClick();
+                  }}
+                  className="w-full flex items-center justify-between gap-3 px-2 py-2 rounded-lg hover:bg-white/[0.06] transition-colors"
+                >
+                  <span className="text-xs text-white/70">{kpi.label}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      kpi.percent >= 100 ? 'bg-emerald-400' :
+                      kpi.percent >= 70 ? 'bg-amber-400' : 'bg-rose-400'
+                    }`} />
+                    <span className={`text-xs font-bold ${
+                      kpi.percent >= 100 ? 'text-emerald-400' :
+                      kpi.percent >= 70 ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {kpi.percent}%
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+};
+
+/**
  * Performance Card Component - For run-rate pulse
  */
 const PerformanceCard = ({ title, current, target, period, daysElapsed, totalDays }) => {
@@ -407,21 +538,31 @@ export const MissionControlPanel = ({
             </div>
           </div>
 
-          {/* Tab Navigation - Subtle segmented control */}
-          {/* Tasks tab only appears after Plan My Day generates tasks */}
-          <div className="flex items-center gap-0.5 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.05]" role="tablist">
-            {TABS.filter(tab => {
-              // Tasks tab only visible when there are tasks
-              if (tab.conditionalOnTasks) return tasks.length > 0;
-              return tab.visible !== false;
-            }).map(tab => (
-              <TabButton
-                key={tab.id}
-                tab={tab}
-                isActive={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-              />
-            ))}
+          {/* Right side controls: KPI chips + Tab Navigation */}
+          <div className="flex items-center gap-3">
+            {/* Micro KPI Buttons - Glass-style goal progress chips */}
+            <MicroKPIBar
+              performanceData={performanceData}
+              hasTargets={hasTargets}
+              onChipClick={() => setActiveTab('coach')}
+            />
+
+            {/* Tab Navigation - Subtle segmented control */}
+            {/* Tasks tab only appears after Plan My Day generates tasks */}
+            <div className="flex items-center gap-0.5 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.05]" role="tablist">
+              {TABS.filter(tab => {
+                // Tasks tab only visible when there are tasks
+                if (tab.conditionalOnTasks) return tasks.length > 0;
+                return tab.visible !== false;
+              }).map(tab => (
+                <TabButton
+                  key={tab.id}
+                  tab={tab}
+                  isActive={activeTab === tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                />
+              ))}
+            </div>
           </div>
         </div>
 

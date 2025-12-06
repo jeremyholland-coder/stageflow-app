@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Send, Sparkles, Loader2, MessageSquare, Settings, ExternalLink, RotateCcw, AlertCircle, TrendingUp, Target, BarChart3, AlertTriangle, Users, DollarSign, CheckCircle, Percent, Clock, Award, WifiOff, History, Zap, LineChart, Info } from 'lucide-react';
+import { Send, Sparkles, Loader2, MessageSquare, Settings, ExternalLink, RotateCcw, AlertCircle, TrendingUp, BarChart3, AlertTriangle, Users, DollarSign, CheckCircle, Percent, Clock, Award, WifiOff, History, Zap, LineChart, Info } from 'lucide-react';
 import { useApp } from './AppShell';
 import { supabase, ensureValidSession } from '../lib/supabase';
 import { DealAnalyticsChartLazy as DealAnalyticsChart } from './DealAnalyticsChartLazy';
@@ -1586,51 +1586,6 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
 
         {/* Scrollable Conversation Area - Maximum space for AI content */}
         <div className="flex-1 overflow-y-auto space-y-6 scroll-smooth" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0CE3B1 rgba(255,255,255,0.05)' }}>
-
-          {/* APMDOS: Goal Summary Bar - Show when user has goals (STATE_D+) */}
-          {activationState.hasGoals && activationState.goalProgress && conversationHistory.length === 0 && !loading && (
-            <div className="bg-white/[0.03] backdrop-blur-sm border border-white/[0.08] rounded-xl p-4 mb-2">
-              <div className="flex items-center gap-2 mb-3">
-                <Target className="w-4 h-4 text-[#0CE3B1]" />
-                <span className="text-xs font-semibold text-white/80">Goal Progress</span>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {activationState.goalProgress.monthly && (
-                  <div className="text-center">
-                    <div className={`text-lg font-bold ${
-                      activationState.goalProgress.monthly.status === 'on_track' ? 'text-emerald-400' :
-                      activationState.goalProgress.monthly.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
-                    }`}>
-                      {activationState.goalProgress.monthly.percent}%
-                    </div>
-                    <div className="text-[10px] text-white/40">Monthly</div>
-                  </div>
-                )}
-                {activationState.goalProgress.quarterly && (
-                  <div className="text-center">
-                    <div className={`text-lg font-bold ${
-                      activationState.goalProgress.quarterly.status === 'on_track' ? 'text-emerald-400' :
-                      activationState.goalProgress.quarterly.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
-                    }`}>
-                      {activationState.goalProgress.quarterly.percent}%
-                    </div>
-                    <div className="text-[10px] text-white/40">Quarterly</div>
-                  </div>
-                )}
-                {activationState.goalProgress.annual && (
-                  <div className="text-center">
-                    <div className={`text-lg font-bold ${
-                      activationState.goalProgress.annual.status === 'on_track' ? 'text-emerald-400' :
-                      activationState.goalProgress.annual.status === 'at_risk' ? 'text-amber-400' : 'text-rose-400'
-                    }`}>
-                      {activationState.goalProgress.annual.percent}%
-                    </div>
-                    <div className="text-[10px] text-white/40">Annual</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* PLAN MY DAY REFACTOR: Beautiful loading state */}
           {showPlanMyDayLoading && (
