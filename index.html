@@ -123,6 +123,9 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- PORTAL FIX: Global portal root for dropdowns, popovers, tooltips -->
+    <!-- Renders OUTSIDE React tree to escape stacking contexts and overflow:hidden -->
+    <div id="sf-portal-root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

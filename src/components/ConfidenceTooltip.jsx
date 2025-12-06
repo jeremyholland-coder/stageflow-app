@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Info, TrendingUp, Calendar, DollarSign, Sparkles, X } from 'lucide-react';
+import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
 
 /**
  * Confidence Score Tooltip & Modal
@@ -9,19 +10,46 @@ import { Info, TrendingUp, Calendar, DollarSign, Sparkles, X } from 'lucide-reac
 export const ConfidenceTooltip = ({ deal, confidenceScore }) => {
   const [showModal, setShowModal] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  const triggerRef = useRef(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
 
   // Calculate breakdown
   const breakdown = calculateConfidenceBreakdown(deal, confidenceScore);
 
+  // PORTAL FIX: Calculate tooltip position when shown
+  useEffect(() => {
+    if (!showTooltip || !triggerRef.current) return;
+
+    const updatePosition = () => {
+      const pos = calculateDropdownPosition(triggerRef.current, {
+        placement: 'top',
+        offset: 8,
+        dropdownWidth: 256,
+        dropdownHeight: 80,
+      });
+      setTooltipPosition(pos);
+    };
+
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [showTooltip]);
+
   return (
     <>
       {/* Hover Tooltip */}
-      <div 
+      <div
         className="relative inline-block"
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       >
         <button
+          ref={triggerRef}
           onClick={() => setShowModal(true)}
           className="p-1 hover:bg-[#1ABC9C]/10 rounded-full transition-colors group"
           title="How is this calculated?"
@@ -29,17 +57,26 @@ export const ConfidenceTooltip = ({ deal, confidenceScore }) => {
           <Info className="w-3.5 h-3.5 text-[#9CA3AF] group-hover:text-[#1ABC9C] transition-colors" />
         </button>
 
-        {/* Quick Tooltip */}
+        {/* PORTAL FIX: Render tooltip via Portal to escape stacking contexts */}
         {showTooltip && (
-          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 z-50 animate-fadeIn">
-            <div className="bg-[#1A1A1A] text-white text-xs rounded-lg p-3 shadow-2xl">
-              <p className="font-semibold mb-2">Confidence Score</p>
-              <p className="text-[#E0E0E0]/80">
-                Based on deal stage, age, and value. Click for detailed breakdown.
-              </p>
-              <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-[#1A1A1A] rotate-45" />
+          <Portal>
+            <div
+              className="fixed w-64 animate-fadeIn pointer-events-none"
+              style={{
+                top: tooltipPosition.top,
+                left: tooltipPosition.left,
+                zIndex: Z_INDEX.portalTooltip,
+              }}
+            >
+              <div className="bg-[#1A1A1A] text-white text-xs rounded-lg p-3 shadow-2xl">
+                <p className="font-semibold mb-2">Confidence Score</p>
+                <p className="text-[#E0E0E0]/80">
+                  Based on deal stage, age, and value. Click for detailed breakdown.
+                </p>
+                <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-[#1A1A1A] rotate-45" />
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </div>
 

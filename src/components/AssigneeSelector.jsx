@@ -3,6 +3,7 @@ import { UserCircle, ChevronDown, Check, Loader2, X, Users } from 'lucide-react'
 import { supabase, ensureValidSession } from '../lib/supabase';
 import { useApp } from './AppShell';
 import { api } from '../lib/api-client';
+import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
 
 /**
  * AssigneeSelector - Inline dropdown for assigning deals to team members
@@ -30,7 +31,10 @@ export const AssigneeSelector = memo(({
   const [teamMembers, setTeamMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [currentAssignee, setCurrentAssignee] = useState(null);
-  const dropdownRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  // PORTAL FIX: Track dropdown position for portal rendering
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
 
   // Get user's role in the org
   const [userRole, setUserRole] = useState(null);
@@ -135,12 +139,18 @@ export const AssigneeSelector = memo(({
     }
   }, [currentAssigneeId, teamMembers]);
 
-  // Close dropdown when clicking outside
+  // PORTAL FIX: Close dropdown when clicking outside (handles portal-rendered dropdown)
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
+      // Check if click is on trigger button
+      if (triggerRef.current && triggerRef.current.contains(event.target)) {
+        return; // Let the button's onClick handle it
       }
+      // Check if click is inside the portal dropdown (by data attribute)
+      if (event.target.closest('[data-assignee-dropdown]')) {
+        return; // Click is inside dropdown
+      }
+      setIsOpen(false);
     };
 
     if (isOpen) {
@@ -148,6 +158,34 @@ export const AssigneeSelector = memo(({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isOpen]);
+
+  // PORTAL FIX: Recalculate position on scroll/resize when open
+  useEffect(() => {
+    if (!isOpen || !triggerRef.current) return;
+
+    const updatePosition = () => {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const dropdownWidth = compact ? 224 : 320; // w-56 = 224px, w-full = varies
+      const dropdownHeight = 280; // Approximate max height
+
+      const pos = calculateDropdownPosition(triggerRef.current, {
+        placement: 'bottom-start',
+        offset: 4,
+        dropdownWidth,
+        dropdownHeight,
+      });
+      setDropdownPosition(pos);
+    };
+
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen, compact]);
 
   // Handle dropdown open
   const handleToggle = (e) => {
@@ -223,10 +261,10 @@ export const AssigneeSelector = memo(({
   // Compact view for Kanban cards
   if (compact) {
     return (
-      // HOTFIX 2025-12-02: Add z-50 when dropdown is open to escape parent card's stacking context
-      // KanbanCard has transform which creates new stacking context, z-50 elevates above siblings
-      <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
+      // PORTAL FIX: Removed z-50 hack - dropdown now rendered via Portal
+      <div className="relative">
         <button
+          ref={triggerRef}
           onClick={handleToggle}
           disabled={disabled || loading}
           className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all text-xs ${
@@ -256,58 +294,69 @@ export const AssigneeSelector = memo(({
           <ChevronDown className="w-3 h-3 flex-shrink-0" />
         </button>
 
+        {/* PORTAL FIX: Render dropdown via Portal to escape stacking contexts */}
         {isOpen && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-[60] overflow-hidden">
-            {loadingMembers ? (
-              <div className="p-4 text-center">
-                <Loader2 className="w-5 h-5 animate-spin text-teal-400 mx-auto" />
-                <p className="text-xs text-gray-400 mt-2">Loading team...</p>
-              </div>
-            ) : (
-              <div className="max-h-64 overflow-y-auto py-1" role="listbox">
-                {/* Unassigned option */}
-                <button
-                  onClick={() => handleSelect(null)}
-                  className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-700/50 transition ${
-                    !currentAssigneeId ? 'bg-teal-500/10' : ''
-                  }`}
-                  role="option"
-                  aria-selected={!currentAssigneeId}
-                >
-                  <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center">
-                    <X className="w-3 h-3 text-gray-400" />
-                  </div>
-                  <span className="text-sm text-gray-300">Unassigned</span>
-                  {!currentAssigneeId && <Check className="w-4 h-4 text-teal-400 ml-auto" />}
-                </button>
-
-                <div className="border-t border-gray-700 my-1" />
-
-                {teamMembers.map(member => (
+          <Portal>
+            <div
+              data-assignee-dropdown
+              className="fixed w-56 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
+              style={{
+                top: dropdownPosition.top,
+                left: dropdownPosition.left,
+                zIndex: Z_INDEX.portalDropdown,
+              }}
+            >
+              {loadingMembers ? (
+                <div className="p-4 text-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-teal-400 mx-auto" />
+                  <p className="text-xs text-gray-400 mt-2">Loading team...</p>
+                </div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto py-1" role="listbox">
+                  {/* Unassigned option */}
                   <button
-                    key={member.id}
-                    onClick={() => handleSelect(member.id)}
+                    onClick={() => handleSelect(null)}
                     className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-700/50 transition ${
-                      member.id === currentAssigneeId ? 'bg-teal-500/10' : ''
+                      !currentAssigneeId ? 'bg-teal-500/10' : ''
                     }`}
                     role="option"
-                    aria-selected={member.id === currentAssigneeId}
+                    aria-selected={!currentAssigneeId}
                   >
-                    <div className="w-6 h-6 rounded-full bg-teal-500/20 flex items-center justify-center text-xs font-medium text-teal-400">
-                      {member.initials}
+                    <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center">
+                      <X className="w-3 h-3 text-gray-400" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white truncate">{member.name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{member.role}</p>
-                    </div>
-                    {member.id === currentAssigneeId && (
-                      <Check className="w-4 h-4 text-teal-400 flex-shrink-0" />
-                    )}
+                    <span className="text-sm text-gray-300">Unassigned</span>
+                    {!currentAssigneeId && <Check className="w-4 h-4 text-teal-400 ml-auto" />}
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
+
+                  <div className="border-t border-gray-700 my-1" />
+
+                  {teamMembers.map(member => (
+                    <button
+                      key={member.id}
+                      onClick={() => handleSelect(member.id)}
+                      className={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-700/50 transition ${
+                        member.id === currentAssigneeId ? 'bg-teal-500/10' : ''
+                      }`}
+                      role="option"
+                      aria-selected={member.id === currentAssigneeId}
+                    >
+                      <div className="w-6 h-6 rounded-full bg-teal-500/20 flex items-center justify-center text-xs font-medium text-teal-400">
+                        {member.initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">{member.name}</p>
+                        <p className="text-xs text-gray-500 capitalize">{member.role}</p>
+                      </div>
+                      {member.id === currentAssigneeId && (
+                        <Check className="w-4 h-4 text-teal-400 flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Portal>
         )}
       </div>
     );
@@ -315,9 +364,10 @@ export const AssigneeSelector = memo(({
 
   // Full view for tables/forms
   return (
-    // HOTFIX 2025-12-02: Add z-50 when dropdown is open to escape parent stacking context
-    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
+    // PORTAL FIX: Removed z-50 hack - dropdown now rendered via Portal
+    <div className="relative">
       <button
+        ref={triggerRef}
         onClick={handleToggle}
         disabled={disabled || loading}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all w-full ${
@@ -351,58 +401,70 @@ export const AssigneeSelector = memo(({
         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
+      {/* PORTAL FIX: Render dropdown via Portal to escape stacking contexts */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-[60] overflow-hidden">
-          {loadingMembers ? (
-            <div className="p-6 text-center">
-              <Loader2 className="w-6 h-6 animate-spin text-teal-400 mx-auto" />
-              <p className="text-sm text-gray-400 mt-2">Loading team members...</p>
-            </div>
-          ) : (
-            <div className="max-h-72 overflow-y-auto py-1" role="listbox">
-              {/* Unassigned option */}
-              <button
-                onClick={() => handleSelect(null)}
-                className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-700/50 transition ${
-                  !currentAssigneeId ? 'bg-teal-500/10' : ''
-                }`}
-                role="option"
-                aria-selected={!currentAssigneeId}
-              >
-                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                  <X className="w-4 h-4 text-gray-400" />
-                </div>
-                <span className="text-sm text-gray-300">Unassigned</span>
-                {!currentAssigneeId && <Check className="w-4 h-4 text-teal-400 ml-auto" />}
-              </button>
-
-              <div className="border-t border-gray-700 my-1" />
-
-              {teamMembers.map(member => (
+        <Portal>
+          <div
+            data-assignee-dropdown
+            className="fixed bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
+            style={{
+              top: dropdownPosition.top,
+              left: dropdownPosition.left,
+              width: triggerRef.current ? triggerRef.current.offsetWidth : 320,
+              zIndex: Z_INDEX.portalDropdown,
+            }}
+          >
+            {loadingMembers ? (
+              <div className="p-6 text-center">
+                <Loader2 className="w-6 h-6 animate-spin text-teal-400 mx-auto" />
+                <p className="text-sm text-gray-400 mt-2">Loading team members...</p>
+              </div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto py-1" role="listbox">
+                {/* Unassigned option */}
                 <button
-                  key={member.id}
-                  onClick={() => handleSelect(member.id)}
+                  onClick={() => handleSelect(null)}
                   className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-700/50 transition ${
-                    member.id === currentAssigneeId ? 'bg-teal-500/10' : ''
+                    !currentAssigneeId ? 'bg-teal-500/10' : ''
                   }`}
                   role="option"
-                  aria-selected={member.id === currentAssigneeId}
+                  aria-selected={!currentAssigneeId}
                 >
-                  <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-sm font-medium text-teal-400">
-                    {member.initials}
+                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                    <X className="w-4 h-4 text-gray-400" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{member.name}</p>
-                    <p className="text-xs text-gray-500">{member.email} • <span className="capitalize">{member.role}</span></p>
-                  </div>
-                  {member.id === currentAssigneeId && (
-                    <Check className="w-4 h-4 text-teal-400 flex-shrink-0" />
-                  )}
+                  <span className="text-sm text-gray-300">Unassigned</span>
+                  {!currentAssigneeId && <Check className="w-4 h-4 text-teal-400 ml-auto" />}
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
+
+                <div className="border-t border-gray-700 my-1" />
+
+                {teamMembers.map(member => (
+                  <button
+                    key={member.id}
+                    onClick={() => handleSelect(member.id)}
+                    className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-700/50 transition ${
+                      member.id === currentAssigneeId ? 'bg-teal-500/10' : ''
+                    }`}
+                    role="option"
+                    aria-selected={member.id === currentAssigneeId}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-sm font-medium text-teal-400">
+                      {member.initials}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{member.name}</p>
+                      <p className="text-xs text-gray-500">{member.email} • <span className="capitalize">{member.role}</span></p>
+                    </div>
+                    {member.id === currentAssigneeId && (
+                      <Check className="w-4 h-4 text-teal-400 flex-shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Portal>
       )}
     </div>
   );

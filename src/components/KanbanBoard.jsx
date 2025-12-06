@@ -15,6 +15,7 @@ import { ModalErrorBoundary } from './ErrorBoundaries';
 // import { useVirtualScroll } from '../lib/virtual-scroll';
 import { AssigneeSelector } from './AssigneeSelector';
 import { DisqualifyModal } from './DisqualifyModal';
+import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
 
 // PERFORMANCE: Lazy load NewDealModal to avoid duplicate imports
 const NewDealModal = lazy(() => import('./NewDealModal').then(m => ({ default: m.NewDealModal })));
@@ -217,21 +218,54 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
   const [showMenu, setShowMenu] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const cardRef = useRef(null);
-  const menuRef = useRef(null);
+  const menuTriggerRef = useRef(null);
   const touchCloneRef = useRef(null);
   const touchDataRef = useRef(null);
 
-  // Close menu when clicking outside
+  // PORTAL FIX: Track context menu position
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  // PORTAL FIX: Close menu when clicking outside (handles portal-rendered menu)
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setShowMenu(false);
+      // Check if click is on trigger button
+      if (menuTriggerRef.current && menuTriggerRef.current.contains(event.target)) {
+        return;
       }
+      // Check if click is inside the portal menu
+      if (event.target.closest('[data-kanban-card-menu]')) {
+        return;
+      }
+      setShowMenu(false);
     };
     if (showMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
+  }, [showMenu]);
+
+  // PORTAL FIX: Recalculate position on scroll/resize when menu is open
+  useEffect(() => {
+    if (!showMenu || !menuTriggerRef.current) return;
+
+    const updatePosition = () => {
+      const pos = calculateDropdownPosition(menuTriggerRef.current, {
+        placement: 'top-end',
+        offset: 8,
+        dropdownWidth: 192,
+        dropdownHeight: 60,
+      });
+      setMenuPosition(pos);
+    };
+
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
   }, [showMenu]);
 
   // AI-POWERED CONFIDENCE SCORE - Dynamic and personalized per user
@@ -613,8 +647,9 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
 
         {/* Context menu for additional actions */}
         {deal.status === 'active' && (
-          <div className="relative" ref={menuRef}>
+          <div className="relative">
             <button
+              ref={menuTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowMenu(!showMenu);
@@ -628,21 +663,32 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
               <MoreVertical className="w-4 h-4" />
             </button>
 
+            {/* PORTAL FIX: Render context menu via Portal to escape stacking contexts */}
             {showMenu && (
-              <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMenu(false);
-                    onDisqualify?.(deal);
+              <Portal>
+                <div
+                  data-kanban-card-menu
+                  className="fixed w-48 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
+                  style={{
+                    top: menuPosition.top,
+                    left: menuPosition.left,
+                    zIndex: Z_INDEX.portalDropdown,
                   }}
-                  className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-amber-500/10 transition text-amber-400"
-                  role="menuitem"
                 >
-                  <Ban className="w-4 h-4" />
-                  <span className="text-sm font-medium">Disqualify deal</span>
-                </button>
-              </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      onDisqualify?.(deal);
+                    }}
+                    className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-amber-500/10 transition text-amber-400"
+                    role="menuitem"
+                  >
+                    <Ban className="w-4 h-4" />
+                    <span className="text-sm font-medium">Disqualify deal</span>
+                  </button>
+                </div>
+              </Portal>
             )}
           </div>
         )}
