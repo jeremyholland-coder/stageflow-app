@@ -47,14 +47,18 @@ export class RetryHandler {
       return true;
     }
 
-    // Check HTTP status codes (5xx and specific 4xx)
+    // Check HTTP status codes (specific retryable errors only)
+    // FIX 2025-12-06: Do NOT retry generic 500 errors - they may be structural failures
+    // that will never succeed. Only retry transient server errors (502, 503, 504)
     if (error.status) {
       return (
-        error.status >= 500 || // All 5xx errors
-        error.status === 408 || // Request Timeout
-        error.status === 429 || // Too Many Requests
-        error.status === 503 || // Service Unavailable
-        error.status === 504    // Gateway Timeout
+        error.status === 408 || // Request Timeout - transient
+        error.status === 429 || // Too Many Requests - transient (rate limit)
+        error.status === 502 || // Bad Gateway - transient (upstream issue)
+        error.status === 503 || // Service Unavailable - transient
+        error.status === 504    // Gateway Timeout - transient
+        // NOTE: 500 is intentionally NOT retried - it usually means a bug, not a transient failure
+        // Retrying 500s wastes resources and delays showing the actual error to users
       );
     }
 

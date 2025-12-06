@@ -124,7 +124,14 @@ export class APIClient {
       try {
         // CRITICAL: Must call ensureValidSession() first to populate the client session
         // from HttpOnly cookies (Phase 3 Cookie-Only Auth has persistSession: false)
+        // FIX 2025-12-06: Add logging to track pre-request session validation
+        console.log('[APIClient] Starting session validation...');
         let sessionResult = await ensureValidSession();
+        console.log('[APIClient] Session validation result:', {
+          valid: sessionResult?.valid,
+          code: sessionResult?.code,
+          hasError: !!sessionResult?.error
+        });
 
         // FIX 2025-12-03: HARD STOP on session errors - don't proceed with API calls
         // This prevents cascading 500 errors and misleading "AI providers unavailable" messages

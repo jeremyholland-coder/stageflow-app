@@ -688,7 +688,13 @@ export const useDealManagement = (user, organization, addNotification) => {
         // Store original deal for surgical rollback (now safe - variable is in scope)
         originalDeal = { ...deal };
 
-      const finalUpdates = { ...updates };
+      // FIX 2025-12-06: Filter undefined values from updates BEFORE processing
+      // Undefined values can break Supabase and cause cryptic errors
+      const cleanUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([_, v]) => v !== undefined)
+      );
+
+      const finalUpdates = { ...cleanUpdates };
 
       // CRITICAL FIX: Auto-set status based on stage using centralized logic
       // This ensures won/lost stages automatically get correct status
@@ -701,7 +707,15 @@ export const useDealManagement = (user, organization, addNotification) => {
 
       finalUpdates.last_activity = new Date().toISOString();
 
-      console.log('[KANBAN][UPDATE_DEAL] Final updates to apply:', finalUpdates);
+      // FIX 2025-12-06: Enhanced logging with payload validation
+      console.log('[KANBAN][UPDATE_DEAL] Final updates to apply:', {
+        dealId,
+        fieldCount: Object.keys(finalUpdates).length,
+        fields: Object.keys(finalUpdates),
+        stage: finalUpdates.stage,
+        status: finalUpdates.status,
+        payload: finalUpdates
+      });
 
       // Optimistic update
       // ROOT CAUSE FIX: Filter nulls before mapping

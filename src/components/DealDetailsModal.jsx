@@ -70,8 +70,12 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   }, [deal]);
 
   // UX FRICTION FIX: Auto-save function with 800ms debounce
+  // FIX 2025-12-06: Added payload validation, undefined filtering, and diagnostic logging
   const performAutoSave = useCallback(async (dataToSave) => {
-    if (!deal || !organization?.id) return;
+    if (!deal || !organization?.id) {
+      console.warn('[DealDetailsModal] Auto-save skipped: missing deal or organization');
+      return;
+    }
 
     // Don't auto-save if data hasn't actually changed
     const currentDataStr = JSON.stringify(dataToSave);
@@ -85,26 +89,57 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     try {
       const finalStatus = getStatusForStage(dataToSave.stage);
 
-      const sanitizedData = {
-        client: sanitizeText(dataToSave.client),
-        email: sanitizeText(dataToSave.email),
-        phone: sanitizeText(dataToSave.phone),
-        notes: sanitizeText(dataToSave.notes),
+      // FIX 2025-12-06: Build payload with explicit field handling
+      // All values must be defined - no undefined values allowed
+      const rawPayload = {
+        client: sanitizeText(dataToSave.client) || '',
+        email: sanitizeText(dataToSave.email) || '',
+        phone: sanitizeText(dataToSave.phone) || '',
+        notes: sanitizeText(dataToSave.notes) || '',
         value: parseFloat(dataToSave.value) || 0,
         stage: dataToSave.stage,
         status: finalStatus,
         lost_reason: dataToSave.lost_reason || null,
         last_activity: new Date().toISOString(),
-        assigned_to: dataToSave.assigned_to || null,
-        assigned_at: dataToSave.assigned_to && dataToSave.assigned_to !== deal.assigned_to
-          ? new Date().toISOString()
-          : deal.assigned_at
+        assigned_to: dataToSave.assigned_to || null
       };
+
+      // FIX 2025-12-06: Only include assigned_at if it has a real value
+      // Don't send undefined - it breaks Supabase
+      if (dataToSave.assigned_to && dataToSave.assigned_to !== deal.assigned_to) {
+        rawPayload.assigned_at = new Date().toISOString();
+      } else if (deal.assigned_at) {
+        rawPayload.assigned_at = deal.assigned_at;
+      }
+      // If neither condition is true, assigned_at is simply not included (not undefined)
+
+      // FIX 2025-12-06: Filter out any remaining undefined/null keys (defensive)
+      const sanitizedData = Object.fromEntries(
+        Object.entries(rawPayload).filter(([_, v]) => v !== undefined)
+      );
+
+      // FIX 2025-12-06: Diagnostic logging BEFORE network call
+      console.log('[DealDetailsModal] Auto-save payload:', {
+        dealId: deal.id,
+        organizationId: organization.id,
+        fieldCount: Object.keys(sanitizedData).length,
+        fields: Object.keys(sanitizedData),
+        stage: sanitizedData.stage,
+        status: sanitizedData.status
+      });
 
       const { data: result } = await api.post('update-deal', {
         dealId: deal.id,
         updates: sanitizedData,
         organizationId: organization.id
+      });
+
+      // FIX 2025-12-06: Log response for debugging
+      console.log('[DealDetailsModal] Auto-save response:', {
+        success: result?.success,
+        hasError: !!result?.error,
+        hasDeal: !!result?.deal,
+        ignoredFields: result?.ignoredFields
       });
 
       if (!result.success && result.error) {
@@ -124,11 +159,21 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
       // Reset status after 2 seconds
       setTimeout(() => setAutoSaveStatus('idle'), 2000);
     } catch (error) {
-      console.error('Auto-save error:', error);
+      // FIX 2025-12-06: Enhanced error logging with full context
+      console.error('[DealDetailsModal] Auto-save FAILED:', {
+        error: error.message,
+        code: error.code,
+        status: error.status,
+        dealId: deal?.id,
+        organizationId: organization?.id
+      });
       setAutoSaveStatus('idle');
-      // Silent fail for auto-save - user can still manually save
+      // Show error to user for critical failures (not just silent fail)
+      if (error.status === 400 || error.status === 403 || error.status === 404) {
+        addNotification(`Save failed: ${error.message}`, 'error');
+      }
     }
-  }, [deal, organization?.id, onDealUpdated]);
+  }, [deal, organization?.id, onDealUpdated, addNotification]);
 
   // UX FRICTION FIX: Trigger auto-save with debounce when form changes
   useEffect(() => {
