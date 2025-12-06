@@ -7,6 +7,8 @@ import {
 import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
 import { logger } from '../lib/logger';
+// TASK 3: Demo user display utilities
+import { isDemoEmail, getDemoUserData, getDemoAvatarUrl, getInitials as getDemoInitials } from '../lib/demo-users';
 
 // PAGINATION FIX: Page size for team members list
 const TEAM_PAGE_SIZE = 25;
@@ -17,20 +19,27 @@ const TEAM_PAGE_SIZE = 25;
 
 /**
  * Get display name for a team member with priority:
- * 1) First Name + Last Initial (e.g., "Jeremy H.")
- * 2) First Name only (e.g., "Jeremy")
- * 3) full_name fallback
- * 4) Full email address
- * 5) "Team Member" as last resort
+ * 1) Demo user name (if @startupstage.com email)
+ * 2) First Name + Last Initial (e.g., "Jeremy H.")
+ * 3) First Name only (e.g., "Jeremy")
+ * 4) full_name fallback
+ * 5) Full email address
+ * 6) "Team Member" as last resort
  */
 function getTeamDisplayName(member) {
   const profile = member.profiles || member.user_profiles || member.profile || {};
   const profilesData = member.profilesData || {};
+  const email = profile.email || member.email;
+
+  // TASK 3: Check for demo user first
+  if (isDemoEmail(email)) {
+    const demoData = getDemoUserData(email);
+    if (demoData) return demoData.name;
+  }
 
   const first = profilesData.first_name?.trim() || profile.first_name?.trim();
   const last = profilesData.last_name?.trim() || profile.last_name?.trim();
   const fullName = profile.full_name?.trim();
-  const email = profile.email || member.email;
 
   if (first && last) {
     return `${first} ${last.charAt(0).toUpperCase()}.`;
@@ -53,11 +62,19 @@ function getTeamDisplayName(member) {
 function getTeamAvatarInitials(member) {
   const profile = member.profiles || member.user_profiles || member.profile || {};
   const profilesData = member.profilesData || {};
+  const email = profile.email || member.email;
+
+  // TASK 3: Check for demo user first
+  if (isDemoEmail(email)) {
+    const demoData = getDemoUserData(email);
+    if (demoData && demoData.firstName && demoData.lastName) {
+      return `${demoData.firstName[0]}${demoData.lastName[0]}`.toUpperCase();
+    }
+  }
 
   const first = profilesData.first_name?.trim() || profile.first_name?.trim();
   const last = profilesData.last_name?.trim() || profile.last_name?.trim();
   const fullName = profile.full_name?.trim();
-  const email = profile.email || member.email;
 
   if (first && last) {
     return `${first[0]}${last[0]}`.toUpperCase();
@@ -80,10 +97,19 @@ function getTeamAvatarInitials(member) {
 
 /**
  * Get avatar URL from member profile data
+ * TASK 3: For demo users, generates DiceBear avatar
  */
 function getTeamAvatarUrl(member) {
   const profilesData = member.profilesData || {};
   const profile = member.profiles || member.user_profiles || member.profile || {};
+  const email = profile.email || member.email;
+
+  // TASK 3: Generate DiceBear avatar for demo users
+  if (isDemoEmail(email)) {
+    const demoData = getDemoUserData(email);
+    if (demoData) return getDemoAvatarUrl(demoData.name);
+  }
+
   return profilesData.avatar_url || profile.avatar_url || null;
 }
 
@@ -504,13 +530,17 @@ export const TeamDashboard = () => {
   });
 
   // ============================================================
-  // TARGET EDITING
+  // TARGET EDITING - TASK 2A/2B: Auto-save with debounce
   // ============================================================
 
-  const startEditingTeamTargets = useCallback(() => {
-    // Initialize edited targets from analytics data
-    const targets = {};
-    if (analyticsData?.members) {
+  // Ref to track pending auto-save
+  const autoSaveTimerRef = useRef(null);
+  const pendingSaveRef = useRef(null);
+
+  // Initialize editable state when analytics loads
+  useEffect(() => {
+    if (analyticsData?.members && !isEditingTeamTargets) {
+      const targets = {};
       analyticsData.members.forEach(m => {
         targets[m.userId] = {
           monthly: m.monthlyTarget || 0,
@@ -518,93 +548,131 @@ export const TeamDashboard = () => {
           annual: m.annualTarget || 0
         };
       });
+      setEditedTargets(targets);
+      setEditedOrgAnnual(String(orgTargetAnnual || 0));
     }
-    setEditedTargets(targets);
-    setEditedOrgAnnual(String(orgTargetAnnual || 0));
+  }, [analyticsData, orgTargetAnnual, isEditingTeamTargets]);
+
+  // TASK 2A: Auto-save function with debounce
+  const autoSaveTargets = useCallback(async (newOrgAnnual, newMemberTargets) => {
+    if (!organizationId || !isAdmin) return;
+
+    // Clear any pending save
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Store the latest values to save
+    pendingSaveRef.current = { newOrgAnnual, newMemberTargets };
+
+    // Debounce the save
+    autoSaveTimerRef.current = setTimeout(async () => {
+      const { newOrgAnnual: orgVal, newMemberTargets: memberVals } = pendingSaveRef.current || {};
+      if (!orgVal && !memberVals) return;
+
+      setSavingTargets(true);
+      try {
+        await ensureValidSession();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
+        // Use current state values if not provided
+        const orgAnnualToSave = orgVal !== undefined ? parseFloat(orgVal) || 0 : parseFloat(editedOrgAnnual) || 0;
+        const targetsToSave = memberVals || editedTargets;
+
+        const membersPayload = Object.entries(targetsToSave).map(([userId, targets]) => ({
+          userId,
+          monthlyTarget: parseFloat(targets.monthly) || 0,
+          quarterlyTarget: parseFloat(targets.quarterly) || 0,
+          annualTarget: parseFloat(targets.annual) || 0
+        }));
+
+        const payload = {
+          organization_id: organizationId,
+          orgTargetAnnual: orgAnnualToSave,
+          members: membersPayload
+        };
+
+        const response = await fetch('/.netlify/functions/team-targets-save', {
+          method: 'POST',
+          headers,
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success || result.partial) {
+          // Update local state silently
+          setOrgTargetAnnual(orgAnnualToSave);
+          // Reload analytics in background
+          const analytics = await fetchAnalytics(organizationId, selectedPeriod);
+          if (analytics) {
+            setAnalyticsData(analytics);
+          }
+          // Subtle success feedback (no intrusive notification for auto-save)
+          logger.log('[TeamDashboard] Targets auto-saved successfully');
+        } else {
+          console.error('[TeamDashboard] Failed to auto-save targets:', result.errors);
+          addNotification('Failed to save targets. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('[TeamDashboard] Error auto-saving targets:', error);
+        addNotification('Connection error. Changes may not be saved.', 'error');
+      } finally {
+        setSavingTargets(false);
+        pendingSaveRef.current = null;
+      }
+    }, 800); // 800ms debounce for auto-save
+  }, [organizationId, isAdmin, editedOrgAnnual, editedTargets, selectedPeriod, fetchAnalytics, addNotification]);
+
+  // Cleanup auto-save timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // TASK 2A: Handle org target change with auto-save
+  const handleOrgTargetChange = useCallback((value) => {
+    setEditedOrgAnnual(value);
     setIsEditingTeamTargets(true);
-  }, [analyticsData, orgTargetAnnual]);
+    autoSaveTargets(value, editedTargets);
+  }, [autoSaveTargets, editedTargets]);
 
-  const cancelEditingTeamTargets = useCallback(() => {
-    setIsEditingTeamTargets(false);
-    setEditedTargets({});
-    setEditedOrgAnnual('');
-    // Reload data to reset any unsaved changes
-    if (organizationId) {
-      fetchAnalytics(organizationId, selectedPeriod).then(result => {
-        if (result) {
-          setAnalyticsData(result);
-          setOrgTargetAnnual(result.orgTarget?.annual || 0);
-        }
-      });
-    }
-  }, [organizationId, selectedPeriod, fetchAnalytics]);
-
-  const saveTeamTargets = useCallback(async () => {
-    if (!organizationId) return;
-
-    setSavingTargets(true);
-    try {
-      await ensureValidSession();
-      const { data: { session } } = await supabase.auth.getSession();
-
-      const headers = { 'Content-Type': 'application/json' };
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
+  // TASK 2A: Handle member target change with auto-save
+  const handleMemberTargetChange = useCallback((userId, field, value) => {
+    const newTargets = {
+      ...editedTargets,
+      [userId]: {
+        ...editedTargets[userId],
+        [field]: value
       }
+    };
+    setEditedTargets(newTargets);
+    setIsEditingTeamTargets(true);
+    autoSaveTargets(editedOrgAnnual, newTargets);
+  }, [autoSaveTargets, editedOrgAnnual, editedTargets]);
 
-      // Prepare payload
-      const membersPayload = Object.entries(editedTargets).map(([userId, targets]) => ({
-        userId,
-        monthlyTarget: parseFloat(targets.monthly) || 0,
-        quarterlyTarget: parseFloat(targets.quarterly) || 0,
-        annualTarget: parseFloat(targets.annual) || 0
-      }));
+  // Legacy: Start editing (now just sets mode)
+  const startEditingTeamTargets = useCallback(() => {
+    setIsEditingTeamTargets(true);
+  }, []);
 
-      const payload = {
-        organization_id: organizationId,
-        orgTargetAnnual: parseFloat(editedOrgAnnual) || 0,
-        members: membersPayload
-      };
-
-      const response = await fetch('/.netlify/functions/team-targets-save', {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-
-      const result = await response.json();
-
-      if (result.success || result.partial) {
-        // Update local state
-        setOrgTargetAnnual(parseFloat(editedOrgAnnual) || 0);
-        setIsEditingTeamTargets(false);
-        setEditedTargets({});
-        // Reload analytics
-        const analytics = await fetchAnalytics(organizationId, selectedPeriod);
-        if (analytics) {
-          setAnalyticsData(analytics);
-        }
-        // APPLE UX POLISH: Show success notification
-        addNotification(result.partial ? 'Targets saved (some may need review)' : 'Targets saved successfully', result.partial ? 'warning' : 'success');
-      } else {
-        console.error('[TeamDashboard] Failed to save targets:', result.errors);
-        // APPLE UX POLISH: Show error notification
-        addNotification('Failed to save targets. Please try again.', 'error');
-      }
-    } catch (error) {
-      console.error('[TeamDashboard] Error saving targets:', error);
-      // APPLE UX POLISH: Show error notification
-      addNotification('Connection error. Please check your network and try again.', 'error');
-    } finally {
-      setSavingTargets(false);
-    }
-  }, [organizationId, editedTargets, editedOrgAnnual, selectedPeriod, fetchAnalytics, addNotification]);
-
-  // Distribute to team
+  // TASK 2B FIX: Distribute to team - reads from current editedOrgAnnual and auto-saves
   const distributeToTeam = useCallback(() => {
+    // TASK 2B: Read from current editedOrgAnnual state (not stale closure)
     const annual = parseFloat(editedOrgAnnual) || 0;
-    if (annual <= 0 || !analyticsData?.members?.length) return;
+    if (annual <= 0 || !analyticsData?.members?.length) {
+      addNotification('Please set an organization target first', 'warning');
+      return;
+    }
 
     const perMemberAnnual = Math.round(annual / analyticsData.members.length);
     const perMemberQuarterly = Math.round(perMemberAnnual / 4);
@@ -620,11 +688,12 @@ export const TeamDashboard = () => {
     });
 
     setEditedTargets(newTargets);
-    // Ensure we're in edit mode
-    if (!isEditingTeamTargets) {
-      setIsEditingTeamTargets(true);
-    }
-  }, [editedOrgAnnual, analyticsData, isEditingTeamTargets]);
+    setIsEditingTeamTargets(true);
+
+    // TASK 2B: Auto-save the distributed targets immediately
+    autoSaveTargets(editedOrgAnnual, newTargets);
+    addNotification(`Distributed ${formatCurrency(annual)} across ${analyticsData.members.length} team members`, 'success');
+  }, [editedOrgAnnual, analyticsData, autoSaveTargets, addNotification]);
 
   // ============================================================
   // HELPERS
@@ -788,78 +857,76 @@ export const TeamDashboard = () => {
               <p className="text-xs text-white/50">Set your top-line revenue goals and cascade them down to your team.</p>
             </div>
           </div>
-          {isAdmin && !isEditingTeamTargets && (
-            <button
-              onClick={startEditingTeamTargets}
-              className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl text-sm text-white hover:bg-white/[0.08] transition-colors"
-            >
-              <Pencil className="w-4 h-4" />
-              Edit targets
-            </button>
-          )}
+          {/* TASK 2A: Removed explicit Edit button - targets are always editable for admins with auto-save */}
         </div>
 
         <div className="grid grid-cols-3 gap-4">
           <div className="p-4 bg-white/[0.02] rounded-xl text-center">
             <p className="text-xs text-white/50 mb-1">Monthly</p>
             <p className="text-xl font-bold text-white">
-              {isEditingTeamTargets ? formatCurrency(editedMonthly) : formatCurrency(orgMonthly)}
+              {formatCurrency(editedMonthly || orgMonthly)}
             </p>
             <p className="text-xs text-white/40 mt-1">auto-derived</p>
           </div>
           <div className="p-4 bg-white/[0.02] rounded-xl text-center">
             <p className="text-xs text-white/50 mb-1">Quarterly</p>
             <p className="text-xl font-bold text-white">
-              {isEditingTeamTargets ? formatCurrency(editedQuarterly) : formatCurrency(orgQuarterly)}
+              {formatCurrency(editedQuarterly || orgQuarterly)}
             </p>
             <p className="text-xs text-white/40 mt-1">auto-derived</p>
           </div>
           <div className="p-4 bg-white/[0.02] rounded-xl text-center border border-[#0CE3B1]/20">
             <p className="text-xs text-[#0CE3B1] mb-1 font-medium">Annual (source)</p>
-            {isEditingTeamTargets ? (
+            {/* TASK 2A: Always show editable input for admins with auto-save */}
+            {isAdmin ? (
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                 <input
                   type="number"
                   value={editedOrgAnnual}
-                  onChange={(e) => setEditedOrgAnnual(e.target.value)}
+                  onChange={(e) => handleOrgTargetChange(e.target.value)}
                   className="w-full pl-8 pr-3 py-2 bg-white/[0.05] border border-[#0CE3B1]/30 rounded-lg text-white text-center text-xl font-bold focus:outline-none focus:border-[#0CE3B1]/60"
                   placeholder="0"
                 />
+                {savingTargets && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#0CE3B1]" />
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-xl font-bold text-[#0CE3B1]">{formatCurrency(orgTargetAnnual)}</p>
             )}
-            <p className="text-xs text-white/40 mt-1">editable</p>
+            <p className="text-xs text-white/40 mt-1">{isAdmin ? 'auto-saves' : 'view only'}</p>
           </div>
         </div>
 
-        {/* Distribute to Team button (only in edit mode) */}
-        {isEditingTeamTargets && (
+        {/* TASK 2A: Distribute to Team button - always visible for admins */}
+        {isAdmin && (
           <div className="mt-4 flex justify-end">
             <button
               onClick={distributeToTeam}
-              disabled={!canDistribute}
+              disabled={!canDistribute || savingTargets}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                canDistribute
+                canDistribute && !savingTargets
                   ? 'bg-[#0CE3B1]/20 text-[#0CE3B1] border border-[#0CE3B1]/30 hover:bg-[#0CE3B1]/30'
                   : 'bg-white/[0.03] text-white/30 border border-white/[0.05] cursor-not-allowed'
               }`}
             >
-              Distribute to team
+              Auto Distribute
             </button>
           </div>
         )}
       </div>
 
       {/* ============================================================ */}
-      {/* TEAM PERFORMANCE SNAPSHOT DASHBOARD */}
+      {/* TASK 4: REVOPS DASHBOARD - Enhanced metrics with traffic lights */}
       {/* ============================================================ */}
       <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.1)]">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 className="text-lg font-semibold text-white tracking-tight">Team Performance Snapshot</h2>
-            <p className="text-xs text-white/50">Quick view of how your team is tracking against their revenue targets.</p>
+            <h2 className="text-lg font-semibold text-white tracking-tight">RevOps Dashboard</h2>
+            <p className="text-xs text-white/50">Revenue operations health at a glance.</p>
           </div>
           {/* Period Selector */}
           <div className="flex gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.08]">
@@ -879,69 +946,144 @@ export const TeamDashboard = () => {
           </div>
         </div>
 
-        {/* Key Gauges */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* TASK 4A: Top-level RevOps metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          {/* New Deals */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.05]">
+            <p className="text-xs text-white/50 mb-1">New Deals</p>
+            <p className="text-xl font-bold text-white">{analyticsData?.analytics?.revOps?.newDeals || 0}</p>
+            <p className="text-xs text-[#0CE3B1] mt-1">
+              {formatCurrency(analyticsData?.analytics?.revOps?.newDealsValue || 0)}
+            </p>
+          </div>
+
+          {/* Closed Won */}
+          <div className="p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+            <p className="text-xs text-emerald-400/70 mb-1">Closed Won</p>
+            <p className="text-xl font-bold text-emerald-400">{analyticsData?.analytics?.revOps?.closedWon || 0}</p>
+            <p className="text-xs text-emerald-400/70 mt-1">
+              {formatCurrency(analyticsData?.analytics?.revOps?.closedWonValue || 0)}
+            </p>
+          </div>
+
+          {/* Closed Lost */}
+          <div className="p-4 bg-red-500/10 rounded-xl border border-red-500/20">
+            <p className="text-xs text-red-400/70 mb-1">Lost / Disqualified</p>
+            <p className="text-xl font-bold text-red-400">{analyticsData?.analytics?.revOps?.closedLost || 0}</p>
+            <p className="text-xs text-red-400/70 mt-1">
+              {formatCurrency(analyticsData?.analytics?.revOps?.closedLostValue || 0)}
+            </p>
+          </div>
+
+          {/* Active Pipeline */}
+          <div className="p-4 bg-sky-500/10 rounded-xl border border-sky-500/20">
+            <p className="text-xs text-sky-400/70 mb-1">Active Pipeline</p>
+            <p className="text-xl font-bold text-sky-400">
+              {formatCurrency(analyticsData?.analytics?.revOps?.activePipeline || 0)}
+            </p>
+            <p className="text-xs text-sky-400/70 mt-1">
+              {analyticsData?.analytics?.revOps?.staleDeals || 0} stale
+            </p>
+          </div>
+
           {/* Team Attainment */}
-          <div className="p-4 bg-white/[0.02] rounded-xl">
-            <p className="text-xs text-white/50 mb-2">Team Attainment</p>
-            <div className="flex items-end gap-2">
-              <span className="text-2xl font-bold text-white">
-                {summary.totalTarget > 0
-                  ? Math.round((summary.totalClosed / summary.totalTarget) * 100)
-                  : 0}%
-              </span>
-              <span className="text-xs text-white/40 mb-1">of target</span>
-            </div>
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.05]">
+            <p className="text-xs text-white/50 mb-1">Attainment</p>
+            <p className="text-xl font-bold text-white">
+              {summary.totalTarget > 0
+                ? `${Math.round((summary.totalClosed / summary.totalTarget) * 100)}%`
+                : '—'}
+            </p>
             {summary.totalTarget > 0 && (
-              <div className="mt-2 h-1.5 bg-white/[0.1] rounded-full overflow-hidden">
+              <div className="mt-2 h-1 bg-white/[0.1] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[#0CE3B1] rounded-full transition-all"
+                  className={`h-full rounded-full transition-all ${
+                    (summary.totalClosed / summary.totalTarget) >= 0.9
+                      ? 'bg-emerald-400'
+                      : (summary.totalClosed / summary.totalTarget) >= 0.6
+                        ? 'bg-yellow-400'
+                        : 'bg-red-400'
+                  }`}
                   style={{ width: `${Math.min((summary.totalClosed / summary.totalTarget) * 100, 100)}%` }}
                 />
               </div>
             )}
           </div>
 
-          {/* Status Counts */}
-          <div className="p-4 bg-white/[0.02] rounded-xl">
-            <p className="text-xs text-white/50 mb-2">Team Status</p>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
+          {/* TASK 4B: Team Status Traffic Light */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.05]">
+            <p className="text-xs text-white/50 mb-2">Team Health</p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 rounded-lg">
                 <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-sm text-white">{summary.greenCount || 0}</span>
+                <span className="text-xs font-medium text-emerald-400">{summary.greenCount || 0}</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 px-2 py-1 bg-yellow-500/20 rounded-lg">
                 <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                <span className="text-sm text-white">{summary.yellowCount || 0}</span>
+                <span className="text-xs font-medium text-yellow-400">{summary.yellowCount || 0}</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 px-2 py-1 bg-red-500/20 rounded-lg">
                 <span className="w-2 h-2 rounded-full bg-red-400" />
-                <span className="text-sm text-white">{summary.redCount || 0}</span>
+                <span className="text-xs font-medium text-red-400">{summary.redCount || 0}</span>
               </div>
             </div>
-            <p className="text-xs text-white/40 mt-2">on track / watch / needs attention</p>
-          </div>
-
-          {/* Total Closed */}
-          <div className="p-4 bg-white/[0.02] rounded-xl">
-            <p className="text-xs text-white/50 mb-2">Total Closed</p>
-            <p className="text-2xl font-bold text-[#0CE3B1]">{formatCurrency(summary.totalClosed || 0)}</p>
-            <p className="text-xs text-white/40 mt-1">this {selectedPeriod}</p>
-          </div>
-
-          {/* Avg Attainment */}
-          <div className="p-4 bg-white/[0.02] rounded-xl">
-            <p className="text-xs text-white/50 mb-2">Avg Rep Attainment</p>
-            <p className="text-2xl font-bold text-white">
-              {summary.avgAttainmentPct !== null
-                ? `${Math.round(summary.avgAttainmentPct * 100)}%`
-                : '—'}
-            </p>
-            <p className="text-xs text-white/40 mt-1">
-              {summary.noTargetCount > 0 && `${summary.noTargetCount} without targets`}
-            </p>
           </div>
         </div>
+
+        {/* TASK 4C: Pipeline Health Summary */}
+        {analyticsData?.analytics?.revOps && (
+          <div className="flex items-center gap-4 p-4 bg-white/[0.02] rounded-xl border border-white/[0.05]">
+            <div className="flex-1">
+              <p className="text-sm text-white/70 mb-2">Pipeline Health</p>
+              <div className="flex items-center gap-4">
+                {/* Win Rate bar */}
+                <div className="flex-1">
+                  <div className="flex items-center justify-between text-xs text-white/50 mb-1">
+                    <span>Win Rate</span>
+                    <span>
+                      {analyticsData.analytics.revOps.closedWon + analyticsData.analytics.revOps.closedLost > 0
+                        ? Math.round((analyticsData.analytics.revOps.closedWon / (analyticsData.analytics.revOps.closedWon + analyticsData.analytics.revOps.closedLost)) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-white/[0.1] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        (() => {
+                          const total = analyticsData.analytics.revOps.closedWon + analyticsData.analytics.revOps.closedLost;
+                          if (total === 0) return 'bg-white/20';
+                          const rate = analyticsData.analytics.revOps.closedWon / total;
+                          return rate >= 0.4 ? 'bg-emerald-400' : rate >= 0.25 ? 'bg-yellow-400' : 'bg-red-400';
+                        })()
+                      }`}
+                      style={{
+                        width: `${
+                          analyticsData.analytics.revOps.closedWon + analyticsData.analytics.revOps.closedLost > 0
+                            ? (analyticsData.analytics.revOps.closedWon / (analyticsData.analytics.revOps.closedWon + analyticsData.analytics.revOps.closedLost)) * 100
+                            : 0
+                        }%`
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Stale deals indicator */}
+                <div className="text-center px-4 border-l border-white/[0.08]">
+                  <p className={`text-lg font-bold ${
+                    (analyticsData.analytics.revOps.staleDeals || 0) === 0
+                      ? 'text-emerald-400'
+                      : (analyticsData.analytics.revOps.staleDeals || 0) <= 3
+                        ? 'text-yellow-400'
+                        : 'text-red-400'
+                  }`}>
+                    {analyticsData.analytics.revOps.staleDeals || 0}
+                  </p>
+                  <p className="text-xs text-white/50">Stale Deals</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ============================================================ */}
@@ -964,33 +1106,11 @@ export const TeamDashboard = () => {
                 className="pl-9 pr-4 py-2 bg-white/[0.03] border border-white/[0.08] rounded-xl text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-[#0CE3B1]/40 w-64"
               />
             </div>
-            {/* Edit mode controls */}
-            {isEditingTeamTargets && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={cancelEditingTeamTargets}
-                  className="px-4 py-2 bg-white/[0.05] border border-white/[0.1] rounded-xl text-sm text-white hover:bg-white/[0.08] transition-colors"
-                  disabled={savingTargets}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveTeamTargets}
-                  disabled={savingTargets}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#0CE3B1] text-white rounded-xl text-sm font-medium hover:bg-[#0CE3B1]/90 transition-colors disabled:opacity-50"
-                >
-                  {savingTargets ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Save changes
-                    </>
-                  )}
-                </button>
+            {/* TASK 2A: Removed Save/Cancel buttons - targets auto-save on change */}
+            {savingTargets && (
+              <div className="flex items-center gap-2 text-sm text-white/50">
+                <Loader2 className="w-4 h-4 animate-spin text-[#0CE3B1]" />
+                <span>Saving...</span>
               </div>
             )}
           </div>
@@ -1051,15 +1171,34 @@ export const TeamDashboard = () => {
                             {member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member'}
                           </span>
                         </div>
-                        {/* Status Badge */}
-                        {memberAnalytics && (
-                          <StatusBadge
-                            status={memberAnalytics.status}
-                            attainmentPct={memberAnalytics.attainmentPct}
-                            projectedAttainmentPct={memberAnalytics.projectedAttainmentPct}
-                            period={selectedPeriod}
-                          />
-                        )}
+                        {/* TASK 4C: Health Chip + Status Badge */}
+                        <div className="flex items-center gap-2">
+                          {/* Health Status Chip */}
+                          {(() => {
+                            const health = analyticsData?.analytics?.memberHealth?.find(h => h.userId === member.userId);
+                            if (!health) return null;
+                            const statusConfig = {
+                              healthy: { label: 'Healthy', bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+                              'at-risk': { label: 'At Risk', bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/30' },
+                              critical: { label: 'Critical', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' }
+                            };
+                            const config = statusConfig[health.healthStatus] || statusConfig.healthy;
+                            return (
+                              <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${config.bg} ${config.text} border ${config.border}`}>
+                                {config.label}
+                              </span>
+                            );
+                          })()}
+                          {/* Status Badge */}
+                          {memberAnalytics && (
+                            <StatusBadge
+                              status={memberAnalytics.status}
+                              attainmentPct={memberAnalytics.attainmentPct}
+                              projectedAttainmentPct={memberAnalytics.projectedAttainmentPct}
+                              period={selectedPeriod}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1108,20 +1247,15 @@ export const TeamDashboard = () => {
                       <span className="text-sm font-medium text-white/70">Revenue Targets</span>
                     </div>
 
-                    {isEditingTeamTargets ? (
+                    {/* TASK 2A: Always show editable inputs for admins with auto-save */}
+                    {isAdmin ? (
                       <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="text-xs text-white/40 mb-1 block">Monthly</label>
                           <input
                             type="number"
-                            value={editedMemberTargets.monthly ?? ''}
-                            onChange={(e) => setEditedTargets(prev => ({
-                              ...prev,
-                              [member.userId]: {
-                                ...prev[member.userId],
-                                monthly: e.target.value
-                              }
-                            }))}
+                            value={editedMemberTargets.monthly ?? memberTarget?.monthlyTarget ?? ''}
+                            onChange={(e) => handleMemberTargetChange(member.userId, 'monthly', e.target.value)}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
                           />
@@ -1130,14 +1264,8 @@ export const TeamDashboard = () => {
                           <label className="text-xs text-white/40 mb-1 block">Quarterly</label>
                           <input
                             type="number"
-                            value={editedMemberTargets.quarterly ?? ''}
-                            onChange={(e) => setEditedTargets(prev => ({
-                              ...prev,
-                              [member.userId]: {
-                                ...prev[member.userId],
-                                quarterly: e.target.value
-                              }
-                            }))}
+                            value={editedMemberTargets.quarterly ?? memberTarget?.quarterlyTarget ?? ''}
+                            onChange={(e) => handleMemberTargetChange(member.userId, 'quarterly', e.target.value)}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
                           />
@@ -1146,14 +1274,8 @@ export const TeamDashboard = () => {
                           <label className="text-xs text-white/40 mb-1 block">Annual</label>
                           <input
                             type="number"
-                            value={editedMemberTargets.annual ?? ''}
-                            onChange={(e) => setEditedTargets(prev => ({
-                              ...prev,
-                              [member.userId]: {
-                                ...prev[member.userId],
-                                annual: e.target.value
-                              }
-                            }))}
+                            value={editedMemberTargets.annual ?? memberTarget?.annualTarget ?? ''}
+                            onChange={(e) => handleMemberTargetChange(member.userId, 'annual', e.target.value)}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white text-sm text-right focus:outline-none focus:border-[#0CE3B1]/40"
                           />

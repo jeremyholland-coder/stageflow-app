@@ -48,6 +48,25 @@ interface MemberPerformanceSnapshot {
   status: 'green' | 'yellow' | 'red' | 'no-target';
 }
 
+// TASK 4: Enhanced metrics for RevOps dashboard
+interface RevOpsMetrics {
+  newDeals: number;           // Deals created this period
+  newDealsValue: number;      // Value of new deals
+  closedWon: number;          // Won deals this period
+  closedWonValue: number;     // Won revenue
+  closedLost: number;         // Lost/disqualified this period
+  closedLostValue: number;    // Lost value
+  activePipeline: number;     // Active pipeline value
+  staleDeals: number;         // Deals with no activity > 14 days
+}
+
+interface MemberHealth {
+  userId: string;
+  healthStatus: 'healthy' | 'at-risk' | 'critical';
+  staleDealsCount: number;
+  avgDaysToClose: number | null;
+}
+
 interface TeamAnalytics {
   period: 'month' | 'quarter' | 'year';
   startDate: string;
@@ -62,6 +81,9 @@ interface TeamAnalytics {
     redCount: number;
     noTargetCount: number;
   };
+  // TASK 4: RevOps metrics
+  revOps?: RevOpsMetrics;
+  memberHealth?: MemberHealth[];
 }
 
 interface TeamAnalyticsResponse {
@@ -347,18 +369,115 @@ export const handler: Handler = async (event: HandlerEvent, _context: HandlerCon
     const daysElapsed = clamp(daysBetween(startDate, now) + 1, 1, totalDays);
     const timeProgress = totalDays > 0 ? daysElapsed / totalDays : 1;
 
-    // Fetch closed-won deals for the period
-    const { data: closedDeals } = await supabase
-      .from('deals')
-      .select('assigned_to, value')
-      .eq('organization_id', organizationId)
-      .eq('status', 'won')
-      .gte('closed_at', formatDateISO(startDate))
-      .lte('closed_at', formatDateISO(endDate));
+    // TASK 4: Fetch all deals for comprehensive RevOps metrics
+    const [closedWonResult, newDealsResult, lostDealsResult, activeDealsResult] = await Promise.all([
+      // Closed-won deals for the period
+      supabase
+        .from('deals')
+        .select('assigned_to, value, closed_at, created')
+        .eq('organization_id', organizationId)
+        .eq('status', 'won')
+        .gte('closed_at', formatDateISO(startDate))
+        .lte('closed_at', formatDateISO(endDate)),
+      // New deals created this period
+      supabase
+        .from('deals')
+        .select('assigned_to, value')
+        .eq('organization_id', organizationId)
+        .is('deleted_at', null)
+        .gte('created', formatDateISO(startDate))
+        .lte('created', formatDateISO(endDate)),
+      // Lost/disqualified deals this period
+      supabase
+        .from('deals')
+        .select('assigned_to, value')
+        .eq('organization_id', organizationId)
+        .in('status', ['lost', 'disqualified'])
+        .gte('last_activity', formatDateISO(startDate))
+        .lte('last_activity', formatDateISO(endDate)),
+      // Active pipeline (not won/lost)
+      supabase
+        .from('deals')
+        .select('assigned_to, value, last_activity')
+        .eq('organization_id', organizationId)
+        .eq('status', 'active')
+        .is('deleted_at', null)
+    ]);
+
+    const closedDeals = closedWonResult.data || [];
+    const newDeals = newDealsResult.data || [];
+    const lostDeals = lostDealsResult.data || [];
+    const activeDeals = activeDealsResult.data || [];
+
+    // Calculate RevOps metrics
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+    const revOps: RevOpsMetrics = {
+      newDeals: newDeals.length,
+      newDealsValue: newDeals.reduce((sum, d) => sum + (d.value || 0), 0),
+      closedWon: closedDeals.length,
+      closedWonValue: closedDeals.reduce((sum, d) => sum + (d.value || 0), 0),
+      closedLost: lostDeals.length,
+      closedLostValue: lostDeals.reduce((sum, d) => sum + (d.value || 0), 0),
+      activePipeline: activeDeals.reduce((sum, d) => sum + (d.value || 0), 0),
+      staleDeals: activeDeals.filter(d => {
+        if (!d.last_activity) return true;
+        return new Date(d.last_activity) < fourteenDaysAgo;
+      }).length
+    };
+
+    // Calculate member health based on stale deals
+    const staleByUser = new Map<string, number>();
+    const activeByUser = new Map<string, number>();
+    activeDeals.forEach(deal => {
+      const userId = deal.assigned_to;
+      if (!userId) return;
+
+      activeByUser.set(userId, (activeByUser.get(userId) || 0) + 1);
+
+      if (!deal.last_activity || new Date(deal.last_activity) < fourteenDaysAgo) {
+        staleByUser.set(userId, (staleByUser.get(userId) || 0) + 1);
+      }
+    });
+
+    const memberHealth: MemberHealth[] = members.map(member => {
+      const staleCount = staleByUser.get(member.userId) || 0;
+      const activeCount = activeByUser.get(member.userId) || 0;
+      const staleRatio = activeCount > 0 ? staleCount / activeCount : 0;
+
+      // Health status logic
+      let healthStatus: 'healthy' | 'at-risk' | 'critical' = 'healthy';
+      if (staleRatio > 0.5 || staleCount >= 5) {
+        healthStatus = 'critical';
+      } else if (staleRatio > 0.25 || staleCount >= 2) {
+        healthStatus = 'at-risk';
+      }
+
+      // Calculate avg days to close from closed deals
+      const userClosedDeals = closedDeals.filter(d => d.assigned_to === member.userId);
+      let avgDaysToClose: number | null = null;
+      if (userClosedDeals.length > 0) {
+        const totalDays = userClosedDeals.reduce((sum, d) => {
+          if (d.created && d.closed_at) {
+            return sum + daysBetween(new Date(d.created), new Date(d.closed_at));
+          }
+          return sum;
+        }, 0);
+        avgDaysToClose = Math.round(totalDays / userClosedDeals.length);
+      }
+
+      return {
+        userId: member.userId,
+        healthStatus,
+        staleDealsCount: staleCount,
+        avgDaysToClose
+      };
+    });
 
     // Aggregate closed revenue by user
     const closedByUser = new Map<string, number>();
-    (closedDeals || []).forEach(deal => {
+    closedDeals.forEach(deal => {
       if (deal.assigned_to) {
         const current = closedByUser.get(deal.assigned_to) || 0;
         closedByUser.set(deal.assigned_to, current + (deal.value || 0));
@@ -455,7 +574,10 @@ export const handler: Handler = async (event: HandlerEvent, _context: HandlerCon
         yellowCount,
         redCount,
         noTargetCount
-      }
+      },
+      // TASK 4: RevOps metrics
+      revOps,
+      memberHealth
     };
 
     const response: TeamAnalyticsResponse = {

@@ -10,6 +10,8 @@ import { getStatusForStage } from '../config/pipelineTemplates';
 import { useFocusTrap } from '../lib/accessibility';
 import { PhoneInput } from './PhoneInput';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
+// TASK 3: Demo user display utilities
+import { isDemoEmail, getDemoUserData } from '../lib/demo-users';
 
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, onDealDeleted, pipelineStages = [] }) => {
@@ -107,6 +109,17 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
       setTimeout(() => {
         closeButtonRef.current?.focus();
       }, 100);
+    }
+  }, [isOpen]);
+
+  // TASK 1 FIX: Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
     }
   }, [isOpen]);
 
@@ -317,18 +330,16 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 
   return (
     <>
-      <div className="modal-backdrop fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[70] md:p-4">
-        <div
-          ref={focusTrapRef}
-          className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl shadow-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto pb-safe"
-          style={{
-            maxHeight: '100dvh',
-            paddingBottom: 'max(env(safe-area-inset-bottom, 20px), 20px)'
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="deal-details-title"
-        >
+      {/* TASK 1 FIX: Top-anchored modal with internal scroll, body scroll locked via fixed backdrop */}
+      <div className="modal-backdrop fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] overflow-hidden">
+        <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-4 md:pt-10 md:px-6">
+          <div
+            ref={focusTrapRef}
+            className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl mx-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deal-details-title"
+          >
           <div className="sticky top-0 bg-gradient-to-br from-gray-900 to-black border-b border-gray-700 p-6 flex items-center justify-between z-10">
             <div>
               <h2 id="deal-details-title" className="text-2xl font-bold text-white">Deal Details</h2>
@@ -463,11 +474,17 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%239CA3AF%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%276 9 12 15 18 9%27/%3E%3C/svg%3E')] bg-[length:1.5em_1.5em] bg-[right_0.5rem_center] bg-no-repeat disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="">Unassigned</option>
-                  {teamMembers.map(member => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} ({member.email})
-                    </option>
-                  ))}
+                  {teamMembers.map(member => {
+                    // TASK 3: Use demo user name if applicable
+                    const displayName = isDemoEmail(member.email)
+                      ? (getDemoUserData(member.email)?.name || member.name)
+                      : member.name;
+                    return (
+                      <option key={member.id} value={member.id}>
+                        {displayName} ({member.email})
+                      </option>
+                    );
+                  })}
                 </select>
                 {/* Clear messaging for different states */}
                 {loadingTeamMembers && (
@@ -583,6 +600,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               </button>
             </div>
           </form>
+          </div>
         </div>
       </div>
 
