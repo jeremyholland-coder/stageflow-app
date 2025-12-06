@@ -1,14 +1,17 @@
 /**
  * Format AI Response - Clean and render AI-generated content
  * PHASE 19B: Enhanced with visual section cards and StageFlow styling
+ * PLAN MY DAY REFACTOR: Added prompt leakage prevention and sanitization
  * Filters out tool calls and converts markdown to formatted JSX
  */
 
 import React from 'react';
+import { removePromptLeakage } from './sanitizeAIOutput';
 
 /**
  * Remove tool calling syntax from AI responses
  * Filters out code blocks containing executeToolAndReturnAsAgent
+ * PLAN MY DAY REFACTOR: Enhanced with prompt leakage prevention
  */
 export const cleanToolCalls = (text) => {
   if (!text) return '';
@@ -18,6 +21,19 @@ export const cleanToolCalls = (text) => {
 
   // Remove standalone tool call patterns
   cleaned = cleaned.replace(/executeToolAndReturnAsAgent\([^)]*\)/g, '');
+
+  // PLAN MY DAY REFACTOR: Remove prompt leakage patterns
+  cleaned = removePromptLeakage(cleaned);
+
+  // Remove any remaining raw prompt instructions
+  // These patterns catch common prompt leak formats
+  cleaned = cleaned.replace(/\*\*SECTION\s*\d+:\s*/gi, '');
+  cleaned = cleaned.replace(/TONE:\s*[^.]+\./gi, '');
+  cleaned = cleaned.replace(/Never mention\s*[^.]+\./gi, '');
+  cleaned = cleaned.replace(/\(20-30 min focus\)/gi, '');
+  cleaned = cleaned.replace(/\(45-60 min focus\)/gi, '');
+  cleaned = cleaned.replace(/\(10-20 min focus\)/gi, '');
+  cleaned = cleaned.replace(/\(Conditional\)/gi, '');
 
   // Clean up extra whitespace left behind
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();

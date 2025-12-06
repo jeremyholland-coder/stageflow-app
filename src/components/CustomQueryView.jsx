@@ -27,6 +27,8 @@ import { ActionMicroButtonGroup } from './ActionMicroButton';
 import { PlanMyDayChecklist } from './PlanMyDayChecklist';
 // PHASE 19B: Compact summary strip for Plan My Day
 import { PlanMyDaySummary } from './PlanMyDaySummary';
+// PLAN MY DAY REFACTOR: New loading and fallback components
+import { PlanMyDayLoading, PlanMyDayFallback } from './PlanMyDay';
 // APMDOS: Adaptive Plan My Day Onboarding System
 import { useActivationState, markFeatureSeen } from '../hooks/useActivationState';
 // QA FIX #4: AI Usage Limit Visibility
@@ -359,9 +361,10 @@ export const CustomQueryView = ({
   const [isPlanning, setIsPlanning] = useState(false);
   const planMyDayTimeoutRef = useRef(null);
 
-  // PHASE 4: Basic mode state for non-AI fallback
-  const [basicModePlan, setBasicModePlan] = useState(null);
-  const [basicModeLoading, setBasicModeLoading] = useState(false);
+  // PLAN MY DAY REFACTOR: Track loading state for new loading component
+  const [showPlanMyDayLoading, setShowPlanMyDayLoading] = useState(false);
+  // PLAN MY DAY REFACTOR: Track all-providers-failed state for fallback
+  const [showPlanMyDayFallback, setShowPlanMyDayFallback] = useState(false);
 
   // OFFLINE: Track network status for AI availability
   // Use prop if provided (from parent), otherwise track locally
@@ -810,6 +813,11 @@ export const CustomQueryView = ({
                 }
 
                 if (data.content) {
+                  // PLAN MY DAY REFACTOR: Hide loading component when first content arrives
+                  if (accumulatedContent === '' && lastQuickActionRef.current === 'plan_my_day') {
+                    setShowPlanMyDayLoading(false);
+                  }
+
                   accumulatedContent += data.content;
                   if (data.provider) {
                     providerName = data.provider;
@@ -1175,68 +1183,6 @@ Guidelines:
     }
   };
 
-  // PHASE 4: Handle basic mode (No-AI fallback) request
-  const handleBasicModeRequest = useCallback(async () => {
-    if (basicModeLoading) return;
-
-    setBasicModeLoading(true);
-    setInlineError(null);
-
-    try {
-      const session = await ensureValidSession();
-      if (!session?.access_token) {
-        throw new Error('Session expired. Please sign in again.');
-      }
-
-      const response = await fetch('/.netlify/functions/ai-assistant', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          message: 'Generate my daily pipeline summary',
-          deals: deals || [],
-          mode: 'basic' // Request non-AI fallback
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.ok && data.fallbackPlan) {
-        setBasicModePlan(data.fallbackPlan);
-        // Also add to conversation history for display
-        setConversationHistory(prev => [{
-          role: 'assistant',
-          content: data.response,
-          timestamp: new Date().toISOString(),
-          provider: 'StageFlow (No AI)',
-          isBasicMode: true,
-          fallbackPlan: data.fallbackPlan
-        }]);
-
-        addNotification('Basic pipeline summary generated (no AI used)', 'success');
-      } else if (data.fallbackPlan) {
-        // Error response but still has fallback
-        setBasicModePlan(data.fallbackPlan);
-      } else {
-        throw new Error(data.message || 'Failed to generate basic plan');
-      }
-    } catch (error) {
-      console.error('[CustomQueryView] Basic mode request failed:', error);
-      setInlineError({
-        message: error.message || 'Failed to generate basic plan. Please try again.',
-        action: {
-          label: 'Try Again',
-          onClick: () => handleBasicModeRequest()
-        },
-        severity: 'error',
-        retryable: true
-      });
-    } finally {
-      setBasicModeLoading(false);
-    }
-  }, [deals, basicModeLoading, addNotification]);
 
   // Quick action handler - ONE-CLICK execution (no second click required)
   const handleQuickAction = async (actionType) => {
@@ -1248,11 +1194,15 @@ Guidelines:
         return;
       }
       setIsPlanning(true);
+      // PLAN MY DAY REFACTOR: Show loading component immediately
+      setShowPlanMyDayLoading(true);
+      setShowPlanMyDayFallback(false);
 
       // M2 HARDENING: Set up 50-second timeout for Plan My Day specifically
       planMyDayTimeoutRef.current = setTimeout(() => {
         console.warn('[StageFlow][AI][WARN] Plan My Day timeout after 50 seconds');
         setIsPlanning(false);
+        setShowPlanMyDayLoading(false);
         setLoading(false);
         setIsSubmitting(false);
         submissionLockRef.current = false;
@@ -1276,6 +1226,7 @@ Guidelines:
       // M2 HARDENING: Clear planning state if we early-return
       if (actionType === 'plan_my_day') {
         setIsPlanning(false);
+        setShowPlanMyDayLoading(false);
         if (planMyDayTimeoutRef.current) {
           clearTimeout(planMyDayTimeoutRef.current);
           planMyDayTimeoutRef.current = null;
@@ -1488,8 +1439,10 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
       submissionLockRef.current = false;
 
       // M2 HARDENING: Clear planning state and timeout when complete
+      // PLAN MY DAY REFACTOR: Also clear loading state
       if (lastQuickActionRef.current === 'plan_my_day') {
         setIsPlanning(false);
+        setShowPlanMyDayLoading(false);
         if (planMyDayTimeoutRef.current) {
           clearTimeout(planMyDayTimeoutRef.current);
           planMyDayTimeoutRef.current = null;
@@ -1679,8 +1632,31 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
             </div>
           )}
 
+          {/* PLAN MY DAY REFACTOR: Beautiful loading state */}
+          {showPlanMyDayLoading && (
+            <PlanMyDayLoading
+              deals={deals}
+              performanceMetrics={performanceMetrics}
+              onCancel={() => {
+                // Cancel the current Plan My Day request
+                if (streamAbortControllerRef.current) {
+                  streamAbortControllerRef.current.abort();
+                }
+                setShowPlanMyDayLoading(false);
+                setIsPlanning(false);
+                setLoading(false);
+                setIsSubmitting(false);
+                submissionLockRef.current = false;
+                if (planMyDayTimeoutRef.current) {
+                  clearTimeout(planMyDayTimeoutRef.current);
+                  planMyDayTimeoutRef.current = null;
+                }
+              }}
+            />
+          )}
+
           {/* APMDOS: Adaptive Welcome State */}
-          {conversationHistory.length === 0 && !loading && (
+          {conversationHistory.length === 0 && !loading && !showPlanMyDayLoading && (
             <div className="flex flex-col items-center justify-center py-8 space-y-6">
 
               {/* STATE_A: No AI Connected - Setup Prompt */}
@@ -1805,42 +1781,21 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
                         <p className="text-base text-white/80 font-medium">
                           Start your day with a quick plan.
                         </p>
+                        {/* PLAN MY DAY REFACTOR: Clean button with automatic fallback on failure */}
                         {hasProviders && isOnline && (
-                          <div className="flex flex-col items-center gap-2">
-                            <PlanMyDayButton
-                              onClick={() => handleQuickAction('plan_my_day')}
-                              disabled={loading || isSubmitting}
-                              loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-                            />
-                            {/* PHASE 4: Safe Mode button for non-AI fallback */}
-                            <button
-                              onClick={handleBasicModeRequest}
-                              disabled={basicModeLoading}
-                              className="text-xs text-white/40 hover:text-white/60 transition-colors flex items-center gap-1"
-                            >
-                              {basicModeLoading ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <Sparkles className="w-3 h-3" />
-                              )}
-                              View basic summary (no AI)
-                            </button>
-                          </div>
+                          <PlanMyDayButton
+                            onClick={() => handleQuickAction('plan_my_day')}
+                            disabled={loading || isSubmitting || isPlanning}
+                            loading={isPlanning || (loading && lastQuickActionRef.current === 'plan_my_day')}
+                          />
                         )}
-                        {/* PHASE 4: Show Safe Mode button when no AI providers */}
+                        {/* Show fallback when offline or no providers */}
                         {(!hasProviders || !isOnline) && (
-                          <button
-                            onClick={handleBasicModeRequest}
-                            disabled={basicModeLoading}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70 hover:bg-white/10 hover:text-white/90 transition-all"
-                          >
-                            {basicModeLoading ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Sparkles className="w-4 h-4" />
-                            )}
-                            View basic pipeline summary
-                          </button>
+                          <PlanMyDayFallback
+                            deals={deals}
+                            onRetry={() => handleQuickAction('plan_my_day')}
+                            onSettings={() => setActiveView && setActiveView(VIEWS?.SETTINGS)}
+                          />
                         )}
                       </>
                     )}
