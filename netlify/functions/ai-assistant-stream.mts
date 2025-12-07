@@ -6,6 +6,17 @@ import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/au
 import { parseCookies, COOKIE_NAMES } from './lib/cookie-auth';
 // M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
 import { AI_ERROR_CODES } from './lib/ai-error-codes';
+// Phase 2 Rate Limiting: Per-user, per-org AI call limits
+import {
+  checkRateLimits,
+  type RateLimitResult,
+} from './lib/rate-limiter';
+import {
+  RATE_LIMIT_GROUPS,
+  getRateLimitMessage,
+  getRetryAfterSeconds,
+} from './lib/rate-limit-config';
+import { ERROR_CODES } from './lib/with-error-boundary';
 // DIAGNOSTICS 2025-12-04: Import environment verification
 import { verifyProviderEnvironment } from './lib/provider-registry';
 
@@ -447,6 +458,62 @@ export default async (req: Request, context: any) => {
       }
 
       organizationId = membership.organization_id;
+    }
+
+    // =========================================================================
+    // Phase 2 Rate Limiting: Check per-user, per-org rate limits
+    // This runs AFTER auth so we have userId and organizationId
+    // =========================================================================
+    const isPlanMyDayStream = body?.operation === 'plan_my_day' || prompt?.toLowerCase()?.includes('plan my day');
+    const rateLimitBuckets = isPlanMyDayStream
+      ? RATE_LIMIT_GROUPS.planMyDayWithGeneric
+      : RATE_LIMIT_GROUPS.aiGeneric;
+
+    // Org-wide bucket for Plan My Day (shared across all org users)
+    const orgWideBucketsStream = isPlanMyDayStream ? ['ai.plan_my_day_org'] : [];
+
+    const { allowed: rateLimitAllowed, exceededBucket } = await checkRateLimits(
+      user.id,
+      organizationId,
+      rateLimitBuckets,
+      orgWideBucketsStream
+    );
+
+    if (!rateLimitAllowed && exceededBucket) {
+      console.warn('[ai-assistant-stream][RateLimit] Request blocked', {
+        userId: user.id,
+        organizationId,
+        bucket: exceededBucket.bucket,
+        limit: exceededBucket.limit,
+        remaining: exceededBucket.remaining,
+      });
+
+      const bucketConfig = rateLimitBuckets.find(b => b.bucket === exceededBucket.bucket) || rateLimitBuckets[0];
+      const message = getRateLimitMessage(bucketConfig);
+      const retryAfter = exceededBucket.retryAfterSeconds || getRetryAfterSeconds(bucketConfig);
+
+      return new Response(JSON.stringify({
+        ok: false,
+        success: false,
+        code: ERROR_CODES.RATE_LIMITED,
+        errorCode: 'RATE_LIMITED',
+        message,
+        retryable: true,
+        retryAfterSeconds: retryAfter,
+        rateLimit: {
+          bucket: exceededBucket.bucket,
+          limit: exceededBucket.limit,
+          remaining: exceededBucket.remaining,
+          windowSeconds: exceededBucket.windowSeconds,
+        },
+      }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders,
+          'Retry-After': String(retryAfter),
+        },
+      });
     }
 
     // Check AI usage limits

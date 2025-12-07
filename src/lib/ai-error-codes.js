@@ -172,7 +172,15 @@ export function getErrorMessage(code, context = {}) {
       return 'Your session has expired. Please sign in again.';
 
     case AI_ERROR_CODES.RATE_LIMITED:
-      return 'AI provider is temporarily busy. Please wait a moment.';
+      // Check if we have retryAfterSeconds context
+      if (context.retryAfterSeconds) {
+        const minutes = Math.ceil(context.retryAfterSeconds / 60);
+        if (minutes > 60) {
+          return 'You\'ve reached your daily AI limit. Try again tomorrow.';
+        }
+        return `You've reached the current limit. Try again in ${minutes} minute${minutes > 1 ? 's' : ''}.`;
+      }
+      return 'AI request limit reached. Please wait a moment and try again.';
 
     case AI_ERROR_CODES.ALL_PROVIDERS_FAILED:
       return 'All AI providers are temporarily unavailable.';
@@ -211,6 +219,10 @@ export function getErrorAction(code, retryable) {
 
     case AI_ERROR_CODES.AI_LIMIT_REACHED:
       return { label: 'Upgrade Plan', type: 'settings' };
+
+    case AI_ERROR_CODES.RATE_LIMITED:
+      // Rate limited but will be available again soon - don't show retry immediately
+      return { label: 'Wait', type: 'none' };
 
     case AI_ERROR_CODES.SESSION_ERROR:
       return { label: '', type: 'none' }; // User needs to sign out/in manually

@@ -8,6 +8,17 @@ import {
   NoProvidersConnectedError,
   AllConnectedProvidersFailedError
 } from './lib/ai-orchestrator';
+// Phase 2 Rate Limiting: Per-user, per-org AI call limits
+import {
+  checkRateLimits,
+  type RateLimitResult,
+} from './lib/rate-limiter';
+import {
+  RATE_LIMIT_GROUPS,
+  getRateLimitMessage,
+  getRetryAfterSeconds,
+} from './lib/rate-limit-config';
+import { ERROR_CODES } from './lib/with-error-boundary';
 
 /**
  * AI Insights Endpoint
@@ -203,6 +214,53 @@ export const handler: Handler = async (event) => {
     }
 
     const organizationId = membership.organization_id;
+
+    // =========================================================================
+    // Phase 2 Rate Limiting: Check per-user, per-org rate limits
+    // =========================================================================
+    const { allowed: rateLimitAllowed, exceededBucket } = await checkRateLimits(
+      user.id,
+      organizationId,
+      RATE_LIMIT_GROUPS.aiInsights,
+      []
+    );
+
+    if (!rateLimitAllowed && exceededBucket) {
+      console.warn('[ai-insights][RateLimit] Request blocked', {
+        userId: user.id,
+        organizationId,
+        bucket: exceededBucket.bucket,
+        limit: exceededBucket.limit,
+        remaining: exceededBucket.remaining,
+      });
+
+      const bucketConfig = RATE_LIMIT_GROUPS.aiInsights.find(b => b.bucket === exceededBucket.bucket) || RATE_LIMIT_GROUPS.aiInsights[0];
+      const message = getRateLimitMessage(bucketConfig);
+      const retryAfter = exceededBucket.retryAfterSeconds || getRetryAfterSeconds(bucketConfig);
+
+      return {
+        statusCode: 429,
+        headers: {
+          ...corsHeaders,
+          'Retry-After': String(retryAfter),
+        },
+        body: JSON.stringify({
+          ok: false,
+          success: false,
+          code: ERROR_CODES.RATE_LIMITED,
+          errorCode: 'RATE_LIMITED',
+          message,
+          retryable: true,
+          retryAfterSeconds: retryAfter,
+          rateLimit: {
+            bucket: exceededBucket.bucket,
+            limit: exceededBucket.limit,
+            remaining: exceededBucket.remaining,
+            windowSeconds: exceededBucket.windowSeconds,
+          },
+        }),
+      };
+    }
 
     // Parse request
     const { dealData, action } = JSON.parse(event.body || '{}');
