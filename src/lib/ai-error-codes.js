@@ -185,6 +185,10 @@ export function getErrorMessage(code, context = {}) {
       return 'Your session has expired. Please sign in again.';
 
     case AI_ERROR_CODES.RATE_LIMITED:
+      // Area 7: Check for upgrade prompt from backend (plan-based limits)
+      if (context.upgradePrompt) {
+        return context.upgradePrompt;
+      }
       // Check if we have retryAfterSeconds context
       if (context.retryAfterSeconds) {
         const minutes = Math.ceil(context.retryAfterSeconds / 60);
@@ -223,9 +227,10 @@ export function getErrorMessage(code, context = {}) {
  *
  * @param {string} code - Error code
  * @param {boolean} retryable - Whether the error is retryable
+ * @param {Object} context - Additional context (e.g., { planId })
  * @returns {{ label: string, type: 'retry' | 'settings' | 'none' }}
  */
-export function getErrorAction(code, retryable) {
+export function getErrorAction(code, retryable, context = {}) {
   switch (code) {
     case AI_ERROR_CODES.INVALID_API_KEY:
       return { label: 'Update in Settings', type: 'settings' };
@@ -237,6 +242,10 @@ export function getErrorAction(code, retryable) {
       return { label: 'Upgrade Plan', type: 'settings' };
 
     case AI_ERROR_CODES.RATE_LIMITED:
+      // Area 7: If free plan, suggest upgrade
+      if (context?.planId === 'free') {
+        return { label: 'Upgrade Plan', type: 'settings' };
+      }
       // Rate limited but will be available again soon - don't show retry immediately
       return { label: 'Wait', type: 'none' };
 

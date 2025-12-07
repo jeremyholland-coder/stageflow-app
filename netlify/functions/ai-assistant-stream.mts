@@ -15,8 +15,12 @@ import {
   RATE_LIMIT_GROUPS,
   getRateLimitMessage,
   getRetryAfterSeconds,
+  getBucketsForPlan,
+  getPlanAwareRateLimitMessage,
 } from './lib/rate-limit-config';
 import { ERROR_CODES } from './lib/with-error-boundary';
+// Area 7: Plan-aware rate limiting
+import { getOrgPlan } from './lib/get-org-plan';
 // DIAGNOSTICS 2025-12-04: Import environment verification
 import { verifyProviderEnvironment } from './lib/provider-registry';
 
@@ -462,12 +466,19 @@ export default async (req: Request, context: any) => {
 
     // =========================================================================
     // Phase 2 Rate Limiting: Check per-user, per-org rate limits
+    // Area 7: Now plan-aware - limits vary based on subscription tier
     // This runs AFTER auth so we have userId and organizationId
     // =========================================================================
-    const isPlanMyDayStream = body?.operation === 'plan_my_day' || prompt?.toLowerCase()?.includes('plan my day');
+
+    // Area 7: Get org's plan for plan-aware rate limits
+    const orgPlanId = await getOrgPlan(organizationId);
+    const planBuckets = getBucketsForPlan(orgPlanId);
+
+    // FIX: Use `message` not `prompt` (undefined variable bug)
+    const isPlanMyDayStream = body?.operation === 'plan_my_day' || message?.toLowerCase()?.includes('plan my day');
     const rateLimitBuckets = isPlanMyDayStream
-      ? RATE_LIMIT_GROUPS.planMyDayWithGeneric
-      : RATE_LIMIT_GROUPS.aiGeneric;
+      ? planBuckets.planMyDayWithGeneric
+      : planBuckets.aiGeneric;
 
     // Org-wide bucket for Plan My Day (shared across all org users)
     const orgWideBucketsStream = isPlanMyDayStream ? ['ai.plan_my_day_org'] : [];
@@ -483,13 +494,15 @@ export default async (req: Request, context: any) => {
       console.warn('[ai-assistant-stream][RateLimit] Request blocked', {
         userId: user.id,
         organizationId,
+        planId: orgPlanId,
         bucket: exceededBucket.bucket,
         limit: exceededBucket.limit,
         remaining: exceededBucket.remaining,
       });
 
       const bucketConfig = rateLimitBuckets.find(b => b.bucket === exceededBucket.bucket) || rateLimitBuckets[0];
-      const message = getRateLimitMessage(bucketConfig);
+      // Area 7: Plan-aware message with upgrade suggestion for free tier
+      const rateLimitMessage = getPlanAwareRateLimitMessage(bucketConfig, orgPlanId);
       const retryAfter = exceededBucket.retryAfterSeconds || getRetryAfterSeconds(bucketConfig);
 
       return new Response(JSON.stringify({
@@ -497,15 +510,18 @@ export default async (req: Request, context: any) => {
         success: false,
         code: ERROR_CODES.RATE_LIMITED,
         errorCode: 'RATE_LIMITED',
-        message,
+        message: rateLimitMessage,
         retryable: true,
         retryAfterSeconds: retryAfter,
+        planId: orgPlanId,
         rateLimit: {
           bucket: exceededBucket.bucket,
           limit: exceededBucket.limit,
           remaining: exceededBucket.remaining,
           windowSeconds: exceededBucket.windowSeconds,
         },
+        // Area 7: Upgrade prompt for free users
+        ...(orgPlanId === 'free' && { upgradePrompt: 'Upgrade to Startup for 5x higher limits' }),
       }), {
         status: 429,
         headers: {
