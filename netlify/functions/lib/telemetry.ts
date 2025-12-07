@@ -261,6 +261,159 @@ export const trackError = (
   });
 };
 
+// ============================================================================
+// LIGHTWEIGHT METRIC ROLLUPS (Phase 1 - Area 1 Completion)
+// ============================================================================
+
+/**
+ * In-memory metric counters for aggregate tracking
+ * These reset on cold start but provide useful rollup data within function invocations
+ * Logged to console for Netlify log aggregation (searchable via [Metrics])
+ */
+const metricCounters: Record<string, number> = {
+  ai_calls_total: 0,
+  ai_calls_success: 0,
+  ai_calls_failed: 0,
+  ai_fallbacks: 0,
+  deal_updates_total: 0,
+  deal_updates_success: 0,
+  deal_updates_failed: 0,
+  stage_changes: 0,
+};
+
+const providerCounters: Record<string, { success: number; failed: number }> = {};
+
+// Log rollup summary every N events
+const ROLLUP_INTERVAL = 50;
+let eventsSinceLastRollup = 0;
+
+/**
+ * Increment a metric counter
+ */
+const incrementMetric = (metric: string, count: number = 1): void => {
+  metricCounters[metric] = (metricCounters[metric] || 0) + count;
+  eventsSinceLastRollup++;
+
+  // Log rollup summary periodically
+  if (eventsSinceLastRollup >= ROLLUP_INTERVAL) {
+    logMetricRollup();
+    eventsSinceLastRollup = 0;
+  }
+};
+
+/**
+ * Track provider-specific metrics
+ */
+const incrementProviderMetric = (provider: string, success: boolean): void => {
+  if (!providerCounters[provider]) {
+    providerCounters[provider] = { success: 0, failed: 0 };
+  }
+  if (success) {
+    providerCounters[provider].success++;
+  } else {
+    providerCounters[provider].failed++;
+  }
+};
+
+/**
+ * Log metric rollup summary
+ * Format: [Metrics] { ... } - searchable in Netlify logs
+ */
+const logMetricRollup = (): void => {
+  const aiSuccessRate = metricCounters.ai_calls_total > 0
+    ? ((metricCounters.ai_calls_success / metricCounters.ai_calls_total) * 100).toFixed(1)
+    : 'N/A';
+
+  const dealSuccessRate = metricCounters.deal_updates_total > 0
+    ? ((metricCounters.deal_updates_success / metricCounters.deal_updates_total) * 100).toFixed(1)
+    : 'N/A';
+
+  console.log('[Metrics] Rollup Summary', {
+    timestamp: Date.now(),
+    ai: {
+      total: metricCounters.ai_calls_total,
+      success: metricCounters.ai_calls_success,
+      failed: metricCounters.ai_calls_failed,
+      successRate: aiSuccessRate + '%',
+      fallbacks: metricCounters.ai_fallbacks,
+    },
+    deals: {
+      total: metricCounters.deal_updates_total,
+      success: metricCounters.deal_updates_success,
+      failed: metricCounters.deal_updates_failed,
+      successRate: dealSuccessRate + '%',
+      stageChanges: metricCounters.stage_changes,
+    },
+    providers: providerCounters,
+  });
+};
+
+/**
+ * Get current metric snapshot (for debugging/diagnostics)
+ */
+export const getMetricSnapshot = (): Record<string, any> => ({
+  counters: { ...metricCounters },
+  providers: { ...providerCounters },
+  timestamp: Date.now(),
+});
+
+/**
+ * Enhanced AI call tracking with metric rollups
+ */
+export const trackAICallWithMetrics = (
+  correlationId: string,
+  provider: string,
+  taskType: string,
+  success: boolean,
+  durationMs: number,
+  errorCode?: string
+): void => {
+  // Original tracking
+  trackAICall(correlationId, provider, taskType, success, durationMs, errorCode);
+
+  // Metric rollups
+  incrementMetric('ai_calls_total');
+  incrementMetric(success ? 'ai_calls_success' : 'ai_calls_failed');
+  incrementProviderMetric(provider, success);
+};
+
+/**
+ * Enhanced deal update tracking with metric rollups
+ */
+export const trackDealUpdateWithMetrics = (
+  correlationId: string,
+  success: boolean,
+  hasStageChange: boolean,
+  durationMs: number,
+  errorCode?: string
+): void => {
+  // Original tracking
+  trackDealUpdate(correlationId, success, hasStageChange, durationMs, errorCode);
+
+  // Metric rollups
+  incrementMetric('deal_updates_total');
+  incrementMetric(success ? 'deal_updates_success' : 'deal_updates_failed');
+  if (success && hasStageChange) {
+    incrementMetric('stage_changes');
+  }
+};
+
+/**
+ * Enhanced fallback tracking with metric rollups
+ */
+export const trackAIFallbackWithMetrics = (
+  correlationId: string,
+  fromProvider: string,
+  toProvider: string,
+  reason: string
+): void => {
+  // Original tracking
+  trackAIFallback(correlationId, fromProvider, toProvider, reason);
+
+  // Metric rollups
+  incrementMetric('ai_fallbacks');
+};
+
 export default {
   extractCorrelationId,
   generateCorrelationId,
@@ -271,4 +424,9 @@ export default {
   trackDealUpdate,
   trackError,
   TelemetryEvents,
+  // Phase 1 Area 1: Metric rollups
+  getMetricSnapshot,
+  trackAICallWithMetrics,
+  trackDealUpdateWithMetrics,
+  trackAIFallbackWithMetrics,
 };
