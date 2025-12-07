@@ -909,21 +909,24 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
     // M3 HARDENING: Use standardized error codes for frontend classification
     const errorMessage = error.message || 'AI request failed';
     let errorCode: string = AI_ERROR_CODES.PROVIDER_ERROR;
-    let status = 500;
+    let status = 200; // P1 HOTFIX 2025-12-07: Default to 200 for graceful degradation
 
     // Classify the error for proper frontend handling
+    // P1 HOTFIX 2025-12-07: Only use non-200 status for true auth errors
+    // All provider errors should return 200 with ok: false so frontend can handle gracefully
     if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('401')) {
       errorCode = AI_ERROR_CODES.INVALID_API_KEY;
-      status = 401;
+      status = 401; // Auth errors still return 401 for proper session handling
     } else if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
       errorCode = AI_ERROR_CODES.RATE_LIMITED;
-      status = 429;
+      status = 200; // P1 HOTFIX: Rate limits are data, not crashes
     } else if (errorMessage.includes('timeout')) {
       errorCode = AI_ERROR_CODES.TIMEOUT;
-      status = 504;
+      status = 200; // P1 HOTFIX: Timeouts are data, not crashes
     }
 
     return new Response(JSON.stringify({
+      ok: false, // P1 HOTFIX: Explicit ok: false for frontend detection
       error: errorCode,
       code: errorCode,
       message: errorMessage

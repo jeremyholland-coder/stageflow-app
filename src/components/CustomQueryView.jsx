@@ -646,25 +646,34 @@ export const CustomQueryView = ({
         })
       });
 
+      // P1 HOTFIX 2025-12-07: Handle errors as DATA, not exceptions
+      // This prevents ErrorBoundary from tripping on AI provider failures
+      //
+      // IMPORTANT: We check for error conditions WITHOUT throwing, then use
+      // setInlineError() to show friendly error UI instead of crashing.
+
+      // First, handle HTTP-level errors (non-200 status)
       if (!response.ok) {
         // Handle 401 Unauthorized - session expired
         // FIX 2025-12-02: Also handle 403 Forbidden
         if (response.status === 401 || response.status === 403) {
-          addNotification('Your session has expired. Please sign out and sign back in.', 'error');
-          // Remove placeholder message
+          // P1 HOTFIX: Handle session errors gracefully (no throw)
           setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
-          // Create error with proper code for getErrorGuidance
-          const sessionError = new Error('Session expired');
-          sessionError.status = response.status;
-          sessionError.code = 'SESSION_ERROR';
-          throw sessionError;
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
+          const guidance = getErrorGuidance({ code: 'SESSION_ERROR', status: response.status }, {
+            onRetry: null,
+            onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+          });
+          setInlineError(guidance);
+          return; // P1 HOTFIX: Return instead of throw
         }
 
         const errorData = await response.json().catch(() => ({}));
 
         // Handle AI limit reached
         if (errorData.error === 'AI_LIMIT_REACHED' || errorData.limitReached) {
-          addNotification(`AI limit reached: ${errorData.used}/${errorData.limit} requests used this month. Upgrade to continue.`, 'error');
           // Remove placeholder and add limit message
           setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
           const limitMessage = {
@@ -673,25 +682,61 @@ export const CustomQueryView = ({
             isLimit: true
           };
           setConversationHistory(prev => [...prev, limitMessage]);
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
           return;
         }
 
-        // FIX 2025-12-02: Handle NO_PROVIDERS (422) with proper error classification
-        if (errorData.error === 'NO_PROVIDERS' || errorData.code === 'NO_PROVIDERS') {
-          // Remove placeholder message
-          setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
-          const noProviderError = new Error(errorData.message || 'No AI provider configured');
-          noProviderError.code = 'NO_PROVIDERS';
-          noProviderError.status = response.status;
-          throw noProviderError;
-        }
+        // P1 HOTFIX: Handle all other HTTP errors gracefully (no throw)
+        setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
+        const guidance = getErrorGuidance({
+          code: errorData.code || errorData.error,
+          message: errorData.message,
+          status: response.status,
+          data: errorData
+        }, {
+          onRetry: () => {
+            setInlineError(null);
+            handleQueryStreaming(currentQuery);
+          },
+          onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+        });
+        setInlineError(guidance);
+        return; // P1 HOTFIX: Return instead of throw
+      }
 
-        // Create error with response data for proper classification
-        const error = new Error(errorData.error || errorData.message || 'Stream failed');
-        error.status = response.status;
-        error.code = errorData.code || errorData.error;
-        error.data = errorData;
-        throw error;
+      // P1 HOTFIX 2025-12-07: Check for ok: false in JSON body (new backend pattern)
+      // Backend now returns HTTP 200 with ok: false for provider failures
+      // We need to detect this BEFORE trying to read the SSE stream
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        // This is a JSON error response, not SSE stream
+        const errorData = await response.json().catch(() => ({}));
+        if (errorData.ok === false || errorData.error || errorData.code) {
+          // P1 HOTFIX: Handle backend error response gracefully
+          setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
+          const guidance = getErrorGuidance({
+            code: errorData.code || errorData.error?.code,
+            message: errorData.message || errorData.error?.message,
+            data: errorData,
+            isAllProvidersFailed: errorData.code === 'ALL_PROVIDERS_FAILED'
+          }, {
+            onRetry: () => {
+              setInlineError(null);
+              handleQueryStreaming(currentQuery);
+            },
+            onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+          });
+          setInlineError(guidance);
+          return;
+        }
       }
 
       // Read SSE stream with timeout protection
@@ -741,8 +786,21 @@ export const CustomQueryView = ({
       try {
         while (true) {
           // CRITICAL-01 FIX: Check timeout flag before read
+          // P1 HOTFIX 2025-12-07: Handle timeout gracefully (no throw)
           if (streamTimedOut) {
-            throw new Error('AI response timed out. Please try again.');
+            setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+            setLoading(false);
+            setIsSubmitting(false);
+            submissionLockRef.current = false;
+            const guidance = getErrorGuidance({ code: 'TIMEOUT', message: 'AI response timed out. Please try again.' }, {
+              onRetry: () => {
+                setInlineError(null);
+                handleQueryStreaming(currentQuery);
+              },
+              onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+            });
+            setInlineError(guidance);
+            return; // P1 HOTFIX: Return instead of throw
           }
           const { done, value } = await reader.read();
           if (done) break;
@@ -810,8 +868,36 @@ export const CustomQueryView = ({
                   continue;
                 }
 
+                // P1 HOTFIX 2025-12-07: Handle SSE error data gracefully (no throw)
+                // Backend sends { error: '...', code: '...' } when providers fail
+                // Instead of throwing, we handle this as data and show inline error
                 if (data.error) {
-                  throw new Error(data.error);
+                  // Build error object with full context from SSE data
+                  const sseError = {
+                    code: data.code || data.error,
+                    message: data.message || data.error,
+                    data: data,
+                    isAllProvidersFailed: data.error === 'ALL_PROVIDERS_FAILED' || data.code === 'ALL_PROVIDERS_FAILED'
+                  };
+
+                  // P1 HOTFIX: Clean up and show inline error instead of crashing
+                  setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+                  setLoading(false);
+                  setIsSubmitting(false);
+                  submissionLockRef.current = false;
+
+                  const guidance = getErrorGuidance(sseError, {
+                    onRetry: () => {
+                      setInlineError(null);
+                      handleQueryStreaming(currentQuery);
+                    },
+                    onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+                  });
+                  setInlineError(guidance);
+
+                  // P1 HOTFIX: Clear timeout and return early - don't continue loop
+                  clearTimeout(streamTimeout);
+                  return;
                 }
 
                 if (data.content) {
@@ -830,7 +916,8 @@ export const CustomQueryView = ({
                   scheduleUIUpdate();
                 }
               } catch (parseError) {
-                console.error('Parse error:', parseError);
+                // P1 HOTFIX: Only log JSON parse errors, don't re-throw
+                console.warn('[CustomQueryView] SSE parse warning:', parseError);
               }
             }
           }
@@ -1001,32 +1088,61 @@ export const CustomQueryView = ({
         return;
       }
 
-      // Parse JSON with error handling for empty responses
+      // P1 HOTFIX 2025-12-07: Parse JSON with graceful error handling (no throws)
       let data;
       try {
         const text = await response.text();
         if (!text || text.trim() === '') {
-          throw new Error('Empty response from AI assistant');
+          // P1 HOTFIX: Handle empty response gracefully
+          setConversationHistory(prev => prev.slice(0, -1));
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
+          setInlineError({
+            message: 'No response from AI assistant. Please try again.',
+            action: { label: 'Retry', onClick: () => { setInlineError(null); handleQuery(); } },
+            severity: 'warning',
+            retryable: true
+          });
+          return;
         }
         data = JSON.parse(text);
       } catch (jsonError) {
+        // P1 HOTFIX: Handle JSON parse error gracefully
         console.error('JSON parse error:', jsonError);
-        throw new Error(`Failed to parse AI response: ${jsonError.message}`);
+        setConversationHistory(prev => prev.slice(0, -1));
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
+        setInlineError({
+          message: 'Failed to parse AI response. Please try again.',
+          action: { label: 'Retry', onClick: () => { setInlineError(null); handleQuery(); } },
+          severity: 'error',
+          retryable: true
+        });
+        return;
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get AI response');
-      }
-
-      if (data.error) {
-        if (data.error.includes('No AI provider configured')) {
-          addNotification('Please connect an AI provider first', 'error');
+      // P1 HOTFIX 2025-12-07: Handle error responses gracefully (no throws)
+      // Check for ok: false pattern (new backend behavior) or HTTP error
+      if (!response.ok || data.ok === false || data.error) {
+        // Handle "No AI provider configured" specifically
+        if (data.error?.includes?.('No AI provider configured') || data.code === 'NO_PROVIDERS') {
           setConversationHistory(prev => prev.slice(0, -1));
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
+          setInlineError({
+            message: 'No AI provider connected yet.',
+            action: { label: 'Add Provider', onClick: () => setActiveView && setActiveView(VIEWS?.SETTINGS) },
+            severity: 'warning',
+            retryable: false
+          });
           return;
         }
+
         // Handle AI limit reached
         if (data.error === 'AI_LIMIT_REACHED' || data.limitReached) {
-          addNotification(`AI limit reached: ${data.used}/${data.limit} requests used this month. Upgrade to continue.`, 'error');
           setConversationHistory(prev => prev.slice(0, -1));
           // Add system message about limit
           const limitMessage = {
@@ -1035,9 +1151,29 @@ export const CustomQueryView = ({
             isLimit: true
           };
           setConversationHistory(prev => [...prev, limitMessage]);
+          setLoading(false);
+          setIsSubmitting(false);
+          submissionLockRef.current = false;
           return;
         }
-        throw new Error(data.error);
+
+        // P1 HOTFIX 2025-12-07: Handle all other errors gracefully (no throw)
+        // This covers ALL_PROVIDERS_FAILED, PROVIDER_ERROR, etc.
+        setConversationHistory(prev => prev.slice(0, -1));
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
+        const guidance = getErrorGuidance({
+          code: data.code || data.error?.code || data.error,
+          message: data.message || data.error?.message,
+          data: data,
+          isAllProvidersFailed: data.code === 'ALL_PROVIDERS_FAILED'
+        }, {
+          onRetry: () => { setInlineError(null); handleQuery(); },
+          onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+        });
+        setInlineError(guidance);
+        return;
       }
 
       // Add AI response to conversation (with optional chart data)
@@ -1057,15 +1193,26 @@ export const CustomQueryView = ({
       }
 
     } catch (error) {
+      // P1 HOTFIX 2025-12-07: Handle catch block errors gracefully (use inline error)
       clearTimeout(timeoutId);
       console.error('Error querying AI:', error);
 
       setConversationHistory(prev => prev.slice(0, -1));
 
+      // P1 HOTFIX: Use inline error instead of notification for better UX
       if (error.name === 'AbortError') {
-        addNotification('Request timed out. The AI is taking longer than expected. Please try again.', 'error');
+        setInlineError({
+          message: 'Request timed out. Please try again.',
+          action: { label: 'Retry', onClick: () => { setInlineError(null); handleQuery(); } },
+          severity: 'warning',
+          retryable: true
+        });
       } else {
-        addNotification(error.message || 'Failed to get AI response. Try again.', 'error');
+        const guidance = getErrorGuidance(error, {
+          onRetry: () => { setInlineError(null); handleQuery(); },
+          onNavigate: (view) => setActiveView && setActiveView(VIEWS?.[view])
+        });
+        setInlineError(guidance);
       }
     } finally {
       setLoading(false);

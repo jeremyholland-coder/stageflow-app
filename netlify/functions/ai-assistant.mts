@@ -1938,8 +1938,12 @@ export default async (req: Request, context: any) => {
         console.error('[ai-assistant] Failed to build fallback plan:', fallbackError);
       }
 
-      // PHASE 2: Build structured error response with provider-specific details
-      // Frontend can now show per-provider error messages with dashboard links
+      // P1 HOTFIX 2025-12-07: Return HTTP 200 with ok: false instead of 503
+      // This treats provider failures as DATA, not server faults.
+      // Frontend can handle this gracefully without tripping ErrorBoundary.
+      //
+      // Before: 503 → fetch throws → ErrorBoundary → "Critical Error"
+      // After:  200 → ok: false → inline error UI → graceful degradation
       return new Response(JSON.stringify({
         ok: false,
         error: {
@@ -1975,7 +1979,7 @@ export default async (req: Request, context: any) => {
         // PHASE 3: Top-level fallback plan for easier access
         fallbackPlan
       }), {
-        status: 503, // Service Unavailable
+        status: 200, // P1 HOTFIX: Return 200 so frontend treats this as data, not crash
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
