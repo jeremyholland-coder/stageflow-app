@@ -17,8 +17,12 @@ import {
   RATE_LIMIT_GROUPS,
   getRateLimitMessage,
   getRetryAfterSeconds,
+  getBucketsForPlan,
+  getPlanAwareRateLimitMessage,
 } from './lib/rate-limit-config';
 import { ERROR_CODES } from './lib/with-error-boundary';
+// Area 7: Plan-aware rate limiting
+import { getOrgPlan } from './lib/get-org-plan';
 
 /**
  * AI Insights Endpoint
@@ -217,11 +221,17 @@ export const handler: Handler = async (event) => {
 
     // =========================================================================
     // Phase 2 Rate Limiting: Check per-user, per-org rate limits
+    // Area 7: Now plan-aware - limits vary based on subscription tier
     // =========================================================================
+
+    // Area 7: Get org's plan for plan-aware rate limits
+    const orgPlanId = await getOrgPlan(organizationId);
+    const planBuckets = getBucketsForPlan(orgPlanId);
+
     const { allowed: rateLimitAllowed, exceededBucket } = await checkRateLimits(
       user.id,
       organizationId,
-      RATE_LIMIT_GROUPS.aiInsights,
+      planBuckets.aiInsights,
       []
     );
 
@@ -229,13 +239,15 @@ export const handler: Handler = async (event) => {
       console.warn('[ai-insights][RateLimit] Request blocked', {
         userId: user.id,
         organizationId,
+        planId: orgPlanId,
         bucket: exceededBucket.bucket,
         limit: exceededBucket.limit,
         remaining: exceededBucket.remaining,
       });
 
-      const bucketConfig = RATE_LIMIT_GROUPS.aiInsights.find(b => b.bucket === exceededBucket.bucket) || RATE_LIMIT_GROUPS.aiInsights[0];
-      const message = getRateLimitMessage(bucketConfig);
+      const bucketConfig = planBuckets.aiInsights.find(b => b.bucket === exceededBucket.bucket) || planBuckets.aiInsights[0];
+      // Area 7: Plan-aware message with upgrade suggestion for free tier
+      const message = getPlanAwareRateLimitMessage(bucketConfig, orgPlanId);
       const retryAfter = exceededBucket.retryAfterSeconds || getRetryAfterSeconds(bucketConfig);
 
       return {
@@ -252,12 +264,15 @@ export const handler: Handler = async (event) => {
           message,
           retryable: true,
           retryAfterSeconds: retryAfter,
+          planId: orgPlanId,
           rateLimit: {
             bucket: exceededBucket.bucket,
             limit: exceededBucket.limit,
             remaining: exceededBucket.remaining,
             windowSeconds: exceededBucket.windowSeconds,
           },
+          // Area 7: Upgrade prompt for free users
+          ...(orgPlanId === 'free' && { upgradePrompt: 'Upgrade to Startup for 3x higher limits' }),
         }),
       };
     }

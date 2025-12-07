@@ -1,6 +1,7 @@
 /**
  * Rate Limit Configuration
  * Area 2 - Rate Limiting & Abuse Protection
+ * Area 7 - Billing & Quotas (plan-based limits)
  *
  * Defines rate limit buckets for different operations.
  * Limits are per-user AND per-organization.
@@ -10,7 +11,13 @@
  * - ai.plan_my_day: Plan My Day feature (limited runs per day)
  * - ai.plan_my_day_org: Org-wide Plan My Day limit
  * - ai.insights: AI Insights generation
+ *
+ * Area 7 additions:
+ * - Plan-aware bucket generation via getBucketsForPlan()
+ * - Limits are derived from plan-config.ts based on org's subscription
  */
+
+import { StageflowPlanId, getPlanConfig } from './plan-config';
 
 export interface RateLimitBucket {
   /** Bucket identifier for database storage */
@@ -161,6 +168,81 @@ export function getRetryAfterSeconds(bucket: RateLimitBucket): number {
   const tomorrow = new Date(now);
   tomorrow.setUTCHours(24, 0, 0, 0);
   return Math.ceil((tomorrow.getTime() - now.getTime()) / 1000);
+}
+
+// =============================================================================
+// AREA 7: PLAN-AWARE RATE LIMIT BUCKETS
+// =============================================================================
+
+/**
+ * Base bucket definitions (without limits).
+ * Limits are applied based on the org's plan via getBucketsForPlan().
+ */
+export const BASE_BUCKETS = {
+  aiGenericPerMinute: { bucket: 'ai.generic', windowSeconds: 60, description: 'AI requests per minute' },
+  aiGenericPerHour: { bucket: 'ai.generic', windowSeconds: 3600, description: 'AI requests per hour' },
+  aiGenericPerDay: { bucket: 'ai.generic', windowSeconds: 86400, description: 'AI requests per day' },
+  aiInsightsPerHour: { bucket: 'ai.insights', windowSeconds: 3600, description: 'AI Insights requests per hour' },
+  aiInsightsPerDay: { bucket: 'ai.insights', windowSeconds: 86400, description: 'AI Insights requests per day' },
+  planMyDayPerUserPerDay: { bucket: 'ai.plan_my_day', windowSeconds: 86400, description: 'Plan My Day runs per day (per user)' },
+  planMyDayPerOrgPerDay: { bucket: 'ai.plan_my_day_org', windowSeconds: 86400, description: 'Plan My Day runs per day (per organization)' },
+} as const;
+
+/**
+ * Plan-aware bucket groups.
+ * Returns buckets with limits based on the org's subscription plan.
+ *
+ * @param planId - The organization's plan (free, startup, growth, pro)
+ * @returns Object with bucket arrays for each feature area
+ */
+export function getBucketsForPlan(planId: StageflowPlanId) {
+  const config = getPlanConfig(planId);
+
+  return {
+    /** Generic AI requests (Coach, Mission Control chat) */
+    aiGeneric: [
+      { ...BASE_BUCKETS.aiGenericPerMinute, limit: config.aiGenericPerMinute },
+      { ...BASE_BUCKETS.aiGenericPerHour, limit: config.aiGenericPerHour },
+      { ...BASE_BUCKETS.aiGenericPerDay, limit: config.aiGenericPerDay },
+    ] as RateLimitBucket[],
+
+    /** AI Insights generation */
+    aiInsights: [
+      { ...BASE_BUCKETS.aiInsightsPerHour, limit: config.aiInsightsPerHour },
+      { ...BASE_BUCKETS.aiInsightsPerDay, limit: config.aiInsightsPerDay },
+    ] as RateLimitBucket[],
+
+    /** Plan My Day (user + org limits) */
+    planMyDay: [
+      { ...BASE_BUCKETS.planMyDayPerUserPerDay, limit: config.planMyDayPerUserPerDay },
+      { ...BASE_BUCKETS.planMyDayPerOrgPerDay, limit: config.planMyDayPerOrgPerDay },
+    ] as RateLimitBucket[],
+
+    /** Combined: Plan My Day + generic AI limits */
+    planMyDayWithGeneric: [
+      { ...BASE_BUCKETS.planMyDayPerUserPerDay, limit: config.planMyDayPerUserPerDay },
+      { ...BASE_BUCKETS.planMyDayPerOrgPerDay, limit: config.planMyDayPerOrgPerDay },
+      { ...BASE_BUCKETS.aiGenericPerMinute, limit: config.aiGenericPerMinute },
+      { ...BASE_BUCKETS.aiGenericPerHour, limit: config.aiGenericPerHour },
+      { ...BASE_BUCKETS.aiGenericPerDay, limit: config.aiGenericPerDay },
+    ] as RateLimitBucket[],
+  };
+}
+
+/**
+ * Get plan-aware rate limit message with upgrade suggestion for free users.
+ */
+export function getPlanAwareRateLimitMessage(
+  bucket: RateLimitBucket,
+  planId: StageflowPlanId
+): string {
+  const baseMessage = getRateLimitMessage(bucket);
+
+  if (planId === 'free') {
+    return `${baseMessage} Upgrade your plan for higher limits.`;
+  }
+
+  return baseMessage;
 }
 
 export default RATE_LIMIT_BUCKETS;

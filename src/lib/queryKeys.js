@@ -182,6 +182,19 @@ export const queryKeys = {
      */
     state: (orgId) => ['onboarding', 'state', orgId],
   },
+
+  // =========================================================================
+  // BILLING & QUOTAS (Area 7)
+  // =========================================================================
+
+  billing: {
+    all: ['billing'],
+
+    /**
+     * Usage summary for quotas display
+     */
+    usageSummary: () => ['billing', 'usage-summary'],
+  },
 };
 
 export default queryKeys;
