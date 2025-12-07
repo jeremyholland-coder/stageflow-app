@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, AlertTriangle, TrendingDown } from 'lucide-react';
+import { useFocusTrap } from '../lib/accessibility';
 
 // APPLE UX: Humanize stage IDs to readable names
 const formatStageName = (stageId) => {
@@ -18,6 +19,9 @@ export const StatusChangeConfirmationModal = ({
   currentStatus,
   targetStage
 }) => {
+  // WCAG 2.1: Focus trap for keyboard accessibility
+  const containerRef = useFocusTrap(isOpen);
+
   if (!isOpen) return null;
 
   const handleConfirm = () => {
@@ -54,17 +58,23 @@ export const StatusChangeConfirmationModal = ({
 
   return (
     <div className="modal-backdrop fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-50 md:p-4">
-      <div className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl w-full md:max-w-md h-full md:h-auto max-h-none md:max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
+      <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="status-change-modal-title"
+        className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl w-full md:max-w-md h-full md:h-auto max-h-none md:max-h-[90vh] overflow-y-auto p-6 shadow-2xl"
+      >
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
               isWon ? 'bg-emerald-500/20 ring-2 ring-emerald-500/10' : 'bg-red-500/20 ring-2 ring-red-500/10'
             }`}>
-              <StatusIcon className={`w-6 h-6 ${isWon ? 'text-emerald-400' : 'text-red-400'}`} />
+              <StatusIcon className={`w-6 h-6 ${isWon ? 'text-emerald-400' : 'text-red-400'}`} aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-white">
+              <h2 id="status-change-modal-title" className="text-2xl font-bold text-white">
                 Change Deal Status?
               </h2>
               <p className="text-sm text-gray-400 mt-1">
@@ -82,11 +92,14 @@ export const StatusChangeConfirmationModal = ({
         </div>
 
         {/* Warning Message */}
-        <div className={`rounded-xl p-4 mb-6 border ${
-          isWon ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'
-        }`}>
+        <div
+          role="alert"
+          className={`rounded-xl p-4 mb-6 border ${
+            isWon ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'
+          }`}
+        >
           <div className="flex gap-3">
-            <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isWon ? 'text-emerald-400' : 'text-red-400'}`} />
+            <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isWon ? 'text-emerald-400' : 'text-red-400'}`} aria-hidden="true" />
             <div className="space-y-2">
               <p className="text-sm font-medium text-white">
                 This deal is currently marked as <span className="font-bold capitalize">"{currentStatus}"</span>.
@@ -128,3 +141,5 @@ export const StatusChangeConfirmationModal = ({
     </div>
   );
 };
+
+StatusChangeConfirmationModal.displayName = 'StatusChangeConfirmationModal';

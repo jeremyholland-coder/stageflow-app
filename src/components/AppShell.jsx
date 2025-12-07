@@ -1896,6 +1896,7 @@ export const AppShell = ({ children }) => {
 
         {/* Premium Glass Nav - Fixed below banners, always accessible */}
         <nav
+          aria-label="Main navigation"
           className="bg-gradient-to-r from-gray-900/95 to-black/95 backdrop-blur-xl border-b border-teal-500/30 fixed left-0 right-0 z-[150] shadow-2xl overflow-x-clip w-full transition-all duration-200"
           style={{
             top: `${
