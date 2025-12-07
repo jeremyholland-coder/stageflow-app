@@ -142,8 +142,11 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         ignoredFields: result?.ignoredFields
       });
 
-      if (!result.success && result.error) {
-        throw new Error(result.error);
+      // FIX 2025-12-07: Check for error even if success is undefined (handles all error responses)
+      if (result?.success === false || result?.error) {
+        const error = new Error(result.error || 'Save failed');
+        error.code = result.code || 'UPDATE_ERROR';
+        throw error;
       }
 
       // Update last saved data
@@ -168,10 +171,22 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         organizationId: organization?.id
       });
       setAutoSaveStatus('idle');
-      // Show error to user for critical failures (not just silent fail)
-      if (error.status === 400 || error.status === 403 || error.status === 404) {
-        addNotification(`Save failed: ${error.message}`, 'error');
+
+      // FIX 2025-12-07: Show specific error messages based on error code
+      let userMessage = 'Save failed. Please try again.';
+      if (error.code === 'VALIDATION_ERROR' || error.code === 'UPDATE_VALIDATION_ERROR') {
+        userMessage = error.message || 'Invalid data. Please check your input.';
+      } else if (error.code === 'FORBIDDEN') {
+        userMessage = 'You don\'t have permission to update this deal.';
+      } else if (error.code === 'NOT_FOUND') {
+        userMessage = 'Deal not found. It may have been deleted.';
+      } else if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_ERROR') {
+        userMessage = 'Session expired. Please refresh the page.';
+      } else if (error.code === 'SERVER_ERROR') {
+        userMessage = 'Something went wrong. Please try again.';
       }
+      // Always show error to user (not just silent fail)
+      addNotification(userMessage, 'error');
     }
   }, [deal, organization?.id, onDealUpdated, addNotification]);
 

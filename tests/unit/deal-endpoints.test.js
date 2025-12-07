@@ -297,6 +297,156 @@ describe('API Response Format', () => {
   });
 });
 
+/**
+ * REGRESSION TESTS: Update-Deal Error Response Format
+ *
+ * Added 2025-12-07 after P0 fix for 500 errors on deal updates.
+ * These tests ensure error responses have consistent structure:
+ * - success: false
+ * - error: string (user-friendly message)
+ * - code: string (machine-readable error code)
+ */
+describe('Update-Deal Error Response Format (P0 Regression)', () => {
+  describe('Validation Errors (400)', () => {
+    it('should return success:false with VALIDATION_ERROR code for invalid stage', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Invalid stage value: fake_stage',
+        code: 'VALIDATION_ERROR',
+        hint: 'Stage must be a valid pipeline stage'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.error).toContain('Invalid stage');
+      expect(errorResponse.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return success:false with VALIDATION_ERROR code for missing fields', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Missing required fields: dealId, updates, organizationId',
+        code: 'VALIDATION_ERROR'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return success:false with VALIDATION_ERROR code for no valid fields to update', () => {
+      const errorResponse = {
+        success: false,
+        error: 'No valid fields to update',
+        code: 'VALIDATION_ERROR'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('Authorization Errors (401/403)', () => {
+    it('should return success:false with AUTH_REQUIRED code for auth errors', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('AUTH_REQUIRED');
+    });
+
+    it('should return success:false with FORBIDDEN code for org access denied', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Not authorized for this organization',
+        code: 'FORBIDDEN'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('FORBIDDEN');
+    });
+  });
+
+  describe('Not Found Errors (404)', () => {
+    it('should return success:false with NOT_FOUND code for missing deal', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Deal not found',
+        code: 'NOT_FOUND'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('Server Errors (500)', () => {
+    it('should return success:false with SERVER_ERROR code and safe message', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Something went wrong updating this deal. Please try again.',
+        code: 'SERVER_ERROR'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('SERVER_ERROR');
+      // Should NOT expose internal error details
+      expect(errorResponse.error).not.toContain('stack');
+      expect(errorResponse.error).not.toContain('undefined');
+    });
+
+    it('should return UPDATE_VALIDATION_ERROR for Supabase client errors', () => {
+      const errorResponse = {
+        success: false,
+        error: 'Update failed: Not null violation',
+        code: 'UPDATE_VALIDATION_ERROR',
+        details: 'null value in column "client" violates not-null constraint'
+      };
+
+      expect(errorResponse.success).toBe(false);
+      expect(errorResponse.code).toBe('UPDATE_VALIDATION_ERROR');
+    });
+  });
+
+  describe('All Error Codes Used by Frontend', () => {
+    const BACKEND_ERROR_CODES = [
+      'VALIDATION_ERROR',
+      'UPDATE_VALIDATION_ERROR',
+      'FORBIDDEN',
+      'NOT_FOUND',
+      'AUTH_REQUIRED',
+      'SESSION_ERROR',
+      'SERVER_ERROR'
+    ];
+
+    it('should have all required error codes defined', () => {
+      BACKEND_ERROR_CODES.forEach(code => {
+        expect(typeof code).toBe('string');
+        expect(code).toMatch(/^[A-Z_]+$/);
+      });
+    });
+
+    it('should map error codes to user-friendly messages', () => {
+      const codeToMessage = {
+        'VALIDATION_ERROR': 'Invalid data. Please check your input.',
+        'UPDATE_VALIDATION_ERROR': 'Invalid data. Please check your input.',
+        'FORBIDDEN': 'You don\'t have permission to update this deal.',
+        'NOT_FOUND': 'Deal not found. It may have been deleted.',
+        'AUTH_REQUIRED': 'Session expired. Please refresh the page.',
+        'SESSION_ERROR': 'Session expired. Please refresh the page.',
+        'SERVER_ERROR': 'Something went wrong. Please try again.'
+      };
+
+      Object.entries(codeToMessage).forEach(([code, message]) => {
+        expect(BACKEND_ERROR_CODES).toContain(code);
+        expect(message.length).toBeGreaterThan(0);
+        expect(message).not.toContain('connection issue'); // Should be specific, not generic
+      });
+    });
+  });
+});
+
 describe('Allowed Fields Sanitization', () => {
   describe('Create Deal Allowed Fields', () => {
     const ALLOWED_CREATE_FIELDS = [

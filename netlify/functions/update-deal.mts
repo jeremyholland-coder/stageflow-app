@@ -85,7 +85,11 @@ export default async (req: Request, context: Context) => {
 
     if (!dealId || !updates || !organizationId) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields: dealId, updates, organizationId" }),
+        JSON.stringify({
+          success: false,
+          error: "Missing required fields: dealId, updates, organizationId",
+          code: "VALIDATION_ERROR"
+        }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -113,7 +117,11 @@ export default async (req: Request, context: Context) => {
     if (membershipError || !membership) {
       console.error("[update-deal] User not in organization:", { userId, organizationId, error: membershipError });
       return new Response(
-        JSON.stringify({ error: "Not authorized for this organization" }),
+        JSON.stringify({
+          success: false,
+          error: "Not authorized for this organization",
+          code: "FORBIDDEN"
+        }),
         { status: 403, headers: corsHeaders }
       );
     }
@@ -131,7 +139,11 @@ export default async (req: Request, context: Context) => {
     if (dealCheckError || !existingDeal) {
       console.error("[update-deal] Deal not found:", { dealId, organizationId, error: dealCheckError });
       return new Response(
-        JSON.stringify({ error: "Deal not found" }),
+        JSON.stringify({
+          success: false,
+          error: "Deal not found",
+          code: "NOT_FOUND"
+        }),
         { status: 404, headers: corsHeaders }
       );
     }
@@ -186,7 +198,11 @@ export default async (req: Request, context: Context) => {
 
     if (Object.keys(sanitizedUpdates).length === 0) {
       return new Response(
-        JSON.stringify({ error: "No valid fields to update" }),
+        JSON.stringify({
+          success: false,
+          error: "No valid fields to update",
+          code: "VALIDATION_ERROR"
+        }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -222,7 +238,9 @@ export default async (req: Request, context: Context) => {
         console.error("[KANBAN][BACKEND] Valid stages are:", Array.from(VALID_STAGES).join(', '));
         return new Response(
           JSON.stringify({
+            success: false,
             error: `Invalid stage value: ${sanitizedUpdates.stage}`,
+            code: "VALIDATION_ERROR",
             hint: "Stage must be a valid pipeline stage"
           }),
           { status: 400, headers: corsHeaders }
@@ -245,7 +263,9 @@ export default async (req: Request, context: Context) => {
       if (sanitizedUpdates.status === 'lost' && (!hasLostReason || !hasLostNotes)) {
         return new Response(
           JSON.stringify({
-            error: "Lost deals must have a lost reason. If 'Other' is selected, notes are required."
+            success: false,
+            error: "Lost deals must have a lost reason. If 'Other' is selected, notes are required.",
+            code: "VALIDATION_ERROR"
           }),
           { status: 400, headers: corsHeaders }
         );
@@ -267,7 +287,9 @@ export default async (req: Request, context: Context) => {
       if (sanitizedUpdates.status === 'disqualified' && !hasDisqReason) {
         return new Response(
           JSON.stringify({
-            error: "Disqualified deals must include a disqualification reason."
+            success: false,
+            error: "Disqualified deals must include a disqualification reason.",
+            code: "VALIDATION_ERROR"
           }),
           { status: 400, headers: corsHeaders }
         );
@@ -312,24 +334,33 @@ export default async (req: Request, context: Context) => {
         updateKeys: Object.keys(sanitizedUpdates)
       });
 
-      // FIX 2025-12-03: Classify Supabase errors properly
+      // FIX 2025-12-07: Comprehensive Supabase error classification
       // Return 400 for client errors, 500 only for true server errors
+      // Added RLS errors (42501) and permission errors to client errors
       const isClientError =
         updateError.code === '23505' || // Unique constraint violation
         updateError.code === '23503' || // Foreign key violation
         updateError.code === '23502' || // Not null violation
         updateError.code === '22P02' || // Invalid text representation
         updateError.code === '22001' || // String data too long
+        updateError.code === '42501' || // RLS policy violation (insufficient_privilege)
+        updateError.code === '42P01' || // Undefined table
+        updateError.code === 'PGRST116' || // PostgREST: Row not found
         updateError.code?.startsWith('22') || // Data exception
-        updateError.code?.startsWith('23'); // Integrity constraint violation
+        updateError.code?.startsWith('23') || // Integrity constraint violation
+        updateError.code?.startsWith('42'); // Syntax/Access rule violation
 
       const statusCode = isClientError ? 400 : 500;
+      const errorCode = isClientError ? 'UPDATE_VALIDATION_ERROR' : 'SERVER_ERROR';
 
       return new Response(
         JSON.stringify({
-          error: "Failed to update deal",
-          details: updateError.message,
-          code: updateError.code || 'UPDATE_ERROR'
+          success: false,
+          error: isClientError
+            ? `Update failed: ${updateError.message}`
+            : "Something went wrong updating this deal. Please try again.",
+          code: errorCode,
+          details: updateError.message
         }),
         { status: statusCode, headers: corsHeaders }
       );
@@ -430,6 +461,7 @@ export default async (req: Request, context: Context) => {
       console.warn("[update-deal] Auth error detected, returning 401");
       return new Response(
         JSON.stringify({
+          success: false,
           error: error.message || "Authentication required",
           code: error.code || "AUTH_REQUIRED"
         }),
@@ -438,16 +470,14 @@ export default async (req: Request, context: Context) => {
     }
 
     // PHASE E FIX: Return error with CORS headers (createErrorResponse doesn't include CORS)
-    const safeErrorMessage = typeof error.message === 'string'
-      ? error.message
-      : 'An error occurred while updating the deal';
-
-    console.error("[update-deal] Non-auth error, returning 500:", safeErrorMessage);
+    // FIX 2025-12-07: Return user-friendly message for server errors
+    console.error("[update-deal] Non-auth error, returning 500");
 
     return new Response(
       JSON.stringify({
-        error: safeErrorMessage,
-        code: error.code || "UPDATE_DEAL_ERROR"
+        success: false,
+        error: "Something went wrong updating this deal. Please try again.",
+        code: error.code || "SERVER_ERROR"
       }),
       { status: 500, headers: corsHeaders }
     );

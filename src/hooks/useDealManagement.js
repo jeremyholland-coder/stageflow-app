@@ -759,9 +759,12 @@ export const useDealManagement = (user, organization, addNotification) => {
         ignoredFields: result.ignoredFields
       });
 
-      if (!result.success && result.error) {
-        console.error('[KANBAN][UPDATE_DEAL] ❌ API returned error:', result.error);
-        throw new Error(result.error);
+      // FIX 2025-12-07: Check for error even if success is undefined (handles all error responses)
+      if (result.success === false || result.error) {
+        console.error('[KANBAN][UPDATE_DEAL] ❌ API returned error:', result.error, 'code:', result.code);
+        const error = new Error(result.error || 'Update failed');
+        error.code = result.code || 'UPDATE_ERROR';
+        throw error;
       }
 
       const data = result.deal;
@@ -783,21 +786,35 @@ export const useDealManagement = (user, organization, addNotification) => {
         status: error.status
       });
 
+      // FIX 2025-12-07: Use error code from backend response for better messages
       // H6-H HARDENING 2025-12-04: Context-aware error messages for deal operations
-      // Parse error to get proper classification and user-friendly message
-      const appError = parseSupabaseError(error);
       let userMessage = 'Deal update failed. Please try again.';
 
-      if (appError.code === ERROR_CODES.NETWORK_ERROR) {
-        userMessage = 'Connection lost. Please check your network and try again.';
-      } else if (appError.code === ERROR_CODES.TIMEOUT) {
-        userMessage = 'Request timed out. Please try again.';
-      } else if (appError.code === ERROR_CODES.SERVER_ERROR) {
-        userMessage = 'Server issue. Please try again in a moment.';
-      } else if (appError.code === ERROR_CODES.PERMISSION_DENIED) {
+      // Check for backend error codes first (these come from update-deal.mts)
+      if (error.code === 'VALIDATION_ERROR' || error.code === 'UPDATE_VALIDATION_ERROR') {
+        userMessage = error.message || 'Invalid data. Please check your input.';
+      } else if (error.code === 'FORBIDDEN') {
         userMessage = 'You don\'t have permission to update this deal.';
-      } else if (appError.code === ERROR_CODES.SESSION_EXPIRED) {
+      } else if (error.code === 'NOT_FOUND') {
+        userMessage = 'Deal not found. It may have been deleted.';
+      } else if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_ERROR') {
         userMessage = 'Session expired. Please refresh the page.';
+      } else if (error.code === 'SERVER_ERROR') {
+        userMessage = error.message || 'Something went wrong. Please try again.';
+      } else {
+        // Fallback to parsing error for network issues
+        const appError = parseSupabaseError(error);
+        if (appError.code === ERROR_CODES.NETWORK_ERROR) {
+          userMessage = 'Connection lost. Please check your network and try again.';
+        } else if (appError.code === ERROR_CODES.TIMEOUT) {
+          userMessage = 'Request timed out. Please try again.';
+        } else if (appError.code === ERROR_CODES.SERVER_ERROR) {
+          userMessage = 'Server issue. Please try again in a moment.';
+        } else if (appError.code === ERROR_CODES.PERMISSION_DENIED) {
+          userMessage = 'You don\'t have permission to update this deal.';
+        } else if (appError.code === ERROR_CODES.SESSION_EXPIRED) {
+          userMessage = 'Session expired. Please refresh the page.';
+        }
       }
 
       addNotification(userMessage, 'error');

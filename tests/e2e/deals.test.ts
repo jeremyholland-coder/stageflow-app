@@ -204,6 +204,54 @@ describe('Deals API', () => {
       expect(response.status).toBe(400);
       expect(response.data.error).toContain('Invalid stage');
     });
+
+    /**
+     * REGRESSION TESTS: P0 Fix 2025-12-07
+     * Verify error responses include success:false and code
+     */
+    it('[P0 REGRESSION] should return success:false and code on validation error', async () => {
+      const headers = getAuthHeaders(accessToken);
+      const response = await post('update-deal', {
+        dealId: 'test-id'
+        // Missing updates and organizationId
+      }, headers);
+
+      expect(response.status).toBe(400);
+      expect(response.data.success).toBe(false);
+      expect(response.data.code).toBe('VALIDATION_ERROR');
+      expect(response.data.error).toBeDefined();
+    });
+
+    it('[P0 REGRESSION] should return success:false and NOT_FOUND code for non-existent deal', async () => {
+      const headers = getAuthHeaders(accessToken);
+      const response = await post('update-deal', {
+        dealId: '00000000-0000-0000-0000-000000000000',
+        updates: { value: 100 },
+        organizationId
+      }, headers);
+
+      expect(response.status).toBe(404);
+      expect(response.data.success).toBe(false);
+      expect(response.data.code).toBe('NOT_FOUND');
+    });
+
+    it('[P0 REGRESSION] should return success:true on successful update', async () => {
+      if (!createdDealId) return;
+
+      const headers = getAuthHeaders(accessToken);
+      const response = await post('update-deal', {
+        dealId: createdDealId,
+        updates: { notes: 'Updated via P0 regression test' },
+        organizationId
+      }, headers);
+
+      logResponse('update-deal (success format)', response);
+
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.deal).toBeDefined();
+      expect(response.data.deal.notes).toBe('Updated via P0 regression test');
+    });
   });
 
   describe('POST delete-deal', () => {
