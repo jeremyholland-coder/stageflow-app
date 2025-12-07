@@ -14,9 +14,9 @@ export default defineConfig({
     sequence: {
       concurrent: false
     },
-    // Setup file (only for e2e tests that need it)
-    // Note: Unit tests may not need this setup
-    setupFiles: ['./tests/e2e/setup.ts'],
+    // P0 FIX 2025-12-07: Removed global setupFiles
+    // E2E tests now define their own setup via globalSetup or in-file imports
+    // Unit tests should run without requiring SUPABASE_* environment variables
     // Report format
     reporters: ['verbose'],
     // Don't watch by default
