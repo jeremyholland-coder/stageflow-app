@@ -16,6 +16,7 @@ import { cleanupMemoryCaches, initMemoryCaches } from './lib/memory-cache';
 import { initIndexedDBCache } from './lib/indexeddb-cache';
 import { backgroundSync } from './lib/background-sync';
 import { initPerformanceBudget } from './lib/performance-budget';
+import { QueryProvider } from './context/QueryProvider'; // Area 4: TanStack Query for caching
 
 // NEXT-LEVEL PERFORMANCE: Lazy load non-critical views for faster initial load
 // Dashboard loads immediately (most common), others load on-demand
@@ -508,11 +509,13 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <AppProvider>
-        <MainApp />
-        {/* CRITICAL FIX: Reset Password Modal rendered at App level (outside context provider) */}
-        <ResetPasswordModalContainer />
-      </AppProvider>
+      <QueryProvider>
+        <AppProvider>
+          <MainApp />
+          {/* CRITICAL FIX: Reset Password Modal rendered at App level (outside context provider) */}
+          <ResetPasswordModalContainer />
+        </AppProvider>
+      </QueryProvider>
       {/* NEXT-LEVEL: Service worker update notification */}
       <ServiceWorkerUpdateNotification />
       {/* NEXT-LEVEL: Real-time connection status indicator */}
