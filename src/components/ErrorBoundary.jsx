@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { captureError } from '../lib/sentry';
 
 /**
  * PRODUCTION-GRADE ERROR BOUNDARY
@@ -46,10 +47,13 @@ export class ErrorBoundary extends React.Component {
       errorInfo
     });
 
-    // TODO: Send to Sentry/error monitoring service
-    // if (window.Sentry) {
-    //   window.Sentry.captureException(error, { extra: errorInfo });
-    // }
+    // Send to Sentry (Phase 1 - Observability)
+    // Only sends: errorId, error type/name, component stack (NO PII)
+    captureError(error, {
+      errorId: this.state.errorId,
+      componentStack: errorInfo?.componentStack,
+      errorBoundary: true,
+    });
   }
 
   handleReset = () => {

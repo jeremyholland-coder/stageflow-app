@@ -5,6 +5,15 @@ import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
 // M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
 import { AI_ERROR_CODES } from './lib/ai-error-codes';
+// Phase 1 Telemetry: Request tracking and AI metrics
+import {
+  buildRequestContext,
+  trackAICall,
+  trackTelemetryEvent,
+  TelemetryEvents,
+  calculateDuration,
+  type RequestContext,
+} from './lib/telemetry';
 // DIAGNOSTICS 2025-12-04: Import environment verification
 import { verifyProviderEnvironment } from './lib/provider-registry';
 
@@ -1272,8 +1281,19 @@ export default async (req: Request, context: any) => {
     });
   }
 
+  // Phase 1 Telemetry: Build request context for tracing
+  const telemetryCtx = buildRequestContext(req, 'ai-assistant');
+  trackTelemetryEvent(TelemetryEvents.AI_CALL_START, telemetryCtx.correlationId, {
+    endpoint: telemetryCtx.endpoint,
+  });
+
+  // Add correlation ID to response headers for end-to-end tracing
+  (corsHeaders as Record<string, string>)['X-Correlation-ID'] = telemetryCtx.correlationId;
+
   // PHASE 3: Store deals at top level so it's accessible in catch block for fallback
   let requestDeals: any[] = [];
+  // Phase 1 Telemetry: Track which provider was used
+  let aiProviderUsed: string | null = null;
 
   try {
     // DIAGNOSTICS 2025-12-04: Runtime environment health check
@@ -1765,6 +1785,15 @@ export default async (req: Request, context: any) => {
       };
     }
 
+    // Phase 1 Telemetry: Track successful AI call
+    trackAICall(
+      telemetryCtx.correlationId,
+      aiResponse.provider || 'unknown',
+      taskType || 'general',
+      true,
+      calculateDuration(telemetryCtx)
+    );
+
     return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -1775,6 +1804,11 @@ export default async (req: Request, context: any) => {
 
     // AI FALLBACK: Handle AllProvidersFailedError with detailed info
     if (error instanceof AllProvidersFailedError) {
+      // Phase 1 Telemetry: Track all providers failed
+      trackTelemetryEvent(TelemetryEvents.AI_ALL_PROVIDERS_FAILED, telemetryCtx.correlationId, {
+        providersAttempted: error.providersAttempted.length,
+        durationMs: calculateDuration(telemetryCtx),
+      });
       // ============================================================================
       // [StageFlow][AI][ALL_PROVIDERS_FAILED] Deep diagnostic
       // Shows exactly why each provider failed

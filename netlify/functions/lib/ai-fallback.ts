@@ -17,6 +17,8 @@ import {
   ClassifiedProviderError,
   ProviderErrorCode
 } from './provider-error-classifier';
+// Phase 1 Telemetry: AI provider fallback metrics
+import { trackAIFallback, trackTelemetryEvent, TelemetryEvents } from './telemetry';
 
 // DEPRECATED: This constant is kept for backwards compatibility only.
 // New code should use buildFallbackChain from lib/select-provider.ts
@@ -622,6 +624,20 @@ export async function runWithFallback<T, P extends { provider_type: string }>(
 
       // Continue to next provider
       console.log(`[ai-fallback] Falling back from ${providerType} due to ${errorType}`);
+
+      // Phase 1 Telemetry: Track provider fallback (only track when actually falling back to another provider)
+      const currentIndex = sortedProviders.indexOf(provider);
+      const nextProvider = sortedProviders[currentIndex + 1];
+      if (nextProvider) {
+        // Note: correlationId not available here, use 'fallback' as placeholder
+        // The parent function (ai-assistant) tracks the full request with correlationId
+        trackAIFallback(
+          'fallback', // No correlationId in this context - tracked at higher level
+          providerType,
+          nextProvider.provider_type as ProviderType,
+          errorType
+        );
+      }
     }
   }
 

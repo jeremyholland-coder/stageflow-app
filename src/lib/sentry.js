@@ -157,3 +157,116 @@ export const addBreadcrumb = (message, data = {}) => {
     level: 'info',
   });
 };
+
+// ============================================================================
+// CORRELATION ID & REQUEST TELEMETRY (Phase 1 - Observability)
+// ============================================================================
+
+/**
+ * Generate a random suffix for correlation IDs
+ * Uses crypto.randomUUID() with fallback for older browsers/non-secure contexts
+ */
+const generateRandomSuffix = () => {
+  try {
+    // Prefer crypto.randomUUID() if available
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID().split('-')[0];
+    }
+  } catch (e) {
+    // Fall through to fallback
+  }
+  // Fallback: Math.random() based ID (less secure but works everywhere)
+  return Math.random().toString(36).substring(2, 10);
+};
+
+/**
+ * Generate a correlation ID for request tracing
+ * Format: sf-{timestamp_base36}-{random_suffix}
+ */
+export const generateCorrelationId = () => {
+  const timestamp = Date.now().toString(36);
+  const randomSuffix = generateRandomSuffix();
+  return `sf-${timestamp}-${randomSuffix}`;
+};
+
+/**
+ * Safely call Sentry methods - guards against Sentry not being initialized
+ * Returns true if Sentry call succeeded, false otherwise
+ */
+const safeSentryCall = (fn) => {
+  try {
+    fn();
+    return true;
+  } catch (e) {
+    // Silently ignore Sentry errors - telemetry should never break the app
+    return false;
+  }
+};
+
+/**
+ * Track API request start - adds breadcrumb for debugging
+ * Only logs: correlationId, endpoint, method (NO PII, NO request bodies)
+ */
+export const trackRequestStart = (correlationId, endpoint, method) => {
+  safeSentryCall(() => {
+    Sentry.addBreadcrumb({
+      category: 'api.request',
+      message: `${method} ${endpoint}`,
+      data: {
+        correlationId,
+        endpoint,
+        method,
+      },
+      level: 'info',
+    });
+  });
+};
+
+/**
+ * Track API request completion
+ * Only logs: correlationId, endpoint, status code, duration (NO PII, NO response bodies)
+ */
+export const trackRequestEnd = (correlationId, endpoint, statusCode, durationMs) => {
+  safeSentryCall(() => {
+    Sentry.addBreadcrumb({
+      category: 'api.response',
+      message: `${statusCode} ${endpoint}`,
+      data: {
+        correlationId,
+        endpoint,
+        statusCode,
+        durationMs,
+      },
+      level: statusCode >= 400 ? 'warning' : 'info',
+    });
+  });
+};
+
+/**
+ * Track high-level telemetry events (for metrics aggregation)
+ * Event names should be snake_case: ai_call_failed, deal_update_success, etc.
+ * Only includes correlationId and event-specific metadata (NO PII)
+ */
+export const trackEvent = (eventName, metadata = {}) => {
+  safeSentryCall(() => {
+    Sentry.addBreadcrumb({
+      category: 'telemetry',
+      message: eventName,
+      data: {
+        ...metadata,
+        timestamp: Date.now(),
+      },
+      level: 'info',
+    });
+  });
+};
+
+/**
+ * Set correlation ID as Sentry tag for the current scope
+ * Allows filtering all errors/events by correlationId in Sentry dashboard
+ */
+export const setCorrelationId = (correlationId) => {
+  safeSentryCall(() => {
+    Sentry.setTag('correlationId', correlationId);
+  });
+};

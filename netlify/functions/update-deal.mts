@@ -1,6 +1,14 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
+// Phase 1 Telemetry: Request tracking and metrics
+import {
+  buildRequestContext,
+  trackDealUpdate,
+  trackTelemetryEvent,
+  TelemetryEvents,
+  calculateDuration,
+} from "./lib/telemetry";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
@@ -49,6 +57,16 @@ export default async (req: Request, context: Context) => {
       headers: corsHeaders,
     });
   }
+
+  // Phase 1 Telemetry: Build request context for tracing
+  const ctx = buildRequestContext(req, 'update-deal');
+  trackTelemetryEvent(TelemetryEvents.DEAL_UPDATE_START, ctx.correlationId, {
+    endpoint: ctx.endpoint,
+    method: ctx.method,
+  });
+
+  // Add correlation ID to response headers for end-to-end tracing
+  corsHeaders['X-Correlation-ID'] = ctx.correlationId;
 
   try {
     // STEP 1: Authenticate user via HttpOnly cookies
@@ -341,6 +359,9 @@ export default async (req: Request, context: Context) => {
       status: updatedDeal.status
     });
 
+    // Phase 1 Telemetry: Track successful deal update
+    trackDealUpdate(ctx.correlationId, true, stageChanged, calculateDuration(ctx));
+
     // FIX 2025-12-02: Include success: true for proper frontend error handling
     // M5 HARDENING 2025-12-04: Include ignoredFields for debugging
     const responseData: { success: boolean; deal: any; ignoredFields?: string[] } = {
@@ -359,8 +380,12 @@ export default async (req: Request, context: Context) => {
     });
 
   } catch (error: any) {
+    // Phase 1 Telemetry: Track failed deal update
+    trackDealUpdate(ctx.correlationId, false, false, calculateDuration(ctx), error.code || 'UNKNOWN_ERROR');
+
     // FIX 2025-12-03: Enhanced error logging for debugging production issues
     console.error("[update-deal] Error caught:", {
+      correlationId: ctx.correlationId,
       message: error.message,
       code: error.code,
       name: error.name,

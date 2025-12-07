@@ -45,6 +45,13 @@ import { supabase, ensureValidSession, handleSessionInvalid } from './supabase';
 import { parseSupabaseError } from './error-handler';
 import { requestDeduplicator } from './request-deduplicator';
 import { getNetworkAwareRetryConfig, getCurrentNetworkQuality } from './network-quality';
+import {
+  generateCorrelationId,
+  trackRequestStart,
+  trackRequestEnd,
+  trackEvent,
+  setCorrelationId,
+} from './sentry';
 
 /**
  * Default timeout values for different operation types
@@ -268,7 +275,26 @@ export class APIClient {
    * @private
    */
   async _executeRequest(url, options = {}) {
-    const requestOptions = await this.prepareRequest(options);
+    // Phase 1 Telemetry: Generate correlation ID for request tracing
+    const correlationId = generateCorrelationId();
+    const method = options.method || 'GET';
+    const endpoint = url.replace(this.baseURL, ''); // Extract endpoint for logging
+    const startTime = Date.now();
+
+    // Set correlation ID in Sentry scope for this request
+    setCorrelationId(correlationId);
+
+    // Track request start (NO PII, only correlationId + endpoint + method)
+    trackRequestStart(correlationId, endpoint, method);
+
+    const requestOptions = await this.prepareRequest({
+      ...options,
+      headers: {
+        ...options.headers,
+        'X-Correlation-ID': correlationId,
+        'X-Request-Start': String(startTime),
+      },
+    });
 
     // Extract cleanup items and session validation status
     // FIX 2025-12-03: Extract session validation flags for better error handling
@@ -291,7 +317,7 @@ export class APIClient {
       // Log request in development (with network quality)
       if (import.meta.env.DEV) {
         const quality = getCurrentNetworkQuality();
-        console.debug(`[APIClient] ${fetchOptions.method || 'GET'} ${url} (network: ${quality}, retries: ${maxRetries})`);
+        console.debug(`[APIClient] ${method} ${url} [${correlationId}] (network: ${quality}, retries: ${maxRetries})`);
       }
 
       // Execute with network-aware retry logic
@@ -317,27 +343,41 @@ export class APIClient {
         data = await response.blob();
       }
 
+      // Phase 1 Telemetry: Track successful response (NO PII, only status + duration)
+      const durationMs = Date.now() - startTime;
+      trackRequestEnd(correlationId, endpoint, response.status, durationMs);
+
       // Log response in development
       if (import.meta.env.DEV) {
-        console.debug(`[APIClient] Response from ${url}:`, data);
+        console.debug(`[APIClient] Response from ${url} [${correlationId}]:`, { status: response.status, durationMs });
       }
 
-      return { data, response };
+      return { data, response, correlationId };
 
     } catch (error) {
       // Clear timeout
       clearTimeout(_timeoutId);
+
+      // Calculate duration for failed request
+      const durationMs = Date.now() - startTime;
 
       // Handle timeout errors
       if (error.name === 'AbortError') {
         const timeoutError = new Error(`Request timeout after ${options.timeout || this.defaultTimeout}ms`);
         timeoutError.code = 'TIMEOUT';
         timeoutError.status = 408;
+        timeoutError.correlationId = correlationId;
+
+        // Track timeout as failed request
+        trackRequestEnd(correlationId, endpoint, 408, durationMs);
+        trackEvent('api_request_timeout', { correlationId, endpoint, method });
+
         throw timeoutError;
       }
 
       // Parse and enhance error
       const enhancedError = this.parseError(error, url);
+      enhancedError.correlationId = correlationId;
 
       // FIX 2025-12-03: If session validation failed and we got an auth error, provide clearer error code
       // This helps the frontend distinguish "session expired" from "invalid credentials"
@@ -347,8 +387,23 @@ export class APIClient {
         console.warn('[APIClient] Auth error with known session validation failure - marked as SESSION_ERROR');
       }
 
-      // Log error
-      console.error(`[APIClient] Request failed for ${url}:`, enhancedError);
+      // Phase 1 Telemetry: Track failed request (NO PII, only status + error code)
+      trackRequestEnd(correlationId, endpoint, enhancedError.status || 0, durationMs);
+      trackEvent('api_request_failed', {
+        correlationId,
+        endpoint,
+        method,
+        statusCode: enhancedError.status,
+        errorCode: enhancedError.code,
+      });
+
+      // Log error (production-safe: no response bodies)
+      console.error(`[APIClient] Request failed [${correlationId}]:`, {
+        endpoint,
+        method,
+        status: enhancedError.status,
+        code: enhancedError.code,
+      });
 
       throw enhancedError;
     }
