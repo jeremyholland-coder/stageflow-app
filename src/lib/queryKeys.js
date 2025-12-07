@@ -169,6 +169,19 @@ export const queryKeys = {
      */
     usage: (orgId) => ['ai', 'usage', orgId],
   },
+
+  // =========================================================================
+  // ONBOARDING
+  // =========================================================================
+
+  onboarding: {
+    all: ['onboarding'],
+
+    /**
+     * Onboarding state for user/org
+     */
+    state: (orgId) => ['onboarding', 'state', orgId],
+  },
 };
 
 export default queryKeys;

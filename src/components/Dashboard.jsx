@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, memo, Suspens
 import { Plus, Search, Zap, AlertCircle, RefreshCw, Loader2, Sparkles, X, Brain, Users, DollarSign } from 'lucide-react';
 import { useApp } from './AppShell';
 import { useDealManagement } from '../hooks/useDealManagement';
+import { OnboardingChecklistCard } from './OnboardingChecklistCard'; // Area 6: First-run onboarding
 import { useDebounce } from '../hooks/useDebounce';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook eliminates duplicate code
@@ -648,6 +649,22 @@ export const Dashboard = () => {
                   onDismiss={handleWelcomeDismiss}
                 />
               )}
+            </ChartErrorBoundary>
+
+            {/* Area 6: Onboarding Checklist for first-run experience */}
+            {/* Shows a lightweight checklist to help new users get started */}
+            <ChartErrorBoundary chartName="Onboarding">
+              <OnboardingChecklistCard
+                onOpenNewDeal={handleNewDealClick}
+                onOpenPlanMyDay={() => {
+                  // Plan My Day is typically opened via the Mission Control panel
+                  // This triggers a scroll to the AI section or opens the Plan My Day modal
+                  const planMyDayBtn = document.querySelector('[data-tour="plan-my-day-button"]');
+                  if (planMyDayBtn) {
+                    planMyDayBtn.click();
+                  }
+                }}
+              />
             </ChartErrorBoundary>
 
             {/* Dynamic Dashboard Cards - Rendered based on user preferences */}
