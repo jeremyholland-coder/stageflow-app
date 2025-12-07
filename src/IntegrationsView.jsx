@@ -91,30 +91,34 @@ const IntegrationsView = ({ organization, userRole, addNotification }) => {
 
     try {
       setLoading(true);
-      const key = `sk_${Math.random().toString(36).substring(2)}${Date.now().toString(36)}`;
-      const keyHash = btoa(key);
-      const keyPrefix = key.substring(0, 12);
+      // SECURITY FIX: Use secure backend endpoint instead of client-side Math.random() + btoa()
+      // Backend uses crypto.randomBytes(32) + SHA-256 hashing
+      const baseUrl = window.location.origin;
+      const response = await fetch(`${baseUrl}/.netlify/functions/api-keys-create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include HttpOnly auth cookies
+        body: JSON.stringify({
+          name: newKeyName.trim(),
+          permissions: ['read', 'write']
+        })
+      });
 
-      const { error } = await supabase
-        .from('api_keys')
-        .insert([{
-          organization_id: organization.id,
-          name: newKeyName,
-          key_hash: keyHash,
-          key_prefix: keyPrefix,
-          created_by: (await supabase.auth.getUser()).data.user.id
-        }]);
+      const result = await response.json();
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create API key');
+      }
 
-      setGeneratedKey(key);
+      // Backend returns the full key ONCE - display it to user
+      setGeneratedKey(result.apiKey);
       addNotification('API key created');
       fetchApiKeys();
       setNewKeyName('');
       setShowCreateKey(false);
     } catch (error) {
       console.error('Error creating API key:', error);
-      addNotification('Failed to create API key', 'error');
+      addNotification(error.message || 'Failed to create API key', 'error');
     } finally {
       setLoading(false);
     }
@@ -152,19 +156,26 @@ const IntegrationsView = ({ organization, userRole, addNotification }) => {
 
     try {
       setLoading(true);
-      const secret = webhookForm.secret || `whsec_${Math.random().toString(36).substring(2)}`;
-
-      const { error } = await supabase
-        .from('webhooks')
-        .insert([{
-          organization_id: organization.id,
-          url: webhookForm.url,
+      // SECURITY FIX: Use secure backend endpoint instead of client-side Math.random()
+      // Backend uses crypto.randomUUID() for webhook secrets
+      const baseUrl = window.location.origin;
+      const response = await fetch(`${baseUrl}/.netlify/functions/create-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include HttpOnly auth cookies
+        body: JSON.stringify({
+          url: webhookForm.url.trim(),
           events: webhookForm.events,
-          secret: secret,
-          is_active: true
-        }]);
+          secret: webhookForm.secret.trim() || undefined, // Let backend generate if empty
+          organizationId: organization.id
+        })
+      });
 
-      if (error) throw error;
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create webhook');
+      }
 
       addNotification('Webhook created');
       fetchWebhooks();
@@ -172,7 +183,7 @@ const IntegrationsView = ({ organization, userRole, addNotification }) => {
       setShowCreateWebhook(false);
     } catch (error) {
       console.error('Error creating webhook:', error);
-      addNotification('Failed to create webhook', 'error');
+      addNotification(error.message || 'Failed to create webhook', 'error');
     } finally {
       setLoading(false);
     }
