@@ -111,9 +111,12 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
       };
     }
 
+    // FIX: Use dynamic return URL for local testing and production
+    const origin = event.headers.origin || event.headers.referer?.replace(/\/$/, '') || 'https://stageflow.startupstage.com';
+
     const session = await stripe.billingPortal.sessions.create({
       customer: org.stripe_customer_id,
-      return_url: 'https://stageflow.startupstage.com/settings?tab=billing',
+      return_url: `${origin}/settings?tab=billing`,
     });
 
     return {
