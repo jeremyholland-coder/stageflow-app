@@ -1058,7 +1058,8 @@ export const KanbanBoard = memo(({
   // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
   isDragLocked = false
 }) => {
-  const { organization, user } = useApp();
+  // FIX 2025-12-07: Added addNotification - was missing, causing ReferenceError on drag-drop status change
+  const { organization, user, addNotification } = useApp();
   const [isDragging, setIsDragging] = useState(false);
   const isMobile = useIsMobile();
   const { darkMode: isDarkMode } = useApp();
