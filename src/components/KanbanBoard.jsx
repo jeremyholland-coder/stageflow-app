@@ -1042,7 +1042,7 @@ KanbanColumn.displayName = 'KanbanColumn';
 
 // Main KanbanBoard - Modern, Always-Visible Layout
 export const KanbanBoard = memo(({
-  deals,
+  deals = [], // FIX 2025-12-07: Default to empty array to prevent crash if undefined
   filterStatus,
   onUpdateDeal,
   onDealCreated,
@@ -1064,16 +1064,19 @@ export const KanbanBoard = memo(({
   const { darkMode: isDarkMode } = useApp();
   const prefersReducedMotion = usePrefersReducedMotion();
 
+  // FIX 2025-12-07: Defensive guard - ensure deals is always an array
+  const safeDeals = Array.isArray(deals) ? deals : [];
+
   // AI-POWERED: Build user performance profiles for dynamic confidence scoring
   const { userPerformance, globalWinRate } = useMemo(() => {
-    const profiles = buildUserPerformanceProfiles(deals);
-    const wonDeals = deals.filter(d => d.status === 'won' || d.stage === 'retention');
-    const lostDeals = deals.filter(d => d.status === 'lost' || d.stage === 'lost');
+    const profiles = buildUserPerformanceProfiles(safeDeals);
+    const wonDeals = safeDeals.filter(d => d.status === 'won' || d.stage === 'retention');
+    const lostDeals = safeDeals.filter(d => d.status === 'lost' || d.stage === 'lost');
     const totalClosed = wonDeals.length + lostDeals.length;
     const winRate = totalClosed > 0 ? wonDeals.length / totalClosed : 0.3;
 
     return { userPerformance: profiles, globalWinRate: winRate };
-  }, [deals]);
+  }, [safeDeals]);
 
   // Stage visibility and ordering
   const {
@@ -1112,9 +1115,8 @@ export const KanbanBoard = memo(({
   // FIX: Filter out disqualified deals from the active Kanban pipeline
   const dealsByStage = useMemo(() => {
     const map = new Map();
-    if (!deals || !Array.isArray(deals)) return map;
-
-    deals.forEach(deal => {
+    // FIX 2025-12-07: Use safeDeals which is always an array
+    safeDeals.forEach(deal => {
       if (!deal || !deal.stage) return;
       // Exclude disqualified deals from the active Kanban
       if (deal.status === 'disqualified') return;
@@ -1124,7 +1126,7 @@ export const KanbanBoard = memo(({
       map.get(deal.stage).push(deal);
     });
     return map;
-  }, [deals]);
+  }, [safeDeals]);
 
   // CRITICAL FIX: Compute visibleStages BEFORE hooks that depend on it
   const visibleStages = useMemo(() => {
@@ -1174,7 +1176,7 @@ export const KanbanBoard = memo(({
 
     // Apply user's custom stage order
     return applyStageOrder(visibleFilteredStages);
-  }, [filterStatus, stages, stagesLoading, dealsByStage, deals.length, filterVisibleStages, applyStageOrder]);
+  }, [filterStatus, stages, stagesLoading, dealsByStage, safeDeals.length, filterVisibleStages, applyStageOrder]);
 
   const [showLostModal, setShowLostModal] = useState(false);
   const [pendingLostDeal, setPendingLostDeal] = useState(null);
@@ -1382,7 +1384,7 @@ export const KanbanBoard = memo(({
   };
 
   // MEDIUM FIX: Show retry UI when deals fail to load
-  if (dealsError && deals.length === 0) {
+  if (dealsError && safeDeals.length === 0) {
     return (
       <div className="flex items-center justify-center p-12">
         <div className="text-center max-w-md">
@@ -1555,7 +1557,7 @@ export const KanbanBoard = memo(({
             >
               <KanbanColumn
                 stage={stage}
-                deals={deals}
+                deals={safeDeals}
                 onUpdateDeal={onUpdateDeal}
                 onDealCreated={onDealCreated}
                 onDealSelected={onDealSelected}

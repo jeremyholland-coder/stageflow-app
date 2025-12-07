@@ -50,16 +50,17 @@ export const AssigneeSelector = memo(({
     setLoadingMembers(true);
     try {
       // Use get-team-members endpoint which uses service role (bypasses RLS)
-      const response = await api.post('get-team-members', {
+      // FIX 2025-12-07: api.post returns { data, response, correlationId }, not raw backend response
+      const { data } = await api.post('get-team-members', {
         organization_id: organizationId
       });
 
-      // Handle response - API returns { success, teamMembers, organizationId }
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to fetch team members');
+      // Handle response - backend returns { success, teamMembers, organizationId }
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch team members');
       }
 
-      const members = response.teamMembers || [];
+      const members = data.teamMembers || [];
 
       // Handle empty members gracefully
       if (members.length === 0) {
