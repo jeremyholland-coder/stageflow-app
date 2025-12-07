@@ -15,6 +15,8 @@ import {
   generateAllFailedMessage
 } from '../lib/ai-fallback';
 import { getProviderDisplayName, isProviderErrorResponse } from '../ai/stageflowConfig';
+// PLAN MY DAY HOTFIX 2025-12-07: System prompt must never render in UI.
+import { PLAN_MY_DAY_SYSTEM_PROMPT, PLAN_MY_DAY_DISPLAY_MESSAGE } from '../ai/planMyDayPrompt';
 // OFFLINE PHASE 4B: Cache AI insights and build offline snapshots
 import { saveAIInsight, loadLastAIInsight, extractSummary } from '../lib/aiOfflineCache';
 import { buildOfflineSnapshot } from '../lib/offlineSnapshot';
@@ -1252,21 +1254,8 @@ Guidelines:
 
     const quickQueries = {
       // PHASE 5.1: PLAN MY DAY - Hero Action (Structured Daily Plan)
-      'plan_my_day': `Create my personalized daily action plan with these 4 sections:
-
-**SECTION 1: Closest to Close (20-30 min focus)**
-Review deals that are nearest to decision points. Look for deals in late stages (negotiation, contract_sent, verbal_commit) or deals with high confidence scores. Focus on momentum - what's the next concrete step to advance each? End with: "Want help drafting the next message or preparing the next step?"
-
-**SECTION 2: Momentum Builders (45-60 min focus)**
-Identify newly added leads, deals needing movement, and opportunities for research or discovery prep. Focus on deals that have activity potential but need attention. End with: "Want me to help you research or outline outreach?"
-
-**SECTION 3: Relationship Development Touchpoints (10-20 min focus)**
-Surface existing customers due for check-in, long-tail relationships worth nurturing, and partnership opportunities. Use gentle, human-centered suggestions. End with: "Would you like help composing these?"
-
-**SECTION 4: Personal Workflow Insights (Conditional)**
-Based on my historical performance patterns, share ONE brief insight about my work style - like best time of day for certain activities, patterns in my successful deals, or areas where I'm excelling. Keep this supportive and actionable.
-
-TONE: Professional advisor, supportive, momentum-focused. Focus on partnership over transactions. Never mention how you're adapting the advice.`,
+      // PLAN MY DAY HOTFIX 2025-12-07: System prompt imported from dedicated module
+      'plan_my_day': PLAN_MY_DAY_SYSTEM_PROMPT,
 
       // CORE METRICS (3) - Visual snapshots of performance (Phase 5.1 streamlined)
       'weekly_trends': 'Show me my weekly deal activity trends with a chart. Focus on momentum patterns and actionable insights.',
@@ -1320,7 +1309,9 @@ TONE: Professional advisor, supportive, momentum-focused. Focus on partnership o
     setInlineError(null);
 
     // Add user message to conversation immediately
-    const userMessage = { role: 'user', content: queryText };
+    // PLAN MY DAY HOTFIX 2025-12-07: Show friendly display message, not raw system prompt
+    const displayContent = actionType === 'plan_my_day' ? PLAN_MY_DAY_DISPLAY_MESSAGE : queryText;
+    const userMessage = { role: 'user', content: displayContent };
     setConversationHistory(prev => [...prev, userMessage]);
 
     // Create abort controller for timeout
