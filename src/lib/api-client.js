@@ -489,7 +489,28 @@ export class APIClient {
    * Specialized methods for common operations
    */
 
+  /**
+   * AI Request with offline detection
+   * Area 3 - Offline Mode: AI requests fail immediately when offline
+   * (AI cannot be queued - it requires real-time server processing)
+   */
   async aiRequest(endpoint, data, options = {}) {
+    // Check offline status BEFORE attempting request
+    // AI requests cannot be queued - they need real-time server processing
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const offlineError = new Error('You\'re currently offline. Try again when your connection is back.');
+      offlineError.code = 'OFFLINE';
+      offlineError.status = 0;
+      offlineError.isOffline = true;
+      offlineError.userMessage = 'You\'re currently offline. Try again when your connection is back.';
+      offlineError.retryable = true;
+
+      // Log for observability
+      console.warn('[APIClient] AI request blocked - offline', { endpoint });
+
+      throw offlineError;
+    }
+
     return this.post(endpoint, data, {
       ...options,
       timeout: options.timeout || DEFAULT_TIMEOUTS.ai,

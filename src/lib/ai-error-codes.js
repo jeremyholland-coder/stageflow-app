@@ -32,6 +32,9 @@ export const AI_ERROR_CODES = {
   NETWORK_ERROR: 'NETWORK_ERROR',
   STREAM_ERROR: 'STREAM_ERROR',
 
+  // Offline mode (Area 3 - retryable when back online)
+  OFFLINE: 'OFFLINE',
+
   // Unknown
   UNKNOWN: 'UNKNOWN'
 };
@@ -90,6 +93,11 @@ export function classifyError(error) {
     return { code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED, severity: ERROR_SEVERITY.WARNING, retryable: true };
   }
 
+  // Offline mode (Area 3 - retryable when back online)
+  if (errorCode === AI_ERROR_CODES.OFFLINE || error?.isOffline || error?.code === 'OFFLINE') {
+    return { code: AI_ERROR_CODES.OFFLINE, severity: ERROR_SEVERITY.INFO, retryable: true };
+  }
+
   // Network/timeout errors (retryable)
   if (error?.name === 'AbortError' || errorMessage.includes('timeout')) {
     return { code: AI_ERROR_CODES.TIMEOUT, severity: ERROR_SEVERITY.WARNING, retryable: true };
@@ -141,6 +149,11 @@ function classifyErrorMessage(message) {
 
   if (lowerMessage.includes('session') || lowerMessage.includes('unauthorized')) {
     return { code: AI_ERROR_CODES.SESSION_ERROR, severity: ERROR_SEVERITY.ERROR, retryable: false };
+  }
+
+  // Offline mode (Area 3)
+  if (lowerMessage.includes('offline') || lowerMessage.includes('no internet') || lowerMessage.includes('no connection')) {
+    return { code: AI_ERROR_CODES.OFFLINE, severity: ERROR_SEVERITY.INFO, retryable: true };
   }
 
   return { code: AI_ERROR_CODES.UNKNOWN, severity: ERROR_SEVERITY.ERROR, retryable: true };
@@ -197,6 +210,9 @@ export function getErrorMessage(code, context = {}) {
     case AI_ERROR_CODES.PROVIDER_ERROR:
       return 'AI provider encountered an error. Please try again.';
 
+    case AI_ERROR_CODES.OFFLINE:
+      return 'You\'re currently offline. Try again when your connection is back.';
+
     default:
       return 'Something went wrong. Please try again.';
   }
@@ -226,6 +242,10 @@ export function getErrorAction(code, retryable) {
 
     case AI_ERROR_CODES.SESSION_ERROR:
       return { label: '', type: 'none' }; // User needs to sign out/in manually
+
+    case AI_ERROR_CODES.OFFLINE:
+      // User is offline - show gentle message, auto-retry when back online
+      return { label: 'Waiting for connection...', type: 'none' };
 
     default:
       if (retryable) {
