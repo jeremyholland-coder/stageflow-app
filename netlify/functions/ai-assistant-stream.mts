@@ -75,6 +75,10 @@ import {
   ProviderType,
   ProviderError
 } from './lib/ai-fallback';
+// P0 FIX 2025-12-07: Import provider error classifier for dashboard URLs
+import { classifyProviderError } from './lib/provider-error-classifier';
+// P0 FIX 2025-12-07: Import mission control fallback for graceful degradation
+import { buildMissionControlContext, buildBasicMissionControlPlan } from './lib/mission-control-fallback';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -817,6 +821,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 
         // FIX 2025-12-03: If ALL providers failed, send error
         // FIX 2025-12-04: Use intelligent error summarization for actionable guidance
+        // P0 FIX 2025-12-07: Match non-streaming format with fallbackPlan + classified providers
         if (!textStreamCompleted) {
           console.error('[StageFlow][AI][ERROR] All providers failed:', providerErrors);
 
@@ -830,11 +835,49 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 
           const userMessage = summarizeProviderErrors(formattedErrors);
 
+          // P0 FIX 2025-12-07: Build fallback plan for graceful degradation
+          // This matches non-streaming endpoint behavior at ai-assistant.mts:1931-1936
+          let fallbackPlan = null;
+          try {
+            const fallbackContext = buildMissionControlContext(deals, null);
+            fallbackPlan = buildBasicMissionControlPlan(fallbackContext, deals, 0);
+          } catch (fallbackError) {
+            console.error('[ai-stream] Failed to build fallback plan:', fallbackError);
+          }
+
+          // P0 FIX 2025-12-07: Classify each error to get dashboard URLs
+          // This matches non-streaming endpoint behavior at ai-assistant.mts:1955-1965
+          // Note: providerErrors array doesn't have statusCode, so we pass null
+          const classifiedProviders = providerErrors.map(e => {
+            const classified = classifyProviderError(
+              e.provider as ProviderType,
+              null, // statusCode not available in streaming providerErrors
+              e.message || ''
+            );
+            return {
+              provider: e.provider,
+              code: classified.code,
+              message: classified.userMessage?.substring(0, 200) || e.message?.substring(0, 200),
+              dashboardUrl: classified.providerDashboardUrl,
+              httpStatus: classified.httpStatus
+            };
+          });
+
+          // P0 FIX 2025-12-07: Match non-streaming response format for frontend consistency
           safeEnqueue(encoder.encode(`data: ${JSON.stringify({
-            error: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+            error: {
+              type: 'AI_PROVIDER_FAILURE',
+              reason: 'ALL_PROVIDERS_FAILED',
+              code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+              message: userMessage,
+              providers: classifiedProviders,
+              fallbackPlan
+            },
+            // Legacy fields for backwards compatibility
             code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
             message: userMessage,
-            errors: providerErrors
+            errors: providerErrors,
+            fallbackPlan
           })}\n\n`));
           controller.close();
           return;
