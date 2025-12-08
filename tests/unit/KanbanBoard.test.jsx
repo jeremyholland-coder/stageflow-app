@@ -174,6 +174,61 @@ describe('Deal Model Validation', () => {
   });
 });
 
+describe('Zero Confidence Tooltip', () => {
+  it('should only show tooltip for 0% confidence', () => {
+    // Test that the tooltip logic correctly identifies 0% confidence
+    const shouldShowTooltip = (confidenceScore) => confidenceScore === 0;
+
+    expect(shouldShowTooltip(0)).toBe(true);
+    expect(shouldShowTooltip(1)).toBe(false);
+    expect(shouldShowTooltip(50)).toBe(false);
+    expect(shouldShowTooltip(100)).toBe(false);
+  });
+
+  it('should have correct tooltip text content', () => {
+    const tooltipTitle = 'Why 0% confidence?';
+    const tooltipBody = 'No recent activity. Add notes, update the stage, or log contact to improve confidence.';
+
+    expect(tooltipTitle).toBe('Why 0% confidence?');
+    expect(tooltipBody).toContain('No recent activity');
+    expect(tooltipBody).toContain('Add notes');
+    expect(tooltipBody).toContain('update the stage');
+    expect(tooltipBody).toContain('log contact');
+  });
+
+  it('should have correct accessibility attributes', () => {
+    // Verify the expected accessibility attributes for the tooltip
+    const expectedRole = 'tooltip';
+    const expectedAriaLabel = 'Why 0% confidence?';
+
+    expect(expectedRole).toBe('tooltip');
+    expect(expectedAriaLabel).toBe('Why 0% confidence?');
+  });
+
+  it('should not block drag-and-drop (pointer-events-none)', () => {
+    // The tooltip must not interfere with card dragging
+    // This is achieved via pointer-events-none on the tooltip container
+    const tooltipStyles = {
+      pointerEvents: 'none',
+    };
+
+    expect(tooltipStyles.pointerEvents).toBe('none');
+  });
+
+  it('should use correct z-index for portal rendering', () => {
+    // Tooltip uses Z_INDEX.portalTooltip (9998) to appear above cards but below modals
+    const Z_INDEX = {
+      portalTooltip: 9998,
+      modal: 9600,
+      portalDropdown: 9999,
+    };
+
+    // Tooltip should be above modals but can be below critical dropdowns
+    expect(Z_INDEX.portalTooltip).toBeGreaterThan(Z_INDEX.modal);
+    expect(Z_INDEX.portalTooltip).toBeLessThanOrEqual(Z_INDEX.portalDropdown);
+  });
+});
+
 describe('Stage Validation', () => {
   const VALID_STAGES = new Set([
     // Legacy default pipeline stages

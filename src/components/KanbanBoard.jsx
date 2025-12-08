@@ -4,6 +4,7 @@ import { useApp } from './AppShell';
 import { LostReasonModal } from './LostReasonModal';
 // UX FRICTION FIX: Removed StatusChangeConfirmationModal - now uses instant move with undo toast
 import { ConfidenceTooltip } from './ConfidenceTooltip';
+import { ZeroConfidenceTooltip } from './ZeroConfidenceTooltip';
 import { STAGE_STATUS_MAP, isWonStage, isLostStage } from '../config/pipelineTemplates';
 import { StageMenuDropdown } from './StageMenuDropdown';
 // UX FRICTION FIX: Removed HideStageConfirmationModal - now uses instant hide with toast
@@ -525,16 +526,30 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
       </div>
 
       {/* Confidence Progress Bar - PREMIUM DESIGN */}
+      {/* 0% CONFIDENCE TOOLTIP: Hover shows Apple-style explainer (only for 0%) */}
       {deal.status === 'active' && (
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium tracking-wide uppercase text-gray-300">
-              {getConfidenceLabel(confidenceScore)}
-            </span>
-            <span className="text-sm font-bold tabular-nums text-white">
-              {confidenceScore}%
-            </span>
-          </div>
+          {confidenceScore === 0 ? (
+            <ZeroConfidenceTooltip confidenceScore={confidenceScore}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium tracking-wide uppercase text-gray-300">
+                  {getConfidenceLabel(confidenceScore)}
+                </span>
+                <span className="text-sm font-bold tabular-nums text-white">
+                  {confidenceScore}%
+                </span>
+              </div>
+            </ZeroConfidenceTooltip>
+          ) : (
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium tracking-wide uppercase text-gray-300">
+                {getConfidenceLabel(confidenceScore)}
+              </span>
+              <span className="text-sm font-bold tabular-nums text-white">
+                {confidenceScore}%
+              </span>
+            </div>
+          )}
 
           {/* Progress Bar with Gradient - PREMIUM DESIGN */}
           <div className="w-full h-1.5 rounded-full overflow-hidden bg-gray-800">

@@ -390,6 +390,80 @@ const DISQUALIFY_CATEGORIES = {
 - Won badge: `bg-emerald-900/30 text-emerald-400`
 - Lost badge: `bg-rose-900/30 text-rose-400`
 
+### Zero Confidence Tooltip (0% Confidence Explainer)
+
+**Added:** 2025-12-08
+
+When a deal has 0% confidence, hovering over the confidence label ("LOW CONFIDENCE") or percentage ("0%") displays an Apple-style tooltip explaining why and how to improve it.
+
+#### Trigger Behavior
+- Tooltip appears on hover over confidence label OR percentage
+- Only displays when `confidenceScore === 0`
+- Fade in/out: 0.12s ease-out animation
+- Auto-adjusts to viewport edges (never clips)
+
+#### Tooltip Text (Apple-style, concise)
+- **Title:** "Why 0% confidence?"
+- **Body:** "No recent activity. Add notes, update the stage, or log contact to improve confidence."
+
+#### Styling (Apple aesthetic)
+```css
+/* Container */
+background: rgba(10, 10, 10, 0.72);
+backdrop-filter: blur(12px);
+border: 1px solid rgba(255, 255, 255, 0.08);
+border-radius: 12px;
+padding: 12px 14px;
+max-width: 260px;
+box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+
+/* Title */
+font-size: 13px;
+font-weight: 600;
+color: rgba(255, 255, 255, 0.9);
+
+/* Body */
+font-size: 13px;
+color: #D1D5DB; /* text-gray-300 */
+```
+
+#### Placement
+- Default: Above the confidence area, centered
+- Auto-adjust: Uses `calculateDropdownPosition` with viewport boundary checks
+
+#### Accessibility
+- `role="tooltip"` on container
+- `aria-label="Why 0% confidence?"`
+- Does not block pointer events for dragging
+
+#### Component
+- **File:** `src/components/ZeroConfidenceTooltip.jsx`
+- **Integration:** Wraps confidence display in `KanbanCard` (KanbanBoard.jsx:532-541)
+
+#### ASCII Mockup
+```
+                    ┌─────────────────────────────────────────┐
+                    │  Why 0% confidence?                     │
+                    │                                         │
+                    │  No recent activity. Add notes, update  │
+                    │  the stage, or log contact to improve   │
+                    │  confidence.                            │
+                    └─────────────────────────────────────────┘
+                                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│ ┌─────┐  Client Name                              $5,000    │
+│ │Icon │  email@example.com                                  │
+│ └─────┘                                                     │
+│                                                             │
+│ [LOW CONFIDENCE] ← (hover here)                      [0%]   │
+│ [════════════════════════════════════════════────] Progress │
+│                                                             │
+│ [AssigneeSelector]                                          │
+│                                                             │
+│ [Hover Actions: Email | Edit | More...]               [Grip]│
+└─────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 10. Error Handling States
