@@ -129,7 +129,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // Tokens are valid - set HttpOnly cookies
-    const cookies = setSessionCookies(access_token, refresh_token);
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie setting
+    const requestOrigin = event.headers?.origin || '';
+    const cookies = setSessionCookies(access_token, refresh_token, { origin: requestOrigin });
 
     // Log successful token exchange
     console.log('[Auth] Token exchange successful:', {

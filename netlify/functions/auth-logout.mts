@@ -21,16 +21,19 @@ import { clearSessionCookies, parseCookies, COOKIE_NAMES } from './lib/cookie-au
 import { invalidateTokenCache } from './lib/auth-middleware';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
+// P0 FIX 2025-12-08: Standardized CORS origins across all auth functions
+const ALLOWED_ORIGINS = [
+  'https://stageflow.startupstage.com',           // Production (custom domain)
+  'https://stageflow-rev-ops.netlify.app',        // Netlify primary domain
+  'https://stageflow-app.netlify.app',            // Alternate Netlify domain
+  'http://localhost:5173',                        // Vite dev server
+  'http://localhost:8888',                        // Netlify dev server
+];
+
 // PHASE F FIX: CORS headers for browser requests
 const getCorsHeaders = (event: HandlerEvent) => {
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
+  const corsOrigin = ALLOWED_ORIGINS.includes(requestOrigin)
     ? requestOrigin
     : 'https://stageflow.startupstage.com';
 
@@ -116,7 +119,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // SECURITY FIX 3: Always clear session cookies
-    const cookies = clearSessionCookies();
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+    const logoutOrigin = event.headers?.origin || '';
+    const cookies = clearSessionCookies(logoutOrigin);
 
     // Return appropriate success response
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
@@ -149,7 +154,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       }
     }
 
-    const cookies = clearSessionCookies();
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+    const logoutOrigin = event.headers?.origin || '';
+    const cookies = clearSessionCookies(logoutOrigin);
 
     // PHASE F FIX: Return error with CORS headers
     return {

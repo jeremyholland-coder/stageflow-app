@@ -209,9 +209,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
             finalSession = refreshData.session;
             finalUser = refreshData.user;
             // Set new cookies so frontend gets fresh tokens
+            // P0 FIX 2025-12-08: Pass origin for domain-aware cookie setting
             newCookies = setSessionCookies(
               refreshData.session.access_token,
-              refreshData.session.refresh_token
+              refreshData.session.refresh_token,
+              { origin }
             );
           } else {
             debugLog('Inline refresh failed:', refreshError?.message);
@@ -302,10 +304,14 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       : null;
 
     // Build response
+    // P0 FIX 2025-12-08: Added valid:true and organization_id for frontend compatibility
+    // Frontend expects { valid: true, user, session, organization_id }
     const responseBody = {
+      valid: true, // P0 FIX: Explicit success flag for frontend
       user: finalUser,
       session: responseSession,
       organization: organization,
+      organization_id: organization?.id || null, // P0 FIX: Top-level org ID for easier access
       role: role,
       orgStatus: orgStatus // 'found' | 'not_found' | 'query_error'
     };

@@ -37,16 +37,19 @@ import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 import { createAuthLogContext } from './lib/log-sanitizer';
 import { validateCSRFToken, createCSRFErrorResponse } from './lib/csrf-middleware';
 
+// P0 FIX 2025-12-08: Standardized CORS origins across all auth functions
+const ALLOWED_ORIGINS = [
+  'https://stageflow.startupstage.com',           // Production (custom domain)
+  'https://stageflow-rev-ops.netlify.app',        // Netlify primary domain
+  'https://stageflow-app.netlify.app',            // Alternate Netlify domain
+  'http://localhost:5173',                        // Vite dev server
+  'http://localhost:8888',                        // Netlify dev server
+];
+
 // PHASE F FIX: CORS headers for browser requests
 const getCorsHeaders = (event: HandlerEvent) => {
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
+  const corsOrigin = ALLOWED_ORIGINS.includes(requestOrigin)
     ? requestOrigin
     : 'https://stageflow.startupstage.com';
 
@@ -312,10 +315,12 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       };
     }
 
-    // Create secure session cookies
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie setting
+    const requestOrigin = event.headers?.origin || '';
     const cookies = setSessionCookies(
       data.session.access_token,
-      data.session.refresh_token
+      data.session.refresh_token,
+      { origin: requestOrigin }
     );
 
     // SECURITY FIX (CRIT-SEC-1): Log successful authentication with sanitized data
@@ -442,8 +447,9 @@ export const logoutHandler: Handler = async (event: HandlerEvent, context: Handl
       }
     }
 
-    // Clear session cookies
-    const cookies = clearSessionCookies();
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+    const logoutOrigin = event.headers?.origin || '';
+    const cookies = clearSessionCookies(logoutOrigin);
 
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
     return {
@@ -462,7 +468,9 @@ export const logoutHandler: Handler = async (event: HandlerEvent, context: Handl
     console.error('💥 Logout exception:', error);
 
     // Even if logout fails, clear cookies client-side
-    const cookies = clearSessionCookies();
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+    const logoutOrigin = event.headers?.origin || '';
+    const cookies = clearSessionCookies(logoutOrigin);
 
     // FIX v1.7.95: Use multiValueHeaders for multiple Set-Cookie
     return {

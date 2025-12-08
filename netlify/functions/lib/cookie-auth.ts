@@ -32,40 +32,46 @@ export interface CookieOptions {
 }
 
 /**
- * Get cookie domain based on environment
+ * Get cookie domain based on environment and request origin
  *
- * FIX 2025-12-03: Added domain attribute to ensure cookies work across subdomains.
- * Without domain, cookies are set for the exact host only, which can cause issues
- * when subdomains are involved (auth.startupstage.com vs stageflow.startupstage.com).
+ * P0 FIX 2025-12-08: Cookie domain MUST match the host making the request
  *
- * NOTE: Domain is only set in production. For localhost, omit domain to use default behavior.
+ * CRITICAL BUG FIXED:
+ * - If user is on stageflow.startupstage.com, cookies need domain=.startupstage.com
+ * - If user is on stageflow-rev-ops.netlify.app, cookies need domain=.netlify.app (or omit)
+ * - Setting .startupstage.com domain when accessed via .netlify.app causes 401s
+ *
+ * SOLUTION: Don't set domain attribute - let browser use host-only cookie (most compatible)
+ * Host-only cookies are sent to the exact domain that set them, which is what we need
+ * for Netlify Functions (which run on the same domain as the site)
+ *
+ * NOTE: Domain is only set for startupstage.com subdomains. For all other hosts, omit domain.
  */
-function getCookieDomain(): string | undefined {
-  // Check for production domain
-  const isProd = process.env.NODE_ENV === 'production' ||
-    process.env.NETLIFY === 'true' ||
-    process.env.URL?.includes('startupstage.com');
-
-  if (isProd) {
-    // Use parent domain to allow cookies across all subdomains
-    // e.g., auth.startupstage.com, stageflow.startupstage.com, etc.
+function getCookieDomain(requestOrigin?: string): string | undefined {
+  // P0 FIX 2025-12-08: Check if request is from startupstage.com
+  // Only set domain for startupstage.com origins (enables subdomain sharing)
+  // For netlify.app or localhost, omit domain (host-only cookie is most compatible)
+  if (requestOrigin?.includes('startupstage.com')) {
     return '.startupstage.com';
   }
 
-  // For localhost/dev, don't set domain (uses default behavior)
+  // For all other origins (netlify.app, localhost, etc.), don't set domain
+  // This creates a "host-only" cookie that's sent to the exact domain
   return undefined;
 }
 
 /**
  * Default cookie options for production
+ * P0 FIX 2025-12-08: Domain is now set dynamically based on request origin
+ * Do NOT set domain here - it's added in setSessionCookies based on origin
  */
 const DEFAULT_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: true, // HTTPS only
   sameSite: 'Lax', // FIX 2025-12-03: Changed from Strict to allow cross-site navigation cookies to Netlify Functions
   maxAge: 3600, // 1 hour
-  path: '/',
-  domain: getCookieDomain() // FIX 2025-12-03: Ensure cookies work across subdomains
+  path: '/'
+  // P0 FIX 2025-12-08: domain intentionally omitted - set dynamically in setSessionCookies
 };
 
 /**
@@ -167,16 +173,22 @@ export function serializeCookie(
 /**
  * Create cookie for deletion (set expiration in past)
  *
+ * P0 FIX 2025-12-08: Added origin parameter for domain-aware deletion
+ * Cookies set WITH domain can only be deleted WITH the same domain
+ *
  * @param name - Cookie name
+ * @param origin - Request origin (used to determine correct domain)
  * @returns Set-Cookie header string that deletes the cookie
  */
-export function deleteCookie(name: string): string {
+export function deleteCookie(name: string, origin?: string): string {
+  const domain = getCookieDomain(origin);
   return serializeCookie(name, '', {
     httpOnly: true,
     secure: true,
-    sameSite: 'Strict',
+    sameSite: 'Lax', // P0 FIX: Match the SameSite used when setting (was Strict, should be Lax)
     maxAge: 0,
-    path: '/'
+    path: '/',
+    domain // P0 FIX: Include domain so cookies with domain get properly deleted
   });
 }
 
@@ -233,17 +245,31 @@ export function createSupabaseCookieClient(request: Request): SupabaseClient {
 /**
  * Set session cookies in response
  *
+ * P0 FIX 2025-12-08: Added origin parameter for domain-aware cookie setting
+ * Domain is set based on request origin to ensure cookies work correctly:
+ * - startupstage.com → domain=.startupstage.com (enables subdomain sharing)
+ * - netlify.app → no domain (host-only cookie, most compatible)
+ * - localhost → no domain (host-only cookie)
+ *
  * @param accessToken - Access token
  * @param refreshToken - Refresh token
- * @param options - Cookie options override
+ * @param options - Cookie options override (can include origin for domain detection)
  * @returns Array of Set-Cookie header values
  */
 export function setSessionCookies(
   accessToken: string,
   refreshToken: string,
-  options: Partial<CookieOptions> = {}
+  options: Partial<CookieOptions> & { origin?: string } = {}
 ): string[] {
-  const cookieOptions = { ...DEFAULT_COOKIE_OPTIONS, ...options };
+  // P0 FIX 2025-12-08: Extract origin and compute domain dynamically
+  const { origin, ...restOptions } = options;
+  const domain = getCookieDomain(origin);
+
+  const cookieOptions = {
+    ...DEFAULT_COOKIE_OPTIONS,
+    ...restOptions,
+    domain // P0 FIX: Set domain based on request origin
+  };
 
   return [
     serializeCookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, cookieOptions),
@@ -257,13 +283,16 @@ export function setSessionCookies(
 /**
  * Clear session cookies
  *
+ * P0 FIX 2025-12-08: Added origin parameter for domain-aware deletion
+ *
+ * @param origin - Request origin (used to determine correct domain for deletion)
  * @returns Array of Set-Cookie header values that delete cookies
  */
-export function clearSessionCookies(): string[] {
+export function clearSessionCookies(origin?: string): string[] {
   return [
-    deleteCookie(COOKIE_NAMES.ACCESS_TOKEN),
-    deleteCookie(COOKIE_NAMES.REFRESH_TOKEN),
-    deleteCookie(COOKIE_NAMES.SESSION_ID)
+    deleteCookie(COOKIE_NAMES.ACCESS_TOKEN, origin),
+    deleteCookie(COOKIE_NAMES.REFRESH_TOKEN, origin),
+    deleteCookie(COOKIE_NAMES.SESSION_ID, origin)
   ];
 }
 
@@ -381,10 +410,14 @@ export function getCookieExpiration(maxAge: number): string {
  *
  * SECURITY: Never use wildcard '*' with credentials - browsers reject this.
  * Instead, validate the request origin against a whitelist and echo it back.
+ *
+ * P0 FIX 2025-12-08: Standardized ALLOWED_ORIGINS across all auth functions
+ * All Netlify app domains must be listed to ensure consistent CORS behavior.
  */
 const ALLOWED_ORIGINS = [
-  'https://stageflow.startupstage.com',           // Production
+  'https://stageflow.startupstage.com',           // Production (custom domain)
   'https://stageflow-rev-ops.netlify.app',        // Netlify primary domain
+  'https://stageflow-app.netlify.app',            // P0 FIX: Alternate Netlify domain (used in auth-login)
   'http://localhost:5173',                        // Vite dev server
   'http://localhost:8888',                        // Netlify dev server
 ];

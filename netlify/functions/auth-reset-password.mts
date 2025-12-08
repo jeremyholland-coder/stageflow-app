@@ -249,9 +249,12 @@ export const handler: Handler = async (event) => {
 
     // Success! We have a fresh session with valid tokens
     // Set HttpOnly cookies for automatic login
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie setting
+    const requestOrigin = event.headers?.origin || '';
     const cookies = setSessionCookies(
       signInData.session.access_token,
-      signInData.session.refresh_token
+      signInData.session.refresh_token,
+      { origin: requestOrigin }
     );
 
     console.warn('[Password Reset] ✅✅ Password reset complete - user signed in with fresh session:', {

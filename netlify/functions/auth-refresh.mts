@@ -34,15 +34,19 @@ import {
 import { RATE_LIMITS } from './lib/rate-limiter';
 import { logSecurityEvent, createSecurityEvent } from './lib/security-events';
 
+// P0 FIX 2025-12-08: Standardized CORS origins across all auth functions
+const ALLOWED_ORIGINS = [
+  'https://stageflow.startupstage.com',           // Production (custom domain)
+  'https://stageflow-rev-ops.netlify.app',        // Netlify primary domain
+  'https://stageflow-app.netlify.app',            // Alternate Netlify domain
+  'http://localhost:5173',                        // Vite dev server
+  'http://localhost:8888',                        // Netlify dev server
+];
+
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
   // PHASE 12: Consistent CORS headers
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'http://localhost:5173',
-    'http://localhost:8888'
-  ];
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+  const corsOrigin = ALLOWED_ORIGINS.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
 
   const corsHeaders = {
     'Access-Control-Allow-Origin': corsOrigin,
@@ -126,7 +130,8 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         statusCode: 401,
         headers: corsHeaders,
         // PHASE 9 FIX: Use multiValueHeaders for Set-Cookie (prevents cookie parsing issues)
-        multiValueHeaders: { 'Set-Cookie': clearSessionCookies() },
+        // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+        multiValueHeaders: { 'Set-Cookie': clearSessionCookies(requestOrigin) },
         body: JSON.stringify({
           error: 'No refresh token found',
           code: 'NO_REFRESH_TOKEN',
@@ -157,7 +162,8 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       );
 
       // Clear invalid cookies
-      const clearCookies = clearSessionCookies();
+      // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+      const clearCookies = clearSessionCookies(requestOrigin);
 
       return {
         statusCode: 401,
@@ -173,9 +179,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     // Set new session cookies with refreshed tokens
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie setting
     const newCookies = setSessionCookies(
       data.session.access_token,
-      data.session.refresh_token
+      data.session.refresh_token,
+      { origin: requestOrigin }
     );
 
     // Log successful token refresh
@@ -214,7 +222,8 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     console.error('💥 Refresh exception:', error);
 
     // Clear cookies on error
-    const clearCookies = clearSessionCookies();
+    // P0 FIX 2025-12-08: Pass origin for domain-aware cookie deletion
+    const clearCookies = clearSessionCookies(requestOrigin);
 
     return {
       statusCode: 500,
