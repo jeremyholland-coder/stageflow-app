@@ -13,7 +13,8 @@ import {
 import {
   validateDealSchema,
   trackInvariantViolation,
-  VALID_STAGES
+  VALID_STAGES,
+  isValidStageFormat
 } from "./lib/invariant-validator";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
@@ -44,7 +45,7 @@ export default async (req: Request, context: Context) => {
     ? requestOrigin
     : 'https://stageflow.startupstage.com';
 
-  const corsHeaders = {
+  const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -219,22 +220,28 @@ export default async (req: Request, context: Context) => {
     }
 
     // PHASE 14 FIX: Validate stage value if provided
-    // PHASE 1 2025-12-08: Uses centralized VALID_STAGES from invariant-validator
+    // P0 FIX 2025-12-08: Use PERMISSIVE validation to support custom pipeline stages
+    // Organizations can create custom stages via pipeline_stages table
+    // We only validate the format (lowercase snake_case), not against a hardcoded list
     if (sanitizedUpdates.stage) {
-      if (!VALID_STAGES.has(sanitizedUpdates.stage)) {
-        console.error("[KANBAN][BACKEND] ❌ Invalid stage value:", sanitizedUpdates.stage);
-        console.error("[KANBAN][BACKEND] Valid stages are:", Array.from(VALID_STAGES).join(', '));
+      if (!isValidStageFormat(sanitizedUpdates.stage)) {
+        console.error("[KANBAN][BACKEND] ❌ Invalid stage format:", sanitizedUpdates.stage);
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Invalid stage value: ${sanitizedUpdates.stage}`,
+            error: `Invalid stage format: ${sanitizedUpdates.stage}. Stage must be lowercase with underscores.`,
             code: "VALIDATION_ERROR",
-            hint: "Stage must be a valid pipeline stage"
+            hint: "Stage must be lowercase snake_case format (e.g., lead_captured, custom_stage)"
           }),
           { status: 400, headers: corsHeaders }
         );
       }
-      console.log("[KANBAN][BACKEND] ✓ Stage validation passed:", sanitizedUpdates.stage);
+      // Warn if stage is not in known list (may be custom)
+      if (!VALID_STAGES.has(sanitizedUpdates.stage)) {
+        console.log("[KANBAN][BACKEND] ⚠️ Custom stage detected:", sanitizedUpdates.stage, "- allowing");
+      } else {
+        console.log("[KANBAN][BACKEND] ✓ Stage validation passed:", sanitizedUpdates.stage);
+      }
     }
 
     // STEP 7: Validate lost/disqualified mutual exclusivity

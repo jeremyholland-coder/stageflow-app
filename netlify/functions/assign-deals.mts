@@ -16,8 +16,10 @@ import { notifyUser } from './lib/notifications-service';
 
 export const handler = async (event: any) => {
   // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
+  // P0 FIX 2025-12-08: Added stageflow-rev-ops.netlify.app for staging deploys
   const allowedOrigins = [
     'https://stageflow.startupstage.com',
+    'https://stageflow-rev-ops.netlify.app',
     'https://stageflow-app.netlify.app',
     'http://localhost:8888',
     'http://localhost:5173'

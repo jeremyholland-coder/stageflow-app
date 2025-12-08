@@ -335,8 +335,11 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 
 export default async (req: Request, context: any) => {
   // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
+  // P0 FIX 2025-12-08: Added all Netlify deploy origins to prevent CORS errors
   const allowedOrigins = [
     'https://stageflow.startupstage.com',
+    'https://stageflow-rev-ops.netlify.app',
+    'https://stageflow-app.netlify.app',
     'http://localhost:8888',
     'http://localhost:5173'
   ];
