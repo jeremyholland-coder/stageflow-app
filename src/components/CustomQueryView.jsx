@@ -410,9 +410,22 @@ export const CustomQueryView = ({
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic
   // FIX 2025-12-03: Also destructure authError to distinguish auth failures from "no provider"
-  const { hasProvider: hasProviders, authError: aiAuthError } = useAIProviderStatus(user, organization);
+  const { hasProvider: hasProviders, authError: aiAuthError, providersLoaded, providerFetchError } = useAIProviderStatus(user, organization);
   // APMDOS: Determine hasAIProvider - use prop if provided, otherwise use hook result
   const hasAIProvider = hasAIProviderProp !== undefined ? hasAIProviderProp : hasProviders;
+
+  // FIX 2025-12-08: Log provider status for debugging (helps identify early-bail issues)
+  // This log only fires on initial render and when status changes
+  useEffect(() => {
+    console.info('[StageFlow][AI][FIX] CustomQueryView provider status', {
+      hasProviders,
+      hasAIProvider,
+      providersLoaded,
+      providerFetchError,
+      aiAuthError,
+      isOnline
+    });
+  }, [hasProviders, hasAIProvider, providersLoaded, providerFetchError, aiAuthError, isOnline]);
 
   // APMDOS: Get activation state for adaptive onboarding
   const activationState = useActivationState({
@@ -1250,7 +1263,8 @@ export const CustomQueryView = ({
   // These handlers execute contextual AI actions from micro-buttons in Plan My Day responses
   const handleExecutionAction = async (actionType, context) => {
     // CONCURRENCY FIX: Check synchronous lock first
-    if (isSubmitting || loading || !hasProviders || !isOnline || executionLoading || submissionLockRef.current) return;
+    // FIX 2025-12-08: Removed !hasProviders check - ALWAYS call backend, let it return proper error codes
+    if (isSubmitting || loading || !isOnline || executionLoading || submissionLockRef.current) return;
 
     // PHASE 5.3: Track micro-action usage for adaptive personalization
     // Map execution action types to signal action IDs
@@ -1387,7 +1401,9 @@ Guidelines:
     }
 
     // CONCURRENCY FIX: Check synchronous lock first (prevents double-click race condition)
-    if (isSubmitting || loading || !hasProviders || submissionLockRef.current) {
+    // FIX 2025-12-08: Removed !hasProviders check - ALWAYS call backend, let it return proper error codes
+    // This ensures users always get a network call and see backend-authoritative errors (NO_PROVIDERS, INVALID_API_KEY, etc.)
+    if (isSubmitting || loading || submissionLockRef.current) {
       // M2 HARDENING: Clear planning state if we early-return
       if (actionType === 'plan_my_day') {
         setIsPlanning(false);
@@ -1402,6 +1418,13 @@ Guidelines:
 
     // Acquire lock immediately (synchronous - before any state updates)
     submissionLockRef.current = true;
+
+    // FIX 2025-12-08: Log that we're proceeding to call backend (confirms no early-bail on !hasProviders)
+    console.info('[StageFlow][AI][FIX] handleQuickAction proceeding to call backend', {
+      actionType,
+      hasProviders, // Log this so we can verify it's calling even when false
+      isOnline
+    });
 
     // OFFLINE PHASE 4B: Track the quick action type for caching
     lastQuickActionRef.current = actionType;
@@ -1851,7 +1874,8 @@ Guidelines:
                       </div>
                     </div>
                     {/* ISSUE 4 FIX: Still show Plan My Day for users with some deals, but respect daily limit */}
-                    {hasProviders && isOnline && !planMyDayRunToday && (
+                    {/* FIX 2025-12-08: Always show button when online - backend returns authoritative errors */}
+                    {isOnline && !planMyDayRunToday && (
                       <PlanMyDayButton
                         onClick={() => handleQuickAction('plan_my_day')}
                         disabled={loading || isSubmitting}
@@ -1891,15 +1915,16 @@ Guidelines:
                           Start your day with a quick plan.
                         </p>
                         {/* PLAN MY DAY REFACTOR: Clean button with automatic fallback on failure */}
-                        {hasProviders && isOnline && (
+                        {/* FIX 2025-12-08: Always show button when online - backend returns authoritative errors */}
+                        {isOnline && (
                           <PlanMyDayButton
                             onClick={() => handleQuickAction('plan_my_day')}
                             disabled={loading || isSubmitting || isPlanning}
                             loading={isPlanning || (loading && lastQuickActionRef.current === 'plan_my_day')}
                           />
                         )}
-                        {/* Show fallback when offline or no providers */}
-                        {(!hasProviders || !isOnline) && (
+                        {/* Show fallback ONLY when offline - backend handles provider errors */}
+                        {!isOnline && (
                           <PlanMyDayFallback
                             deals={deals}
                             onRetry={() => handleQuickAction('plan_my_day')}
