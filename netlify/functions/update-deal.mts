@@ -390,6 +390,30 @@ export default async (req: Request, context: Context) => {
       status: updatedDeal.status
     });
 
+    // P0 FIX 2025-12-08: Backend invariant validation
+    // NEVER return success:true without a valid, complete deal object
+    // This prevents false positive "100% success" conditions
+    const REQUIRED_DEAL_FIELDS = ['id', 'organization_id', 'stage', 'status'];
+    const missingFields = REQUIRED_DEAL_FIELDS.filter(field => !updatedDeal[field]);
+
+    if (missingFields.length > 0) {
+      console.error("[update-deal] INVARIANT VIOLATION: Updated deal missing required fields:", {
+        dealId,
+        missingFields,
+        dealKeys: Object.keys(updatedDeal)
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Update succeeded but deal data is incomplete. Please refresh and try again.",
+          code: "INVARIANT_VIOLATION",
+          details: `Missing fields: ${missingFields.join(', ')}`
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
     // Phase 1 Telemetry: Track successful deal update
     trackDealUpdate(ctx.correlationId, true, stageChanged, calculateDuration(ctx));
 

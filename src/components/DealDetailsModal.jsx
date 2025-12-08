@@ -128,7 +128,9 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         status: sanitizedData.status
       });
 
-      const { data: result } = await api.post('update-deal', {
+      // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
+      // This ensures we NEVER get false success - deal is always validated
+      const { data: result } = await api.deal('update-deal', {
         dealId: deal.id,
         updates: sanitizedData,
         organizationId: organization.id
@@ -138,12 +140,12 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
       console.log('[DealDetailsModal] Auto-save response:', {
         success: result?.success,
         hasError: !!result?.error,
-        hasDeal: !!result?.deal,
-        ignoredFields: result?.ignoredFields
+        hasDeal: !!result?.deal
       });
 
-      // FIX 2025-12-07: Check for error even if success is undefined (handles all error responses)
-      if (result?.success === false || result?.error) {
+      // P0 FIX 2025-12-08: Simplified check - api.deal normalizes response
+      // result.success is ALWAYS defined (true or false) after normalization
+      if (!result.success) {
         const error = new Error(result.error || 'Save failed');
         error.code = result.code || 'UPDATE_ERROR';
         throw error;

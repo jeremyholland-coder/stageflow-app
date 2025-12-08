@@ -221,16 +221,17 @@ export const useDealManagement = (user, organization, addNotification) => {
             const { dealId, updates } = command.payload;
             const finalUpdates = { ...updates, last_activity: new Date().toISOString() };
 
-            // PHASE J: Use auth-aware api-client with Authorization header
-            // Fixes cross-origin cookie issues by sending Bearer token
-            const { data: updateResult } = await api.post('update-deal', {
+            // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
+            // This ensures we NEVER get false success conditions
+            const { data: updateResult } = await api.deal('update-deal', {
               dealId,
               updates: finalUpdates,
               organizationId: organization.id
             });
 
-            if (!updateResult.success && updateResult.error) {
-              throw new Error(updateResult.error);
+            // Invariant: updateResult.success is always defined after api.deal
+            if (!updateResult.success) {
+              throw new Error(updateResult.error || 'Update failed');
             }
           } else if (command.type === OFFLINE_COMMAND_TYPES.CREATE_DEAL) {
             const { deal } = command.payload;
@@ -742,10 +743,10 @@ export const useDealManagement = (user, organization, addNotification) => {
         return; // Don't attempt network call
       }
 
-      // PHASE J: Use auth-aware api-client with Authorization header
-      // Fixes cross-origin cookie issues by sending Bearer token
+      // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
+      // This ensures we NEVER get false success conditions - deal is always validated
       console.log('[KANBAN][UPDATE_DEAL] Making API call to update-deal...');
-      const { data: result } = await api.post('update-deal', {
+      const { data: result } = await api.deal('update-deal', {
         dealId,
         updates: finalUpdates,
         organizationId: organization.id
@@ -755,12 +756,12 @@ export const useDealManagement = (user, organization, addNotification) => {
         success: result.success,
         hasError: !!result.error,
         hasDeal: !!result.deal,
-        dealStage: result.deal?.stage,
-        ignoredFields: result.ignoredFields
+        dealStage: result.deal?.stage
       });
 
-      // FIX 2025-12-07: Check for error even if success is undefined (handles all error responses)
-      if (result.success === false || result.error) {
+      // P0 FIX 2025-12-08: Simplified check - api.deal normalizes response
+      // result.success is ALWAYS defined (true or false) after normalization
+      if (!result.success) {
         console.error('[KANBAN][UPDATE_DEAL] ❌ API returned error:', result.error, 'code:', result.code);
         const error = new Error(result.error || 'Update failed');
         error.code = result.code || 'UPDATE_ERROR';
@@ -882,15 +883,16 @@ export const useDealManagement = (user, organization, addNotification) => {
         try {
           const finalUpdates = { ...dealUpdates, last_activity: new Date().toISOString() };
 
-          // PHASE J: Use auth-aware api-client with Authorization header
-          const { data: result } = await api.post('update-deal', {
+          // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
+          const { data: result } = await api.deal('update-deal', {
             dealId,
             updates: finalUpdates,
             organizationId: organization.id
           });
 
-          if (!result.success && result.error) {
-            throw new Error(result.error);
+          // Invariant: result.success is always defined after api.deal
+          if (!result.success) {
+            throw new Error(result.error || 'Update failed');
           }
 
           const data = result.deal;

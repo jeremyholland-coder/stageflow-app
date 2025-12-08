@@ -52,6 +52,8 @@ import {
   trackEvent,
   setCorrelationId,
 } from './sentry';
+// P0 FIX 2025-12-08: Invariant validation to prevent false success responses
+import { normalizeDealResponse, isValidSuccessResponse } from './invariants';
 
 /**
  * Default timeout values for different operation types
@@ -561,6 +563,50 @@ export class APIClient {
       timeout: options.timeout || DEFAULT_TIMEOUTS.upload,
     });
   }
+
+  /**
+   * P0 FIX 2025-12-08: Deal Request with Invariant Validation
+   *
+   * This method is specifically for deal CRUD operations (create, update, delete).
+   * It enforces invariants to prevent false success conditions:
+   * - Response MUST have success: true/false
+   * - If success: true, deal object MUST be present and valid
+   * - If success: false, error and code MUST be present
+   *
+   * @param {string} endpoint - API endpoint (e.g., 'update-deal', 'create-deal')
+   * @param {object} data - Request payload
+   * @param {object} options - Request options
+   * @returns {Promise<{data: object, response: Response, correlationId: string}>}
+   */
+  async dealRequest(endpoint, data, options = {}) {
+    const result = await this.post(endpoint, data, options);
+
+    // P0 FIX: Validate response using invariant module
+    // This ensures we NEVER return success: true without a valid deal
+    const normalizedData = normalizeDealResponse(result.data, `dealRequest:${endpoint}`);
+
+    // Track invalid responses for monitoring
+    if (result.data?.success === true && !isValidSuccessResponse(result.data)) {
+      console.error('[APIClient] INVARIANT VIOLATION: success:true without valid deal', {
+        endpoint,
+        responseKeys: Object.keys(result.data || {}),
+        hasDeal: !!result.data?.deal
+      });
+
+      // Track this as a telemetry event
+      trackEvent('invariant_violation', {
+        endpoint,
+        type: 'false_success',
+        hasSuccess: result.data?.success,
+        hasDeal: !!result.data?.deal
+      });
+    }
+
+    return {
+      ...result,
+      data: normalizedData
+    };
+  }
 }
 
 /**
@@ -582,6 +628,9 @@ export const api = {
   ai: (endpoint, data, options) => apiClient.aiRequest(endpoint, data, options),
   payment: (endpoint, data, options) => apiClient.paymentRequest(endpoint, data, options),
   upload: (endpoint, formData, options) => apiClient.uploadRequest(endpoint, formData, options),
+
+  // P0 FIX 2025-12-08: Deal operations with invariant validation
+  deal: (endpoint, data, options) => apiClient.dealRequest(endpoint, data, options),
 };
 
 export default apiClient;

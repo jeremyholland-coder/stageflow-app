@@ -302,6 +302,30 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[create-deal] Success:", { dealId: newDeal.id, stage: newDeal.stage });
 
+    // P0 FIX 2025-12-08: Backend invariant validation
+    // NEVER return success:true without a valid, complete deal object
+    // This prevents false positive "100% success" conditions
+    const REQUIRED_DEAL_FIELDS = ['id', 'organization_id', 'stage', 'status'];
+    const missingFields = REQUIRED_DEAL_FIELDS.filter(field => !newDeal[field]);
+
+    if (missingFields.length > 0) {
+      console.error("[create-deal] INVARIANT VIOLATION: Created deal missing required fields:", {
+        dealId: newDeal?.id,
+        missingFields,
+        dealKeys: Object.keys(newDeal || {})
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Deal was created but data is incomplete. Please refresh and try again.",
+          code: "INVARIANT_VIOLATION",
+          details: `Missing fields: ${missingFields.join(', ')}`
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
     // FIX: Include success: true in response for consistent API shape
     return new Response(JSON.stringify({ success: true, deal: newDeal }), {
       status: 200,
