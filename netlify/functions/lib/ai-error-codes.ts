@@ -33,7 +33,10 @@ export const AI_ERROR_CODES = {
   // Provider-specific errors
   PROVIDER_SOFT_FAILURE: 'PROVIDER_SOFT_FAILURE',   // Provider returned 200 but with error message content
   INVALID_API_KEY: 'INVALID_API_KEY',               // Provider rejected API key
-  RATE_LIMITED: 'RATE_LIMITED',                     // Provider rate limit hit (429)
+  KEY_MISSING: 'KEY_MISSING',                       // No API key configured for provider
+  INVALID_SCOPE: 'INVALID_SCOPE',                   // API key lacks required scopes/permissions
+  BILLING_OR_QUOTA: 'BILLING_OR_QUOTA',             // Billing issue or quota exceeded (not retryable)
+  RATE_LIMITED: 'RATE_LIMITED',                     // Provider rate limit hit (429) - retryable
   PROVIDER_ERROR: 'PROVIDER_ERROR',                 // Generic provider error
   TIMEOUT: 'TIMEOUT',                               // Request timed out
   KEY_DECRYPT_FAILED: 'KEY_DECRYPT_FAILED',         // Failed to decrypt stored API key

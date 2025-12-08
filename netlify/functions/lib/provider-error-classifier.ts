@@ -207,9 +207,26 @@ function classifyOpenAIError(httpStatus: number | null, errorBody: string): { co
 
 /**
  * Classify an Anthropic error
+ *
+ * PHASE 11 2025-12-08: Added specific error type detection for:
+ * - invalid_scope: API key lacks required permissions
+ * - billing_quota_exceeded: Usage quota exceeded
+ * - key_missing: No API key configured
  */
 function classifyAnthropicError(httpStatus: number | null, errorBody: string): { code: ProviderErrorCode; dashboardUrl: string | null } {
   const lowerBody = errorBody.toLowerCase();
+
+  // PHASE 11: Detect specific Anthropic error types (non-retryable billing/quota issues)
+  // These should be surfaced to the user immediately, not retried
+  if (lowerBody.includes('invalid_scope') || lowerBody.includes('invalid scope') || lowerBody.includes('permission')) {
+    return { code: 'AUTH_ERROR', dashboardUrl: PROVIDER_DASHBOARD_URLS.anthropic.apiKeys };
+  }
+  if (lowerBody.includes('billing_quota_exceeded') || lowerBody.includes('quota exceeded') || lowerBody.includes('billing quota')) {
+    return { code: 'INSUFFICIENT_QUOTA', dashboardUrl: PROVIDER_DASHBOARD_URLS.anthropic.billing };
+  }
+  if (lowerBody.includes('key_missing') || lowerBody.includes('api key is missing') || lowerBody.includes('no api key')) {
+    return { code: 'INVALID_KEY', dashboardUrl: PROVIDER_DASHBOARD_URLS.anthropic.apiKeys };
+  }
 
   // HTTP 400 with credit balance
   if (httpStatus === 400) {
