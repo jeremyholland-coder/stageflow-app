@@ -790,6 +790,7 @@ export const useDealManagement = (user, organization, addNotification) => {
       // H6-H HARDENING 2025-12-04: Context-aware error messages for deal operations
       let userMessage = 'Deal update failed. Please try again.';
 
+      // P0 FIX 2025-12-08: Comprehensive error code handling
       // Check for backend error codes first (these come from update-deal.mts)
       if (error.code === 'VALIDATION_ERROR' || error.code === 'UPDATE_VALIDATION_ERROR') {
         userMessage = error.message || 'Invalid data. Please check your input.';
@@ -799,8 +800,14 @@ export const useDealManagement = (user, organization, addNotification) => {
         userMessage = 'Deal not found. It may have been deleted.';
       } else if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_ERROR') {
         userMessage = 'Session expired. Please refresh the page.';
+      } else if (error.code === 'RATE_LIMITED' || error.code === 'THROTTLED') {
+        // P0 FIX 2025-12-08: Handle rate limiting from session validation
+        userMessage = 'Too many requests. Please wait a moment and try again.';
       } else if (error.code === 'SERVER_ERROR') {
         userMessage = error.message || 'Something went wrong. Please try again.';
+      } else if (error.userMessage) {
+        // P0 FIX 2025-12-08: Use userMessage if api-client provided one
+        userMessage = error.userMessage;
       } else {
         // Fallback to parsing error for network issues
         const appError = parseSupabaseError(error);
@@ -814,6 +821,10 @@ export const useDealManagement = (user, organization, addNotification) => {
           userMessage = 'You don\'t have permission to update this deal.';
         } else if (appError.code === ERROR_CODES.SESSION_EXPIRED) {
           userMessage = 'Session expired. Please refresh the page.';
+        } else if (error.message && error.message.length < 100) {
+          // P0 FIX 2025-12-08: Use error.message for unknown codes if it's user-friendly
+          // (short messages are usually safe to display)
+          userMessage = error.message;
         }
       }
 

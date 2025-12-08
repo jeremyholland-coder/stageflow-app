@@ -169,6 +169,11 @@ export class APIClient {
             throw sessionError;
           }
 
+          // P0 FIX 2025-12-08: ALL session validation failures are now fatal
+          // Previously, 'THROTTLED' and other unexpected codes would fall through
+          // and allow requests to proceed with stale/no session, causing 500 errors
+          //
+          // The only exception is transient errors which get ONE retry
           if (isTransientSessionError) {
             // P1 FIX: Single retry for transient errors (network glitch, race condition)
             console.warn('[APIClient] Transient session error, retrying once:', sessionResult.code);
@@ -193,10 +198,28 @@ export class APIClient {
             // If retry succeeded, continue normally
             console.warn('[APIClient] Session retry succeeded');
           } else {
-            // For throttled or other non-transient temporary issues, log but continue
-            sessionValidationFailed = true;
-            sessionErrorCode = sessionResult.code;
-            console.warn('[APIClient] Session validation issue (non-fatal):', sessionResult.error, sessionResult.code);
+            // P0 FIX 2025-12-08: ALL other validation failures (THROTTLED, INTERNAL_ERROR, etc.)
+            // must ALSO fail immediately - do NOT proceed with stale session
+            // This was the root cause of 500 errors: requests proceeded with invalid tokens
+            console.error('[APIClient] Session validation failed with code:', sessionResult.code, '- stopping API call');
+
+            // Don't redirect to login for throttle errors - user is still authenticated
+            // but we can't validate the session right now
+            const isThrottled = sessionResult.code === 'THROTTLED';
+
+            if (!isThrottled) {
+              setTimeout(() => handleSessionInvalid(), 0);
+            }
+
+            const sessionError = new Error(
+              isThrottled
+                ? 'Too many requests. Please wait a moment and try again.'
+                : 'Your session has expired. Please sign in again.'
+            );
+            sessionError.code = isThrottled ? 'RATE_LIMITED' : 'SESSION_ERROR';
+            sessionError.status = isThrottled ? 429 : 401;
+            sessionError.userMessage = sessionError.message;
+            throw sessionError;
           }
         }
 

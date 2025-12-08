@@ -172,7 +172,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
       });
       setAutoSaveStatus('idle');
 
-      // FIX 2025-12-07: Show specific error messages based on error code
+      // P0 FIX 2025-12-08: Show specific error messages based on error code
+      // Keep in sync with useDealManagement.js error handling
       let userMessage = 'Save failed. Please try again.';
       if (error.code === 'VALIDATION_ERROR' || error.code === 'UPDATE_VALIDATION_ERROR') {
         userMessage = error.message || 'Invalid data. Please check your input.';
@@ -182,8 +183,17 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         userMessage = 'Deal not found. It may have been deleted.';
       } else if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_ERROR') {
         userMessage = 'Session expired. Please refresh the page.';
+      } else if (error.code === 'RATE_LIMITED' || error.code === 'THROTTLED') {
+        // P0 FIX 2025-12-08: Handle rate limiting from session validation
+        userMessage = 'Too many requests. Please wait a moment and try again.';
       } else if (error.code === 'SERVER_ERROR') {
         userMessage = 'Something went wrong. Please try again.';
+      } else if (error.userMessage) {
+        // P0 FIX 2025-12-08: Use userMessage if api-client provided one
+        userMessage = error.userMessage;
+      } else if (error.message && error.message.length < 100) {
+        // P0 FIX 2025-12-08: Use error.message for unknown codes if it's user-friendly
+        userMessage = error.message;
       }
       // Always show error to user (not just silent fail)
       addNotification(userMessage, 'error');
