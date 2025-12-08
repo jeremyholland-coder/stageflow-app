@@ -12,6 +12,43 @@
  */
 
 // ============================================================================
+// ALL VALID STAGES - Comprehensive list from all pipeline templates
+// ============================================================================
+// This is the SINGLE SOURCE OF TRUTH for valid stage IDs.
+// Any stage from any pipeline template should be listed here.
+// Used by invariant validators to prevent false positives on valid stages.
+
+export const ALL_VALID_STAGES = new Set([
+  // Legacy default pipeline
+  'lead', 'quote', 'approval', 'invoice', 'onboarding', 'delivery', 'retention', 'lost',
+
+  // Default (StageFlow) pipeline
+  'lead_captured', 'lead_qualified', 'contacted', 'needs_identified', 'proposal_sent',
+  'negotiation', 'deal_won', 'deal_lost', 'invoice_sent', 'payment_received', 'customer_onboarded',
+
+  // Healthcare pipeline
+  'lead_generation', 'lead_qualification', 'discovery', 'scope_defined', 'contract_sent',
+  'client_onboarding', 'renewal_upsell',
+
+  // VC/PE pipeline
+  'deal_sourced', 'initial_screening', 'due_diligence', 'term_sheet_presented',
+  'investment_closed', 'capital_call_sent', 'capital_received', 'portfolio_mgmt',
+
+  // Real Estate pipeline
+  'qualification', 'property_showing', 'contract_signed', 'closing_statement_sent',
+  'escrow_completed', 'client_followup',
+
+  // Professional Services pipeline
+  'lead_identified',
+
+  // SaaS pipeline
+  'prospecting', 'contact', 'proposal', 'closed', 'adoption', 'renewal',
+
+  // Additional/shared stages
+  'discovery_demo', 'contract', 'payment', 'closed_won', 'passed'
+]);
+
+// ============================================================================
 // STAGE CATEGORIES - Single Source of Truth for stage groupings
 // ============================================================================
 // Use these arrays when filtering deals by category (dashboard stats, reports, etc.)

@@ -448,6 +448,8 @@ export default async (req: Request, context: Context) => {
 
       console.error("[update-deal] INVARIANT VIOLATION:", validationError.message);
 
+      // FIX 2025-12-08: Return 422 (Unprocessable Entity) instead of 500
+      // This is a validation error, not a server error
       return new Response(
         JSON.stringify({
           success: false,
@@ -455,7 +457,7 @@ export default async (req: Request, context: Context) => {
           code: validationError.code || "INVARIANT_VIOLATION",
           details: validationError.message
         }),
-        { status: 500, headers: corsHeaders }
+        { status: 422, headers: corsHeaders }
       );
     }
 

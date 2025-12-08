@@ -23,6 +23,9 @@
  * - Any violation throws InvariantViolationError
  */
 
+// FIX 2025-12-08: Import centralized stage config (single source of truth)
+import { ALL_VALID_STAGES } from '../config/pipelineConfig.js';
+
 /**
  * Canonical Deal Schema - The minimum required fields for a valid deal
  * Any deal object missing these fields is considered INVALID
@@ -49,29 +52,20 @@ export const DEAL_EXPECTED_FIELDS = [
 
 /**
  * Valid stage values across all pipeline templates
+ * FIX 2025-12-08: Use centralized config (single source of truth)
  */
-export const VALID_STAGES = new Set([
-  // Legacy default pipeline
-  'lead', 'quote', 'approval', 'invoice', 'onboarding', 'delivery', 'retention', 'lost',
-  // Default (StageFlow) pipeline
-  'lead_captured', 'lead_qualified', 'contacted', 'needs_identified', 'proposal_sent',
-  'negotiation', 'deal_won', 'deal_lost', 'invoice_sent', 'payment_received', 'customer_onboarded',
-  // Healthcare pipeline
-  'lead_generation', 'lead_qualification', 'discovery', 'scope_defined', 'contract_sent',
-  'client_onboarding', 'renewal_upsell',
-  // VC/PE pipeline
-  'deal_sourced', 'initial_screening', 'due_diligence', 'term_sheet_presented',
-  'investment_closed', 'capital_call_sent', 'capital_received', 'portfolio_mgmt',
-  // Real Estate pipeline
-  'qualification', 'property_showing', 'contract_signed', 'closing_statement_sent',
-  'escrow_completed', 'client_followup',
-  // Professional Services pipeline
-  'lead_identified',
-  // SaaS pipeline
-  'prospecting', 'contact', 'proposal', 'closed', 'adoption', 'renewal',
-  // Additional stages
-  'discovery_demo', 'contract', 'payment', 'closed_won', 'passed'
-]);
+export const VALID_STAGES = ALL_VALID_STAGES;
+
+/**
+ * Check if a stage looks valid (basic sanity check)
+ * Accepts any lowercase snake_case string as potentially valid
+ * This is permissive to support custom organization stages from pipeline_stages table
+ */
+export function isValidStageFormat(stage) {
+  if (!stage || typeof stage !== 'string') return false;
+  // Must be non-empty, lowercase, snake_case format
+  return /^[a-z][a-z0-9_]*$/.test(stage);
+}
 
 /**
  * Valid status values
@@ -226,13 +220,21 @@ export function validateDealSchema(deal, context = 'unknown') {
     );
   }
 
-  // Validate stage
-  if (deal.stage && !VALID_STAGES.has(deal.stage)) {
-    throw new InvariantViolationError(
-      `Deal validation failed: invalid stage "${deal.stage}"`,
-      INVARIANT_ERROR_CODES.INVALID_STAGE,
-      { context, stage: deal.stage }
-    );
+  // Validate stage - PERMISSIVE: accept any valid-format stage
+  // FIX 2025-12-08: Don't fail for unknown stages, just warn
+  // Organizations may have custom stages from pipeline_stages table
+  if (deal.stage) {
+    if (!isValidStageFormat(deal.stage)) {
+      throw new InvariantViolationError(
+        `Deal validation failed: invalid stage format "${deal.stage}"`,
+        INVARIANT_ERROR_CODES.INVALID_STAGE,
+        { context, stage: deal.stage }
+      );
+    }
+    // Warn but don't fail for unknown stages
+    if (!VALID_STAGES.has(deal.stage)) {
+      console.warn(`[Invariant] Unknown stage "${deal.stage}" in ${context} - allowing (may be custom stage)`);
+    }
   }
 
   // Validate status

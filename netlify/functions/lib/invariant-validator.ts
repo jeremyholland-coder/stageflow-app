@@ -41,6 +41,8 @@ export const DEAL_REQUIRED_FIELDS = ['id', 'organization_id', 'stage', 'status']
 
 /**
  * Valid deal stages across all pipeline templates
+ * This is a comprehensive list but NOT exhaustive - organizations may have custom stages
+ * FIX 2025-12-08: Stage validation is now permissive to support custom pipeline stages
  */
 export const VALID_STAGES = new Set([
   // Legacy default pipeline
@@ -64,6 +66,17 @@ export const VALID_STAGES = new Set([
   // Additional stages
   'discovery_demo', 'contract', 'payment', 'closed_won', 'passed'
 ]);
+
+/**
+ * Check if a stage looks valid (basic sanity check)
+ * Accepts any lowercase snake_case string as potentially valid
+ * This is permissive to support custom organization stages from pipeline_stages table
+ */
+export function isValidStageFormat(stage: string): boolean {
+  if (!stage || typeof stage !== 'string') return false;
+  // Must be non-empty, lowercase, snake_case format
+  return /^[a-z][a-z0-9_]*$/.test(stage);
+}
 
 /**
  * Valid deal status values
@@ -197,13 +210,22 @@ export function validateDealSchema(deal: unknown, context: string = 'unknown'): 
     );
   }
 
-  // Validate stage
-  if (dealObj.stage && !VALID_STAGES.has(dealObj.stage as string)) {
-    throw new InvariantViolationError(
-      `Deal validation failed: invalid stage "${dealObj.stage}"`,
-      INVARIANT_ERROR_CODES.INVALID_STAGE,
-      { context, stage: dealObj.stage }
-    );
+  // Validate stage - PERMISSIVE: accept any valid-format stage
+  // FIX 2025-12-08: Don't fail for unknown stages, just warn
+  // Organizations may have custom stages from pipeline_stages table
+  if (dealObj.stage) {
+    const stage = dealObj.stage as string;
+    if (!isValidStageFormat(stage)) {
+      throw new InvariantViolationError(
+        `Deal validation failed: invalid stage format "${stage}"`,
+        INVARIANT_ERROR_CODES.INVALID_STAGE,
+        { context, stage }
+      );
+    }
+    // Warn but don't fail for unknown stages
+    if (!VALID_STAGES.has(stage)) {
+      console.warn(`[Invariant] Unknown stage "${stage}" in ${context} - allowing (may be custom stage)`);
+    }
   }
 
   // Validate status
