@@ -102,8 +102,9 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
   }
 
   // Status validation (if provided)
+  // PHASE 4: Added 'disqualified' to valid statuses
   if (mapping.status && row[mapping.status]) {
-    const validStatuses = ['active', 'won', 'lost'];
+    const validStatuses = ['active', 'won', 'lost', 'disqualified'];
     const status = row[mapping.status].toLowerCase().trim();
     if (!validStatuses.includes(status)) {
       errors.push(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);

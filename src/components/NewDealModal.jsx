@@ -13,6 +13,8 @@ import { useFocusTrap } from '../lib/accessibility';
 import { getPlanLimits, isOverLimit } from '../config/planLimits';
 import { PhoneInput } from './PhoneInput';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
+// Phase 7: Offline support for deal creation
+import { enqueueCommand, OFFLINE_COMMAND_TYPES } from '../lib/offlineStore';
 
 // Field validation configuration
 const fieldConfigs = {
@@ -236,6 +238,41 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
         status: 'active',
         notes: sanitizeText(formData.notes) || null
       };
+
+      // Phase 7: Check if offline - queue deal creation for later sync
+      if (!navigator.onLine) {
+        // Generate a temporary local ID for the optimistic deal
+        const localId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Create an optimistic local deal (without server-generated fields)
+        const optimisticDeal = {
+          id: localId,
+          ...sanitizedData,
+          organization_id: organization.id,
+          user_id: user?.id,
+          created: new Date().toISOString(),
+          last_activity: new Date().toISOString(),
+          _pendingSync: true, // Phase 7: Mark as pending sync for UI indicator
+        };
+
+        // Queue the create command for when we're back online
+        await enqueueCommand({
+          type: OFFLINE_COMMAND_TYPES.CREATE_DEAL,
+          payload: { deal: sanitizedData },
+          organizationId: organization.id,
+          localId, // Phase 7: Track local ID for replacement after sync
+        });
+
+        // Add the optimistic deal to local state
+        addNotification('Deal saved offline - will sync when connected', 'info');
+        onDealCreated(optimisticDeal);
+        onClose();
+        setFormData({ client: '', email: '', phone: '', value: '', stage: getInitialStage(), notes: '' });
+        validation.reset();
+        setLoading(false);
+        setProgressMessage('');
+        return;
+      }
 
       // PHASE J: Use auth-aware api-client with Authorization header
       // PART B: Enhanced error handling with structured response parsing

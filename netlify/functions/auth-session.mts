@@ -26,6 +26,12 @@ import {
   getCorsHeaders,
   setSessionCookies
 } from './lib/cookie-auth';
+import {
+  extractCorrelationId,
+  trackSessionValidation,
+  trackSessionRefresh,
+  trackSessionRotation,
+} from './lib/telemetry';
 
 const DEBUG = process.env.DEBUG_AUTH === 'true';
 
@@ -52,6 +58,12 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
+
+  // PHASE 5: Extract correlation ID and track start time
+  const correlationId = extractCorrelationId(new Request('http://localhost', {
+    headers: event.headers as Record<string, string>
+  }));
+  const startTime = Date.now();
 
   try {
     // Get Supabase configuration
@@ -99,6 +111,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     if (!accessToken) {
       console.warn('[AUTH_SESSION] FAIL: No token found (cookies empty, no Authorization header)');
+      // PHASE 5: Track failed validation (no token)
+      trackSessionValidation(correlationId, false, 'NO_SESSION', Date.now() - startTime, {
+        hasCookie: String(hasCookieToken),
+        hasAuthHeader: String(hasAuthHeader),
+      });
       return {
         statusCode: 401,
         headers: corsHeaders,
@@ -198,6 +215,18 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       // rotated elsewhere (another tab/device). Signal that a full re-auth is needed.
       // If no refresh token existed, this is a clean "not authenticated" state.
       const hadRefreshToken = !!refreshToken;
+      const errorCode = hadRefreshToken ? 'SESSION_ROTATED' : 'SESSION_INVALID';
+
+      // PHASE 5: Track failed validation
+      trackSessionValidation(correlationId, false, errorCode, Date.now() - startTime, {
+        hadRefreshToken: String(hadRefreshToken),
+      });
+
+      // Track session rotation specifically
+      if (hadRefreshToken) {
+        trackSessionRotation(correlationId, { reason: 'refresh_token_invalid' });
+      }
+
       return {
         statusCode: 401,
         headers: corsHeaders,
@@ -205,7 +234,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
           error: hadRefreshToken
             ? 'Session expired or rotated. Please refresh the page.'
             : 'Not authenticated',
-          code: hadRefreshToken ? 'SESSION_ROTATED' : 'SESSION_INVALID',
+          code: errorCode,
           // Signal frontend: if SESSION_ROTATED, try calling auth-refresh first then retry
           retryable: hadRefreshToken,
           retryHint: hadRefreshToken ? 'CALL_AUTH_REFRESH_FIRST' : null
@@ -265,8 +294,16 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       orgStatus: orgStatus // 'found' | 'not_found' | 'query_error'
     };
 
+    // PHASE 5: Track successful validation
+    trackSessionValidation(correlationId, true, 'SUCCESS', Date.now() - startTime, {
+      hadInlineRefresh: String(!!newCookies),
+      orgStatus,
+    });
+
     // Return with optional new cookies (if we did inline refresh)
     if (newCookies) {
+      // PHASE 5: Track inline refresh success
+      trackSessionRefresh(correlationId, true, 'INLINE_REFRESH', Date.now() - startTime);
       return {
         statusCode: 200,
         headers: corsHeaders,
@@ -283,6 +320,8 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
   } catch (error: any) {
     console.error('[auth-session] Unexpected error:', error);
+    // PHASE 5: Track unexpected error
+    trackSessionValidation(correlationId, false, 'INTERNAL_ERROR', Date.now() - startTime);
     return {
       statusCode: 500,
       headers: corsHeaders,

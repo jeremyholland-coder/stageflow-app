@@ -85,12 +85,24 @@ export const TelemetryEvents = {
   DEAL_UPDATE_FAILED: 'deal_update_failed',
   DEAL_STAGE_CHANGE: 'deal_stage_change',
 
-  // Auth Events
+  // Auth Events (PHASE 5: Expanded)
   AUTH_SUCCESS: 'auth_success',
   AUTH_FAILED: 'auth_failed',
+  SESSION_VALIDATE_START: 'session_validate_start',
+  SESSION_VALIDATE_SUCCESS: 'session_validate_success',
+  SESSION_VALIDATE_FAILED: 'session_validate_failed',
+  SESSION_REFRESH_START: 'session_refresh_start',
+  SESSION_REFRESH_SUCCESS: 'session_refresh_success',
+  SESSION_REFRESH_FAILED: 'session_refresh_failed',
+  SESSION_ROTATED: 'session_rotated',
+  AUTH_ANOMALY: 'auth_anomaly',
 
   // Pipeline Events
   PIPELINE_LOAD: 'pipeline_load',
+
+  // PHASE 5: Invariant Events
+  INVARIANT_VIOLATION: 'invariant_violation',
+  INVARIANT_ESCALATION: 'invariant_escalation',
 } as const;
 
 export type TelemetryEventName = typeof TelemetryEvents[keyof typeof TelemetryEvents];
@@ -279,6 +291,16 @@ const metricCounters: Record<string, number> = {
   deal_updates_success: 0,
   deal_updates_failed: 0,
   stage_changes: 0,
+  // PHASE 5: Session/Auth metrics
+  session_validations_total: 0,
+  session_validations_success: 0,
+  session_validations_failed: 0,
+  session_refreshes_total: 0,
+  session_refreshes_success: 0,
+  session_refreshes_failed: 0,
+  session_rotations: 0,
+  auth_anomalies: 0,
+  invariant_violations: 0,
 };
 
 const providerCounters: Record<string, { success: number; failed: number }> = {};
@@ -414,6 +436,108 @@ export const trackAIFallbackWithMetrics = (
   incrementMetric('ai_fallbacks');
 };
 
+// ============================================================================
+// PHASE 5: SESSION/AUTH TELEMETRY HELPERS
+// ============================================================================
+
+/**
+ * Track session validation event
+ * Only logs: correlationId, success, code, durationMs (NO PII)
+ */
+export const trackSessionValidation = (
+  correlationId: string,
+  success: boolean,
+  code: string,
+  durationMs: number,
+  metadata: Record<string, string | number | boolean | undefined> = {}
+): void => {
+  const eventName = success
+    ? TelemetryEvents.SESSION_VALIDATE_SUCCESS
+    : TelemetryEvents.SESSION_VALIDATE_FAILED;
+
+  trackTelemetryEvent(eventName, correlationId, {
+    success,
+    code,
+    durationMs,
+    ...metadata,
+  });
+
+  // Metric rollups for session events
+  incrementMetric('session_validations_total');
+  incrementMetric(success ? 'session_validations_success' : 'session_validations_failed');
+};
+
+/**
+ * Track session refresh event
+ * Only logs: correlationId, success, code, durationMs (NO PII)
+ */
+export const trackSessionRefresh = (
+  correlationId: string,
+  success: boolean,
+  code: string,
+  durationMs: number
+): void => {
+  const eventName = success
+    ? TelemetryEvents.SESSION_REFRESH_SUCCESS
+    : TelemetryEvents.SESSION_REFRESH_FAILED;
+
+  trackTelemetryEvent(eventName, correlationId, {
+    success,
+    code,
+    durationMs,
+  });
+
+  incrementMetric('session_refreshes_total');
+  incrementMetric(success ? 'session_refreshes_success' : 'session_refreshes_failed');
+};
+
+/**
+ * Track session rotation (token was rotated elsewhere, causing race condition)
+ */
+export const trackSessionRotation = (
+  correlationId: string,
+  metadata: Record<string, string | number | boolean | undefined> = {}
+): void => {
+  trackTelemetryEvent(TelemetryEvents.SESSION_ROTATED, correlationId, metadata);
+  incrementMetric('session_rotations');
+};
+
+/**
+ * Track auth anomaly (suspicious patterns)
+ * Only logs: correlationId, type, description (NO PII)
+ */
+export const trackAuthAnomaly = (
+  correlationId: string,
+  type: string,
+  description: string
+): void => {
+  trackTelemetryEvent(TelemetryEvents.AUTH_ANOMALY, correlationId, {
+    type,
+    description,
+  });
+
+  incrementMetric('auth_anomalies');
+};
+
+/**
+ * Track invariant violation (backend)
+ * Only logs: correlationId, code, context (NO PII)
+ */
+export const trackInvariantViolation = (
+  correlationId: string,
+  code: string,
+  context: string,
+  details: Record<string, string | number | boolean | undefined> = {}
+): void => {
+  trackTelemetryEvent(TelemetryEvents.INVARIANT_VIOLATION, correlationId, {
+    code,
+    context,
+    ...details,
+  });
+
+  incrementMetric('invariant_violations');
+};
+
 export default {
   extractCorrelationId,
   generateCorrelationId,
@@ -429,4 +553,10 @@ export default {
   trackAICallWithMetrics,
   trackDealUpdateWithMetrics,
   trackAIFallbackWithMetrics,
+  // Phase 5: Session/Auth telemetry
+  trackSessionValidation,
+  trackSessionRefresh,
+  trackSessionRotation,
+  trackAuthAnomaly,
+  trackInvariantViolation,
 };

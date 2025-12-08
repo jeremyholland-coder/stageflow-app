@@ -9,6 +9,12 @@ import {
   TelemetryEvents,
   calculateDuration,
 } from "./lib/telemetry";
+// PHASE 1 2025-12-08: Invariant validation for guaranteed response consistency
+import {
+  validateDealSchema,
+  trackInvariantViolation,
+  VALID_STAGES
+} from "./lib/invariant-validator";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
@@ -151,6 +157,7 @@ export default async (req: Request, context: Context) => {
     // STEP 6: Sanitize updates - only allow specific fields
     // FIX 2025-12-02: Added client, email, phone (frontend field names)
     // alongside contact_name, contact_email, contact_phone (legacy/alternate names)
+    // PHASE 4 2025-12-08: Added unified outcome fields
     const allowedFields = [
       // Core deal fields - support both naming conventions
       "client", "client_name", "name",
@@ -158,14 +165,18 @@ export default async (req: Request, context: Context) => {
       "phone", "contact_phone",
       "value", "stage", "status", "probability",
       "company", "notes", "expected_close", "last_activity",
+      // Legacy lost fields (still supported for backward compatibility)
       "lost_reason", "lost_reason_notes",
       // AI health fields
       "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
       // Deal assignment fields
       "assigned_to", "assigned_by", "assigned_at",
-      // Disqualification fields
+      // Legacy disqualification fields (still supported for backward compatibility)
       "disqualified_reason_category", "disqualified_reason_notes",
-      "stage_at_disqualification", "disqualified_at", "disqualified_by"
+      "stage_at_disqualification", "disqualified_at", "disqualified_by",
+      // PHASE 4: Unified outcome fields
+      "outcome_reason_category", "outcome_notes",
+      "outcome_recorded_at", "outcome_recorded_by"
     ];
 
     const sanitizedUpdates: Record<string, any> = {};
@@ -208,31 +219,8 @@ export default async (req: Request, context: Context) => {
     }
 
     // PHASE 14 FIX: Validate stage value if provided
-    // Comprehensive list matching ALL pipeline templates
+    // PHASE 1 2025-12-08: Uses centralized VALID_STAGES from invariant-validator
     if (sanitizedUpdates.stage) {
-      const VALID_STAGES = new Set([
-        // Legacy default pipeline stages
-        "lead", "quote", "approval", "invoice", "onboarding", "delivery", "retention", "lost",
-        // Default (StageFlow) pipeline
-        "lead_captured", "lead_qualified", "contacted", "needs_identified", "proposal_sent",
-        "negotiation", "deal_won", "deal_lost", "invoice_sent", "payment_received", "customer_onboarded",
-        // Healthcare pipeline
-        "lead_generation", "lead_qualification", "discovery", "scope_defined", "contract_sent",
-        "client_onboarding", "renewal_upsell",
-        // VC/PE pipeline
-        "deal_sourced", "initial_screening", "due_diligence", "term_sheet_presented",
-        "investment_closed", "capital_call_sent", "capital_received", "portfolio_mgmt",
-        // Real Estate pipeline
-        "qualification", "property_showing", "contract_signed", "closing_statement_sent",
-        "escrow_completed", "client_followup",
-        // Professional Services pipeline
-        "lead_identified",
-        // SaaS pipeline
-        "prospecting", "contact", "proposal", "closed", "adoption", "renewal",
-        // Additional stages from pipelineConfig.js
-        "discovery_demo", "contract", "payment", "closed_won", "passed"
-      ]);
-
       if (!VALID_STAGES.has(sanitizedUpdates.stage)) {
         console.error("[KANBAN][BACKEND] ❌ Invalid stage value:", sanitizedUpdates.stage);
         console.error("[KANBAN][BACKEND] Valid stages are:", Array.from(VALID_STAGES).join(', '));
@@ -251,13 +239,32 @@ export default async (req: Request, context: Context) => {
 
     // STEP 7: Validate lost/disqualified mutual exclusivity
     // Lost and Disqualified are STRICTLY mutually exclusive states
+    // PHASE 4 2025-12-08: Also populate unified outcome fields
     const status = sanitizedUpdates.status || existingDeal.status;
 
+    // PHASE 4: Map legacy reason IDs to unified taxonomy
+    const LEGACY_TO_UNIFIED_REASON: Record<string, string> = {
+      // Lost reasons
+      'competitor': 'competitor',
+      'no_interest': 'no_interest',
+      'budget': 'budget',
+      'timing': 'timing',
+      // Disqualified reasons
+      'no_budget': 'budget',
+      'not_a_fit': 'no_fit',
+      'wrong_timing': 'timing',
+      'went_with_competitor': 'competitor',
+      'unresponsive': 'unresponsive',
+      // Common
+      'other': 'other'
+    };
+
     if (status === 'lost') {
-      // Lost deals must have a lost reason
-      const hasLostReason = !!sanitizedUpdates.lost_reason;
-      const hasLostNotes = sanitizedUpdates.lost_reason === 'other'
-        ? !!sanitizedUpdates.lost_reason_notes
+      // Lost deals must have a lost reason (check both legacy and unified fields)
+      const hasLostReason = !!sanitizedUpdates.lost_reason || !!sanitizedUpdates.outcome_reason_category;
+      const lostReason = sanitizedUpdates.lost_reason || sanitizedUpdates.outcome_reason_category;
+      const hasLostNotes = (lostReason === 'other' || lostReason === 'other')
+        ? !!(sanitizedUpdates.lost_reason_notes || sanitizedUpdates.outcome_notes)
         : true;
 
       if (sanitizedUpdates.status === 'lost' && (!hasLostReason || !hasLostNotes)) {
@@ -271,6 +278,21 @@ export default async (req: Request, context: Context) => {
         );
       }
 
+      // PHASE 4: Populate unified outcome fields from legacy fields if not already set
+      if (sanitizedUpdates.lost_reason && !sanitizedUpdates.outcome_reason_category) {
+        sanitizedUpdates.outcome_reason_category = LEGACY_TO_UNIFIED_REASON[sanitizedUpdates.lost_reason] || 'other';
+      }
+      if (sanitizedUpdates.lost_reason_notes && !sanitizedUpdates.outcome_notes) {
+        sanitizedUpdates.outcome_notes = sanitizedUpdates.lost_reason_notes;
+      }
+      // Set outcome metadata
+      if (!sanitizedUpdates.outcome_recorded_at) {
+        sanitizedUpdates.outcome_recorded_at = new Date().toISOString();
+      }
+      if (!sanitizedUpdates.outcome_recorded_by) {
+        sanitizedUpdates.outcome_recorded_by = userId;
+      }
+
       // Clear any disqualified fields to keep the model clean
       sanitizedUpdates.disqualified_reason_category = null;
       sanitizedUpdates.disqualified_reason_notes = null;
@@ -280,9 +302,10 @@ export default async (req: Request, context: Context) => {
     }
 
     if (status === 'disqualified') {
-      // Disqualified deals must have a disqualified reason
+      // Disqualified deals must have a disqualified reason (check both legacy and unified fields)
       const hasDisqReason = !!sanitizedUpdates.disqualified_reason_notes ||
-                            !!sanitizedUpdates.disqualified_reason_category;
+                            !!sanitizedUpdates.disqualified_reason_category ||
+                            !!sanitizedUpdates.outcome_reason_category;
 
       if (sanitizedUpdates.status === 'disqualified' && !hasDisqReason) {
         return new Response(
@@ -293,6 +316,21 @@ export default async (req: Request, context: Context) => {
           }),
           { status: 400, headers: corsHeaders }
         );
+      }
+
+      // PHASE 4: Populate unified outcome fields from legacy fields if not already set
+      if (sanitizedUpdates.disqualified_reason_category && !sanitizedUpdates.outcome_reason_category) {
+        sanitizedUpdates.outcome_reason_category = LEGACY_TO_UNIFIED_REASON[sanitizedUpdates.disqualified_reason_category] || 'other';
+      }
+      if (sanitizedUpdates.disqualified_reason_notes && !sanitizedUpdates.outcome_notes) {
+        sanitizedUpdates.outcome_notes = sanitizedUpdates.disqualified_reason_notes;
+      }
+      // Set outcome metadata (use disqualified_at/by if provided, otherwise generate)
+      if (!sanitizedUpdates.outcome_recorded_at) {
+        sanitizedUpdates.outcome_recorded_at = sanitizedUpdates.disqualified_at || new Date().toISOString();
+      }
+      if (!sanitizedUpdates.outcome_recorded_by) {
+        sanitizedUpdates.outcome_recorded_by = sanitizedUpdates.disqualified_by || userId;
       }
 
       // Clear any lost fields to keep them mutually exclusive
@@ -309,6 +347,11 @@ export default async (req: Request, context: Context) => {
       sanitizedUpdates.stage_at_disqualification = null;
       sanitizedUpdates.disqualified_at = null;
       sanitizedUpdates.disqualified_by = null;
+      // PHASE 4: Also clear unified outcome fields
+      sanitizedUpdates.outcome_reason_category = null;
+      sanitizedUpdates.outcome_notes = null;
+      sanitizedUpdates.outcome_recorded_at = null;
+      sanitizedUpdates.outcome_recorded_by = null;
     }
 
     // STEP 8: Track stage changes for history
@@ -390,25 +433,27 @@ export default async (req: Request, context: Context) => {
       status: updatedDeal.status
     });
 
-    // P0 FIX 2025-12-08: Backend invariant validation
+    // PHASE 1 2025-12-08: Backend invariant validation using centralized module
     // NEVER return success:true without a valid, complete deal object
     // This prevents false positive "100% success" conditions
-    const REQUIRED_DEAL_FIELDS = ['id', 'organization_id', 'stage', 'status'];
-    const missingFields = REQUIRED_DEAL_FIELDS.filter(field => !updatedDeal[field]);
-
-    if (missingFields.length > 0) {
-      console.error("[update-deal] INVARIANT VIOLATION: Updated deal missing required fields:", {
+    try {
+      validateDealSchema(updatedDeal, 'update-deal');
+    } catch (validationError: any) {
+      // Track the violation for telemetry
+      trackInvariantViolation('update-deal', validationError.code || 'UNKNOWN', {
         dealId,
-        missingFields,
-        dealKeys: Object.keys(updatedDeal)
+        dealKeys: Object.keys(updatedDeal),
+        error: validationError.message
       });
+
+      console.error("[update-deal] INVARIANT VIOLATION:", validationError.message);
 
       return new Response(
         JSON.stringify({
           success: false,
           error: "Update succeeded but deal data is incomplete. Please refresh and try again.",
-          code: "INVARIANT_VIOLATION",
-          details: `Missing fields: ${missingFields.join(', ')}`
+          code: validationError.code || "INVARIANT_VIOLATION",
+          details: validationError.message
         }),
         { status: 500, headers: corsHeaders }
       );

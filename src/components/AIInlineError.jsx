@@ -162,6 +162,8 @@ export const AIInlineErrorCompact = ({
 /**
  * Helper hook to create error props from classification
  *
+ * Phase 2: Updated to use unified error system for consistent messaging
+ *
  * @param {Object} error - Error object
  * @param {Object} options - Options
  * @param {Function} options.onRetry - Retry handler
@@ -171,24 +173,26 @@ export const AIInlineErrorCompact = ({
 export function useErrorProps(error, { onRetry, onNavigate } = {}) {
   if (!error) return null;
 
-  // Import dynamically to avoid circular deps
-  const { classifyError, getErrorMessage, getErrorAction } = require('../lib/ai-error-codes');
+  // Phase 2: Use unified error system
+  const { normalizeError } = require('../lib/unified-errors');
+  const normalizedError = normalizeError(error, 'AIInlineError');
 
-  const classification = classifyError(error);
-  const message = getErrorMessage(classification.code, error?.data);
-  const actionInfo = getErrorAction(classification.code, classification.retryable);
-
+  // Build action based on normalized error action type
   let action = null;
+  const actionInfo = normalizedError.action;
+
   if (actionInfo.type === 'retry' && onRetry) {
     action = { label: actionInfo.label, onClick: onRetry };
-  } else if (actionInfo.type === 'settings' && onNavigate) {
-    action = { label: actionInfo.label, onClick: () => onNavigate('/settings?tab=ai') };
+  } else if (actionInfo.type === 'navigate' && onNavigate) {
+    action = { label: actionInfo.label, onClick: () => onNavigate(actionInfo.path) };
+  } else if (actionInfo.type === 'auth' && onNavigate) {
+    action = { label: actionInfo.label, onClick: () => onNavigate('/login') };
   }
 
   return {
-    message,
+    message: normalizedError.message,
     action,
-    severity: classification.severity
+    severity: normalizedError.severity
   };
 }
 

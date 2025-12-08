@@ -1,6 +1,12 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
+// PHASE 1 2025-12-08: Invariant validation for guaranteed response consistency
+import {
+  validateDealSchema,
+  trackInvariantViolation,
+  VALID_STAGES
+} from "./lib/invariant-validator";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
@@ -182,30 +188,7 @@ export default async (req: Request, context: Context) => {
     }
 
     // PHASE 14 FIX: Comprehensive stage validation
-    // All valid stages from ALL pipeline templates (healthcare, vc_pe, real_estate, professional_services, saas, default)
-    // Plus legacy stages and stages from pipelineConfig.js
-    const VALID_STAGES = new Set([
-      // Legacy default pipeline stages
-      "lead", "quote", "approval", "invoice", "onboarding", "delivery", "retention", "lost",
-      // Default (StageFlow) pipeline
-      "lead_captured", "lead_qualified", "contacted", "needs_identified", "proposal_sent",
-      "negotiation", "deal_won", "deal_lost", "invoice_sent", "payment_received", "customer_onboarded",
-      // Healthcare pipeline
-      "lead_generation", "lead_qualification", "discovery", "scope_defined", "contract_sent",
-      "client_onboarding", "renewal_upsell",
-      // VC/PE pipeline
-      "deal_sourced", "initial_screening", "due_diligence", "term_sheet_presented",
-      "investment_closed", "capital_call_sent", "capital_received", "portfolio_mgmt",
-      // Real Estate pipeline
-      "qualification", "property_showing", "contract_signed", "closing_statement_sent",
-      "escrow_completed", "client_followup",
-      // Professional Services pipeline
-      "lead_identified",
-      // SaaS pipeline
-      "prospecting", "contact", "proposal", "closed", "adoption", "renewal",
-      // Additional stages from pipelineConfig.js
-      "discovery_demo", "contract", "payment", "closed_won", "passed"
-    ]);
+    // PHASE 1 2025-12-08: Uses centralized VALID_STAGES from invariant-validator
 
     // Ensure required fields have defaults
     if (!sanitizedDeal.status) sanitizedDeal.status = "active";
@@ -302,25 +285,27 @@ export default async (req: Request, context: Context) => {
 
     console.warn("[create-deal] Success:", { dealId: newDeal.id, stage: newDeal.stage });
 
-    // P0 FIX 2025-12-08: Backend invariant validation
+    // PHASE 1 2025-12-08: Backend invariant validation using centralized module
     // NEVER return success:true without a valid, complete deal object
     // This prevents false positive "100% success" conditions
-    const REQUIRED_DEAL_FIELDS = ['id', 'organization_id', 'stage', 'status'];
-    const missingFields = REQUIRED_DEAL_FIELDS.filter(field => !newDeal[field]);
-
-    if (missingFields.length > 0) {
-      console.error("[create-deal] INVARIANT VIOLATION: Created deal missing required fields:", {
+    try {
+      validateDealSchema(newDeal, 'create-deal');
+    } catch (validationError: any) {
+      // Track the violation for telemetry
+      trackInvariantViolation('create-deal', validationError.code || 'UNKNOWN', {
         dealId: newDeal?.id,
-        missingFields,
-        dealKeys: Object.keys(newDeal || {})
+        dealKeys: Object.keys(newDeal || {}),
+        error: validationError.message
       });
+
+      console.error("[create-deal] INVARIANT VIOLATION:", validationError.message);
 
       return new Response(
         JSON.stringify({
           success: false,
           error: "Deal was created but data is incomplete. Please refresh and try again.",
-          code: "INVARIANT_VIOLATION",
-          details: `Missing fields: ${missingFields.join(', ')}`
+          code: validationError.code || "INVARIANT_VIOLATION",
+          details: validationError.message
         }),
         { status: 500, headers: corsHeaders }
       );

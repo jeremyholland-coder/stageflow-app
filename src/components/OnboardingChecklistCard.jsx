@@ -1,6 +1,7 @@
 /**
  * OnboardingChecklistCard - Lightweight first-run onboarding checklist
  * Area 6 - First-Run Onboarding Experience
+ * Phase 8 - Onboarding Polish (Adaptive States)
  *
  * Displays a founder-friendly checklist to help new users get started:
  * - Create first deal
@@ -13,27 +14,32 @@
  * - Can be collapsed (session) or dismissed (permanent)
  * - Accessible with proper ARIA attributes
  * - Minimal, Notion/Linear-style design
+ * - Adaptive: Lighter onboarding for experienced users
  *
  * @author StageFlow Engineering
  * @date December 2025
  */
 
-import React, { useState, memo } from 'react';
-import { Check, ChevronDown, ChevronUp, X, Sparkles, Plus, ArrowRight, Settings, Rocket } from 'lucide-react';
+import React, { useState, useEffect, useRef, memo } from 'react';
+import { Check, ChevronDown, ChevronUp, X, Sparkles, Plus, ArrowRight, Settings, Rocket, Zap } from 'lucide-react';
 import { useApp } from './AppShell';
 import {
   useOnboardingProgress,
   useDismissOnboarding,
   ONBOARDING_ITEMS,
   ONBOARDING_LABELS,
+  ONBOARDING_LABELS_EXPERIENCED,
+  ONBOARDING_EVENTS,
+  trackOnboardingEvent,
 } from '../hooks/useOnboarding';
+import { useActivationState, USER_EXPERIENCE_MODES } from '../hooks/useActivationState';
 import { VIEWS } from '../lib/supabase';
 
 /**
  * OnboardingChecklistCard - Main onboarding UI component
  */
 export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay }) => {
-  const { organization, setActiveView } = useApp();
+  const { organization, user, setActiveView } = useApp();
   const orgId = organization?.id;
 
   const {
@@ -45,8 +51,33 @@ export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay })
     checklist,
   } = useOnboardingProgress(orgId);
 
+  // Get activation state for adaptive onboarding (Phase 8)
+  const activationState = useActivationState({
+    user,
+    organization,
+    deals: [], // We don't need deals for experience mode detection here
+    hasAIProvider: false,
+  });
+
   const dismissMutation = useDismissOnboarding(orgId);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const hasTrackedStartRef = useRef(false);
+
+  // Track onboarding_started telemetry when first shown (Phase 8)
+  useEffect(() => {
+    if (showOnboarding && !hasTrackedStartRef.current && orgId) {
+      hasTrackedStartRef.current = true;
+      trackOnboardingEvent(ONBOARDING_EVENTS.STARTED, {
+        orgId,
+        experienceMode: activationState.experienceMode,
+        totalItems: totalCount,
+      });
+    }
+  }, [showOnboarding, orgId, activationState.experienceMode, totalCount]);
+
+  // Determine which labels to use based on experience mode
+  const isExperienced = activationState.isExperiencedUser;
+  const labels = isExperienced ? ONBOARDING_LABELS_EXPERIENCED : ONBOARDING_LABELS;
 
   // Don't render if loading, no org, or onboarding is dismissed/complete
   if (isLoading || !orgId || !showOnboarding) {
@@ -95,6 +126,21 @@ export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay })
     }
   };
 
+  // Adaptive header copy (Phase 8)
+  const headerCopy = isExperienced
+    ? {
+        title: 'Quick setup for this workspace',
+        subtitle: `${completedCount} of ${totalCount} — you've done this before`,
+        icon: Zap,
+      }
+    : {
+        title: 'Get StageFlow working for you',
+        subtitle: `${completedCount} of ${totalCount} steps complete`,
+        icon: Rocket,
+      };
+
+  const HeaderIcon = headerCopy.icon;
+
   return (
     <section
       aria-labelledby="onboarding-title"
@@ -104,17 +150,17 @@ export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay })
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-teal-500/20 flex items-center justify-center flex-shrink-0">
-            <Rocket className="w-5 h-5 text-teal-400" />
+            <HeaderIcon className="w-5 h-5 text-teal-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2
               id="onboarding-title"
               className="text-lg font-semibold text-white truncate"
             >
-              Get StageFlow working for you
+              {headerCopy.title}
             </h2>
             <p className="text-sm text-gray-400">
-              {completedCount} of {totalCount} steps complete
+              {headerCopy.subtitle}
             </p>
           </div>
         </div>
@@ -163,7 +209,7 @@ export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay })
       {!isCollapsed && (
         <ul className="space-y-2" aria-label="Onboarding checklist">
           {checklist.map((item) => {
-            const label = ONBOARDING_LABELS[item.id];
+            const label = labels[item.id];
             if (!label) return null;
 
             return (
@@ -220,7 +266,11 @@ export const OnboardingChecklistCard = memo(({ onOpenNewDeal, onOpenPlanMyDay })
             disabled={dismissMutation.isPending}
             className="text-sm text-gray-400 hover:text-white transition"
           >
-            {dismissMutation.isPending ? 'Dismissing...' : "I'm all set - don't show this again"}
+            {dismissMutation.isPending
+              ? 'Dismissing...'
+              : isExperienced
+              ? 'Skip setup — I know my way around'
+              : "I'm all set — don't show this again"}
           </button>
         </div>
       )}

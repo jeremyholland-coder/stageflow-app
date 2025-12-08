@@ -39,6 +39,8 @@ import { AIUsageIndicator } from './AIUsageIndicator';
 import { AIInlineError } from './AIInlineError';
 // PHASE 4: Provider-specific error display with dashboard links
 import { AIProviderErrorDisplay } from './AIProviderErrorDisplay';
+// Phase 3: Unified error normalization and offline awareness
+import { normalizeAIError, shouldBlockAIRequest, isOffline as checkOffline } from '../lib/ai-error-codes';
 
 // ISSUE 4 FIX: Plan My Day daily limit helpers
 const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
@@ -586,6 +588,20 @@ export const CustomQueryView = ({
     if (!Array.isArray(deals)) {
       console.error('[CustomQueryView] Deals is not an array:', typeof deals, deals);
       addNotification('Unable to load pipeline data. Please refresh the page.', 'error');
+      submissionLockRef.current = false; // Release lock
+      return;
+    }
+
+    // Phase 3: Pre-flight offline check - fail fast instead of waiting for timeout
+    const blockError = shouldBlockAIRequest({ requireOnline: true });
+    if (blockError) {
+      console.warn('[CustomQueryView] Request blocked - offline');
+      setInlineError({
+        message: blockError.message,
+        action: null,
+        severity: 'info',
+        retryable: true
+      });
       submissionLockRef.current = false; // Release lock
       return;
     }

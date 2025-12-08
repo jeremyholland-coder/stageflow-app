@@ -23,6 +23,8 @@ import { queryKeys } from '../lib/queryKeys';
 import { STALE_TIMES } from '../lib/queryClient';
 import { logger } from '../lib/logger';
 import { addBreadcrumb } from '../lib/sentry';
+// PHASE 1 2025-12-08: Invariant validation for deal responses
+import { validateDealSchema, DEAL_REQUIRED_FIELDS } from '../lib/invariants';
 
 /**
  * Fetch all deals for an organization
@@ -47,10 +49,30 @@ const fetchDealsByOrg = async (orgId) => {
     throw error;
   }
 
-  // Filter out any null/invalid deals
-  const validDeals = (data || []).filter(deal => deal != null && typeof deal === 'object');
+  // PHASE 1 2025-12-08: Filter and validate deals using invariant system
+  // This ensures we never return invalid deals that could cause UI issues
+  const validDeals = (data || []).filter(deal => {
+    if (deal == null || typeof deal !== 'object') {
+      return false;
+    }
 
-  logger.debug('[DealsQuery] Fetched', validDeals.length, 'deals');
+    // Check required fields are present
+    const hasRequiredFields = DEAL_REQUIRED_FIELDS.every(
+      field => deal[field] !== undefined && deal[field] !== null
+    );
+
+    if (!hasRequiredFields) {
+      logger.warn('[DealsQuery] Filtered deal missing required fields:', {
+        dealId: deal.id,
+        missingFields: DEAL_REQUIRED_FIELDS.filter(f => deal[f] === undefined || deal[f] === null)
+      });
+      return false;
+    }
+
+    return true;
+  });
+
+  logger.debug('[DealsQuery] Fetched', validDeals.length, 'valid deals');
 
   return validDeals;
 };
@@ -76,6 +98,16 @@ const fetchDealById = async (orgId, dealId) => {
   if (error) {
     logger.error('[DealsQuery] Fetch error:', error);
     throw error;
+  }
+
+  // PHASE 1 2025-12-08: Validate single deal using invariant system
+  if (data) {
+    try {
+      validateDealSchema(data, 'fetchDealById');
+    } catch (validationError) {
+      logger.error('[DealsQuery] Deal validation failed:', validationError.message);
+      throw new Error('Deal data is incomplete or invalid');
+    }
   }
 
   return data;

@@ -11,6 +11,11 @@
  * - STATE_D: Has goals → Show goal summary bar
  * - STATE_E: Fully activated → Show full coaching
  *
+ * User Experience Modes (Phase 8):
+ * - BRAND_NEW: First-time user, no prior activity → Full onboarding
+ * - EXPERIENCED: Has activity in other orgs → Lighter onboarding
+ * - RETURNING: Active pipeline in current org → Skip onboarding
+ *
  * @author StageFlow Engineering
  */
 
@@ -59,10 +64,20 @@ export const markFeatureSeen = (featureKey) => {
  * @param {boolean} params.hasAIProvider - Whether AI is connected (from useAIProviderStatus)
  * @returns {object} Activation state and helpers
  */
+/**
+ * User experience modes for adaptive onboarding
+ */
+export const USER_EXPERIENCE_MODES = {
+  BRAND_NEW: 'brand_new',      // First-time user, no prior activity
+  EXPERIENCED: 'experienced',   // Has activity in other orgs (lighter onboarding)
+  RETURNING: 'returning',       // Active pipeline in current org (skip onboarding)
+};
+
 export const useActivationState = ({ user, organization, deals = [], hasAIProvider = false }) => {
   const [targets, setTargets] = useState(null);
   const [teamCount, setTeamCount] = useState(1);
   const [loadingTargets, setLoadingTargets] = useState(true);
+  const [otherOrgActivity, setOtherOrgActivity] = useState(null); // null = loading, object = loaded
 
   // Load user targets (for goal summary bar)
   useEffect(() => {
@@ -126,6 +141,55 @@ export const useActivationState = ({ user, organization, deals = [], hasAIProvid
 
     loadTeamCount();
   }, [organization?.id]);
+
+  // Load user's activity in other organizations (Phase 8: Adaptive Onboarding)
+  // This helps detect "experienced" users who've used StageFlow before
+  useEffect(() => {
+    const loadOtherOrgActivity = async () => {
+      if (!user?.id || !organization?.id) {
+        setOtherOrgActivity({ hasOtherOrgs: false, totalDealsInOtherOrgs: 0 });
+        return;
+      }
+
+      try {
+        // Check if user is a member of other organizations
+        const { data: memberships, error: membershipError } = await supabase
+          .from('team_members')
+          .select('organization_id')
+          .eq('user_id', user.id)
+          .neq('organization_id', organization.id)
+          .limit(5);
+
+        if (membershipError) throw membershipError;
+
+        const otherOrgIds = memberships?.map(m => m.organization_id) || [];
+        const hasOtherOrgs = otherOrgIds.length > 0;
+
+        if (!hasOtherOrgs) {
+          setOtherOrgActivity({ hasOtherOrgs: false, totalDealsInOtherOrgs: 0 });
+          return;
+        }
+
+        // Count deals in other organizations where user has activity
+        const { count: dealCount } = await supabase
+          .from('deals')
+          .select('*', { count: 'exact', head: true })
+          .in('organization_id', otherOrgIds);
+
+        setOtherOrgActivity({
+          hasOtherOrgs: true,
+          totalDealsInOtherOrgs: dealCount || 0,
+          otherOrgCount: otherOrgIds.length,
+        });
+      } catch (err) {
+        console.error('[useActivationState] Error loading other org activity:', err);
+        // Default to brand new on error
+        setOtherOrgActivity({ hasOtherOrgs: false, totalDealsInOtherOrgs: 0 });
+      }
+    };
+
+    loadOtherOrgActivity();
+  }, [user?.id, organization?.id]);
 
   // Compute activation state
   const activationState = useMemo(() => {
@@ -246,9 +310,31 @@ export const useActivationState = ({ user, organization, deals = [], hasAIProvid
       });
     }
 
+    // Determine user experience mode (Phase 8: Adaptive Onboarding)
+    // This affects how onboarding is presented
+    let experienceMode = USER_EXPERIENCE_MODES.BRAND_NEW;
+    const isLoadingExperience = otherOrgActivity === null;
+
+    if (!isLoadingExperience) {
+      if (hasDeals && dealCount >= 3) {
+        // Returning user: has meaningful pipeline activity in current org
+        experienceMode = USER_EXPERIENCE_MODES.RETURNING;
+      } else if (otherOrgActivity.hasOtherOrgs && otherOrgActivity.totalDealsInOtherOrgs > 0) {
+        // Experienced user: has activity in other organizations
+        experienceMode = USER_EXPERIENCE_MODES.EXPERIENCED;
+      }
+      // Otherwise: brand new user
+    }
+
     return {
       // Primary state identifier
       state: primaryState,
+
+      // User experience mode (Phase 8)
+      experienceMode,
+      isExperiencedUser: experienceMode === USER_EXPERIENCE_MODES.EXPERIENCED,
+      isReturningUser: experienceMode === USER_EXPERIENCE_MODES.RETURNING,
+      isBrandNewUser: experienceMode === USER_EXPERIENCE_MODES.BRAND_NEW,
 
       // Individual flags
       hasAIProvider,
@@ -261,6 +347,9 @@ export const useActivationState = ({ user, organization, deals = [], hasAIProvid
       dealCount,
       teamCount,
 
+      // Other org activity (Phase 8)
+      otherOrgActivity,
+
       // Goal progress (for STATE_D summary bar)
       goalProgress,
       targets,
@@ -269,14 +358,14 @@ export const useActivationState = ({ user, organization, deals = [], hasAIProvid
       tips: availableTips,
 
       // Loading state
-      loading: loadingTargets,
+      loading: loadingTargets || isLoadingExperience,
 
       // Helper checks
       isNewUser: !hasAIProvider || !hasDeals,
       isActivating: hasFewDeals,
       isFullyActivated: primaryState === 'D' || primaryState === 'E'
     };
-  }, [deals, hasAIProvider, targets, teamCount, loadingTargets]);
+  }, [deals, hasAIProvider, targets, teamCount, loadingTargets, otherOrgActivity]);
 
   return activationState;
 };

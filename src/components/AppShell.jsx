@@ -20,6 +20,8 @@ import { logger } from '../lib/logger';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 // H6-F HARDENING 2025-12-04: Offline status banner
 import { ConnectionStatus } from './ConnectionStatus';
+// Phase 7: Compact offline sync indicator for nav bar
+import { OfflineSyncIndicator } from './OfflineSyncIndicator';
 
 // Re-export for backward compatibility
 export { useApp };
@@ -1951,6 +1953,9 @@ export const AppShell = ({ children }) => {
               </div>
               
               <div className="flex items-center gap-4">
+                {/* Phase 7: Offline sync indicator - shows pending/syncing/offline status */}
+                <OfflineSyncIndicator className="hidden sm:flex" />
+
                 {/* Mobile Menu Button - Enhanced contrast for visibility */}
                 <button
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}

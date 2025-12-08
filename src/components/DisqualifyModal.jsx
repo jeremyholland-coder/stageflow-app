@@ -1,15 +1,14 @@
-import React, { useState, memo } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { X, AlertCircle, Loader2, Ban } from 'lucide-react';
 import { useFocusTrap } from '../lib/accessibility';
+// PHASE 4: Use unified outcome configuration
+import {
+  OUTCOME_TYPES,
+  getReasonOptionsForOutcome
+} from '../config/outcomeConfig';
 
-const DISQUALIFY_REASONS = [
-  { id: 'no_budget', label: 'No budget', icon: '💰' },
-  { id: 'not_a_fit', label: 'Not a fit', icon: '🎯' },
-  { id: 'wrong_timing', label: 'Wrong timing', icon: '⏰' },
-  { id: 'went_with_competitor', label: 'Went with competitor', icon: '🏆' },
-  { id: 'unresponsive', label: 'Unresponsive', icon: '📵' },
-  { id: 'other', label: 'Other', icon: '📝' }
-];
+// PHASE 4: Get disqualify reasons from unified config
+const DISQUALIFY_REASONS = getReasonOptionsForOutcome(OUTCOME_TYPES.DISQUALIFIED);
 
 /**
  * DisqualifyModal - Modal for disqualifying a deal with a reason
@@ -25,6 +24,20 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
 
   // WCAG 2.1: Focus trap for keyboard accessibility
   const containerRef = useFocusTrap(isOpen);
+
+  // Phase 9: Handle Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && !saving) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, saving, onClose]);
 
   if (!isOpen) return null;
 
@@ -98,7 +111,7 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
   };
 
   return (
-    <div className="modal-backdrop fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[80] md:p-4">
+    <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[80] md:p-4">
       <div
         ref={containerRef}
         className="modal-content bg-gradient-to-br from-gray-900 to-black border border-amber-500/30 rounded-none md:rounded-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto p-6 shadow-2xl pb-safe"

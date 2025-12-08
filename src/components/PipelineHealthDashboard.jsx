@@ -4,15 +4,24 @@ import { CheckCircle, AlertCircle, TrendingUp, Zap, Ban, RotateCcw, Trash2, User
 import { useApp } from './AppShell';
 import { AssigneeSelector } from './AssigneeSelector';
 import { api } from '../lib/api-client';
+// PHASE 4: Use unified outcome configuration
+import {
+  getReasonDisplay,
+  createUnifiedOutcome,
+  normalizeReasonCategory
+} from '../config/outcomeConfig';
 
-// Disqualification reason labels
-const DISQUALIFY_REASON_LABELS = {
-  no_budget: 'No budget',
-  not_a_fit: 'Not a fit',
-  wrong_timing: 'Wrong timing',
-  went_with_competitor: 'Went with competitor',
-  unresponsive: 'Unresponsive',
-  other: 'Other'
+// PHASE 4: Helper to get reason label from unified config (with legacy support)
+const getOutcomeReasonLabel = (deal) => {
+  // First check unified field
+  if (deal.outcome_reason_category) {
+    return getReasonDisplay(deal.outcome_reason_category).label;
+  }
+  // Fall back to legacy field
+  if (deal.disqualified_reason_category) {
+    return getReasonDisplay(normalizeReasonCategory(deal.disqualified_reason_category)).label;
+  }
+  return 'Unknown';
 };
 
 /**
@@ -94,13 +103,21 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
   }, [deals, pipelineStages]); // FIX PHASE 7: Added pipelineStages dependency
 
   // Compute disqualified deals with filters
+  // PHASE 4: Updated to use unified outcome fields with legacy fallback
   const { disqualifiedDeals, uniqueOwners, uniqueReasons } = useMemo(() => {
     const disqualified = deals.filter(d => d.status === 'disqualified');
+
+    // PHASE 4: Helper to get the reason category (unified or legacy)
+    const getReasonCategory = (deal) => {
+      return deal.outcome_reason_category ||
+             (deal.disqualified_reason_category ? normalizeReasonCategory(deal.disqualified_reason_category) : null);
+    };
 
     // Apply filters
     let filtered = disqualified;
     if (reasonFilter !== 'all') {
-      filtered = filtered.filter(d => d.disqualified_reason_category === reasonFilter);
+      // PHASE 4: Filter on normalized reason category
+      filtered = filtered.filter(d => getReasonCategory(d) === reasonFilter);
     }
     if (ownerFilter !== 'all') {
       filtered = filtered.filter(d => d.assigned_to === ownerFilter);
@@ -114,11 +131,12 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
       }
     });
 
-    // Get unique reasons for filter dropdown
+    // PHASE 4: Get unique reasons using unified taxonomy
     const reasons = new Set();
     disqualified.forEach(d => {
-      if (d.disqualified_reason_category) {
-        reasons.add(d.disqualified_reason_category);
+      const category = getReasonCategory(d);
+      if (category) {
+        reasons.add(category);
       }
     });
 
@@ -141,12 +159,17 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
       await onUpdateDeal(deal.id, {
         status: 'active',
         stage: targetStage,
-        // Clear disqualification fields
+        // Clear disqualification fields (legacy)
         disqualified_reason_category: null,
         disqualified_reason_notes: null,
         stage_at_disqualification: null,
         disqualified_at: null,
-        disqualified_by: null
+        disqualified_by: null,
+        // PHASE 4: Clear unified outcome fields
+        outcome_reason_category: null,
+        outcome_notes: null,
+        outcome_recorded_at: null,
+        outcome_recorded_by: null
       });
 
       addNotification?.(`Deal "${deal.client}" reopened successfully`, 'success');
@@ -370,11 +393,11 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
                       {/* Reason */}
                       <div className="col-span-2">
                         <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-300">
-                          {DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] || deal.disqualified_reason_category || 'Unknown'}
+                          {getOutcomeReasonLabel(deal)}
                         </span>
-                        {deal.disqualified_reason_notes && (
-                          <p className="text-xs text-white/50 mt-1 truncate" title={deal.disqualified_reason_notes}>
-                            {deal.disqualified_reason_notes}
+                        {(deal.outcome_notes || deal.disqualified_reason_notes) && (
+                          <p className="text-xs text-white/50 mt-1 truncate" title={deal.outcome_notes || deal.disqualified_reason_notes}>
+                            {deal.outcome_notes || deal.disqualified_reason_notes}
                           </p>
                         )}
                       </div>

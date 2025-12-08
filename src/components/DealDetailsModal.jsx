@@ -12,6 +12,8 @@ import { PhoneInput } from './PhoneInput';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client
 // TASK 3: Demo user display utilities
 import { isDemoEmail, getDemoUserData } from '../lib/demo-users';
+// PHASE 4: Unified outcome configuration
+import { getReasonDisplay, createUnifiedOutcome } from '../config/outcomeConfig';
 
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, onDealDeleted, pipelineStages = [] }) => {
@@ -36,6 +38,21 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 
   // Focus trap for accessibility
   const focusTrapRef = useFocusTrap(isOpen);
+
+  // Phase 9: Handle Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && !deleting && !showLostModal) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, deleting, showLostModal, onClose]);
+
   const [formData, setFormData] = useState({
     client: '',
     email: '',
@@ -395,7 +412,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   return (
     <>
       {/* TASK 1 FIX: Top-anchored modal with internal scroll, body scroll locked via fixed backdrop */}
-      <div className="modal-backdrop fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] overflow-hidden">
+      <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl z-[70] overflow-hidden">
         <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-4 md:pt-10 md:px-6">
           <div
             ref={focusTrapRef}
@@ -427,19 +444,29 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
             </button>
           </div>
 
-          {isLost && deal.lost_reason && (
-            <div className="mx-6 mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-              <div className="flex items-start gap-3">
-                <XCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-red-400 mb-1">Deal Lost</p>
-                  <p className="text-sm text-red-300">
-                    Reason: {deal.lost_reason}
-                  </p>
+          {isLost && (deal.lost_reason || deal.outcome_reason_category) && (() => {
+            // PHASE 4: Use unified outcome for display
+            const unified = createUnifiedOutcome(deal);
+            const reasonDisplay = unified.outcome_reason_category
+              ? getReasonDisplay(unified.outcome_reason_category)
+              : null;
+            return (
+              <div className="mx-6 mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-red-400 mb-2">Deal Lost</p>
+                    <p className="text-sm text-red-300">
+                      Reason: {reasonDisplay?.label || deal.lost_reason || 'Unknown'}
+                    </p>
+                    {unified.outcome_notes && (
+                      <p className="text-xs text-red-300/70 mt-1">{unified.outcome_notes}</p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <form onSubmit={(e) => e.preventDefault()} className="p-6 space-y-4">
             <div>
@@ -455,7 +482,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
                   Email *
@@ -477,7 +504,7 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
                   Deal Value *

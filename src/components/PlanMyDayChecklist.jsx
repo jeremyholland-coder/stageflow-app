@@ -546,8 +546,16 @@ export const PlanMyDayChecklist = ({ structuredResponse, organizationId }) => {
 
       {/* Empty State */}
       {mergedChecklist.length === 0 && (
-        <div className="text-center py-10">
-          <p className="text-sm text-white/40 leading-relaxed">No action items detected. Try asking for a more specific plan.</p>
+        <div className="flex flex-col items-center justify-center py-12 px-6">
+          <div className="w-16 h-16 bg-gradient-to-br from-teal-500/20 to-teal-600/10 rounded-2xl flex items-center justify-center mb-4">
+            <Target className="w-8 h-8 text-teal-400" />
+          </div>
+          <h4 className="text-lg font-semibold text-white mb-2">
+            No action items yet
+          </h4>
+          <p className="text-sm text-white/50 text-center max-w-sm leading-relaxed">
+            Ask for a more specific plan to generate actionable items for your day.
+          </p>
         </div>
       )}
     </div>

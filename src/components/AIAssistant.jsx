@@ -1,9 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bot, X, Send, Sparkles, TrendingUp, Target, Zap, Loader2, AlertCircle, Settings, ChevronDown } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Bot, X, Send, Sparkles, TrendingUp, Target, Zap, Loader2, AlertCircle, Settings, ChevronDown, WifiOff } from 'lucide-react';
 import { useApp } from './AppShell';
 // P0 FIX 2025-12-04: Removed direct supabase import - use backend endpoint instead (RLS-safe)
 import { AIMessageRenderer } from './AIMessageRenderer';
 import { api } from '../lib/api-client';
+// Phase 3: Unified error handling and offline awareness
+import { ErrorSurface } from './ErrorSurface';
+import { normalizeAIError, isOffline, shouldBlockAIRequest } from '../lib/ai-error-codes';
+// Phase 9: Accessibility improvements
+import { useFocusTrap, useAnnounce } from '../lib/accessibility';
 
 // P0 FIX: Allowed provider types - matches backend filtering
 // Belt-and-suspenders guard against zombie providers (e.g., deprecated xAI/Grok)
@@ -66,6 +71,10 @@ export const AIAssistant = ({ deals = [] }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { user, organization, addNotification, navigateToIntegrations } = useApp();
+
+  // Phase 9: Accessibility - Focus trap and announcements
+  const focusTrapRef = useFocusTrap(isOpen);
+  const { announcePolite } = useAnnounce();
 
   // Load available AI providers
   useEffect(() => {
@@ -136,6 +145,32 @@ export const AIAssistant = ({ deals = [] }) => {
     }
   }, [isOpen]);
 
+  // Phase 9: Handle Escape key to close chat panel
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
+
+  // Phase 9: Announce new assistant messages to screen readers
+  const lastMessageRef = useRef(null);
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.type === 'assistant' && lastMessage.id !== lastMessageRef.current) {
+      lastMessageRef.current = lastMessage.id;
+      // Announce the first 100 chars of the message
+      const preview = lastMessage.content.substring(0, 100);
+      announcePolite(`AI Assistant: ${preview}${lastMessage.content.length > 100 ? '...' : ''}`);
+    }
+  }, [messages, announcePolite]);
+
   // Quick action suggestions
   const quickActions = [
     {
@@ -160,6 +195,13 @@ export const AIAssistant = ({ deals = [] }) => {
 
     if (providers.length === 0) {
       addNotification('Please configure an AI provider in Integrations → AI Settings', 'error');
+      return;
+    }
+
+    // Phase 3: Pre-flight offline check - fail fast instead of waiting for timeout
+    const blockError = shouldBlockAIRequest({ requireOnline: true });
+    if (blockError) {
+      setError(blockError);
       return;
     }
 
@@ -205,24 +247,18 @@ export const AIAssistant = ({ deals = [] }) => {
     } catch (err) {
       console.error('AI Assistant error:', err);
 
-      // NEXT-LEVEL: Use enhanced error properties from api-client
-      const isTimeout = err.code === 'TIMEOUT' || err.status === 408;
+      // Phase 3: Normalize error to unified format for consistent messaging
+      const normalizedError = normalizeAIError(err, 'AIAssistant');
+      setError(normalizedError);
 
-      if (isTimeout) {
-        setError('Request timed out. Please try again.');
-      } else {
-        setError(err.userMessage || 'Sorry, I encountered an error. Please try again.');
-      }
-
+      // Phase 3: Use Apple-grade error message from unified system
       const errorMessage = {
         id: Date.now() + 1,
         type: 'assistant',
-        content: isTimeout
-          ? "The request timed out. Please try again."
-          : providers.length === 0
-            ? "I'm having trouble connecting. Please configure your AI provider in Integrations → AI Settings."
-            : (err.userMessage || "I encountered an error processing your request. Please try again or check your AI provider settings."),
-        timestamp: new Date()
+        content: normalizedError.message,
+        timestamp: new Date(),
+        isError: true,
+        errorCode: normalizedError.code,
       };
 
       setMessages(prev => [...prev, errorMessage]);
@@ -274,24 +310,32 @@ export const AIAssistant = ({ deals = [] }) => {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] text-white rounded-full shadow-2xl hover:shadow-3xl hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
+          aria-label="Open AI Assistant"
+          className="fixed bottom-6 right-6 w-14 h-14 min-h-touch min-w-touch bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] text-white rounded-full shadow-2xl hover:shadow-3xl hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
         >
-          <AIStarIcon className="w-7 h-7 group-hover:rotate-12 transition-transform" />
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+          <AIStarIcon className="w-7 h-7 group-hover:rotate-12 transition-transform" aria-hidden="true" />
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" aria-hidden="true" />
+          <span className="sr-only">AI Assistant available</span>
         </button>
       )}
 
       {/* Chat Panel - Mobile Responsive */}
       {isOpen && (
-        <div className="fixed bottom-0 right-0 md:bottom-6 md:right-6 w-full h-full md:w-96 md:h-[600px] bg-white dark:bg-[#0D1F2D] md:rounded-2xl shadow-2xl border-t md:border border-gray-200 dark:border-gray-700 flex flex-col z-50 overflow-hidden animate-slide-up max-h-screen">
+        <div
+          ref={focusTrapRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-assistant-title"
+          className="fixed bottom-0 right-0 md:bottom-6 md:right-6 w-full h-full md:w-96 md:h-[600px] bg-white dark:bg-[#0D1F2D] md:rounded-2xl shadow-2xl border-t md:border border-gray-200 dark:border-gray-700 flex flex-col z-50 overflow-hidden animate-slide-up max-h-screen"
+        >
           {/* Header */}
           <div className="bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] p-4 flex items-center justify-between text-white">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center" aria-hidden="true">
                 <AIStarIcon className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold">AI Assistant</h3>
+                <h3 id="ai-assistant-title" className="font-bold">AI Assistant</h3>
                 <p className="text-xs text-white/80">
                   {selectedProvider ? getProviderDisplayName(selectedProvider.provider_type) : `${providers.length} models`}
                 </p>
@@ -301,17 +345,19 @@ export const AIAssistant = ({ deals = [] }) => {
               {providers.length > 1 && (
                 <button
                   onClick={() => setShowSettings(!showSettings)}
-                  className="p-2 hover:bg-white/20 rounded-lg transition"
-                  title="Switch AI Model"
+                  className="p-2 min-h-touch min-w-touch hover:bg-white/20 rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  aria-label="Switch AI Model"
+                  aria-expanded={showSettings}
                 >
-                  <Settings className="w-5 h-5" />
+                  <Settings className="w-5 h-5" aria-hidden="true" />
                 </button>
               )}
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-2 hover:bg-white/20 rounded-lg transition"
+                className="p-2 min-h-touch min-w-touch hover:bg-white/20 rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                aria-label="Close AI Assistant"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -351,7 +397,13 @@ export const AIAssistant = ({ deals = [] }) => {
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-[#0A1520]">
+          <div
+            className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-[#0A1520]"
+            role="log"
+            aria-label="Chat messages"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -411,11 +463,26 @@ export const AIAssistant = ({ deals = [] }) => {
               </div>
             )}
 
+            {/* Phase 3: Use ErrorSurface for consistent Apple-grade error display */}
             {error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-              </div>
+              <ErrorSurface
+                error={error}
+                variant="inline"
+                onRetry={error.retryable ? () => {
+                  setError(null);
+                  // Re-send the last user message if available
+                  const lastUserMessage = [...messages].reverse().find(m => m.type === 'user');
+                  if (lastUserMessage) {
+                    handleSendMessage(lastUserMessage.content);
+                  }
+                } : undefined}
+                onDismiss={() => setError(null)}
+                onNavigate={(path) => {
+                  setIsOpen(false);
+                  window.location.href = path;
+                }}
+                showRecovery={true}
+              />
             )}
 
             <div ref={messagesEndRef} />
@@ -445,19 +512,17 @@ export const AIAssistant = ({ deals = [] }) => {
           {/* Input */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0D1F2D]">
             {/* M1 HARDENING: Distinguish between "provider fetch error" and "no providers configured" */}
+            {/* Phase 3: Use ErrorSurface for consistent error display */}
             {providerFetchError ? (
               // CASE 1: Provider fetch failed (network error, DB error, auth error)
               // This is NOT "no providers" - it's an infrastructure issue
-              <div className="text-center py-2">
-                <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-                  {providerFetchError}
-                </p>
-                <button
-                  onClick={() => fetchProviders()}
-                  className="text-xs text-[#1ABC9C] hover:underline font-medium"
-                >
-                  Retry
-                </button>
+              <div className="py-2">
+                <ErrorSurface
+                  error={{ code: 'NETWORK_ERROR', message: providerFetchError }}
+                  variant="inline"
+                  onRetry={() => fetchProviders()}
+                  showRecovery={false}
+                />
               </div>
             ) : providersLoaded && providers.length === 0 ? (
               // CASE 2: Fetch succeeded but no providers are configured
@@ -485,7 +550,11 @@ export const AIAssistant = ({ deals = [] }) => {
               </div>
             ) : (
               <div className="flex gap-2">
+                <label htmlFor="ai-chat-input" className="sr-only">
+                  Message to AI Assistant
+                </label>
                 <textarea
+                  id="ai-chat-input"
                   ref={inputRef}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
@@ -493,16 +562,20 @@ export const AIAssistant = ({ deals = [] }) => {
                   onPaste={handlePaste}
                   placeholder="Ask me anything..."
                   rows={1}
-                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-[#1ABC9C] dark:bg-[#0A1520] dark:text-[#E0E0E0] resize-none"
+                  aria-describedby="ai-chat-hint"
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-[#1ABC9C] focus:outline-none dark:bg-[#0A1520] dark:text-[#E0E0E0] resize-none"
                   style={{ maxHeight: '120px' }}
                 />
+                <span id="ai-chat-hint" className="sr-only">
+                  Press Enter to send, Shift+Enter for new line
+                </span>
                 <button
                   onClick={() => handleSendMessage()}
                   disabled={!inputValue.trim() || isLoading}
-                  title={!inputValue.trim() ? "Type a message to send" : isLoading ? "Please wait..." : "Send message"}
-                  className="px-4 py-3 bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] text-white rounded-xl hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  aria-label={!inputValue.trim() ? "Type a message to send" : isLoading ? "Sending message..." : "Send message"}
+                  className="px-4 py-3 min-h-touch min-w-touch bg-gradient-to-r from-[#2C3E50] via-[#34495E] to-[#1ABC9C] text-white rounded-xl hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
                 >
-                  <Send className="w-5 h-5" />
+                  <Send className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
             )}

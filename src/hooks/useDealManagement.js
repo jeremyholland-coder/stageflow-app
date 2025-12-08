@@ -14,6 +14,9 @@ import {
   getPendingCommands,
   updateCommandStatus,
   clearCommands,
+  markCommandConflict,
+  markCommandPermanentFailure,
+  getDealsWithPendingChanges,
   OFFLINE_COMMAND_TYPES,
   COMMAND_STATUS,
 } from '../lib/offlineStore';
@@ -195,6 +198,7 @@ export const useDealManagement = (user, organization, addNotification) => {
   }, []);
 
   // OFFLINE: Sync function - process queued commands when back online
+  // Phase 7: Enhanced with conflict handling, exponential backoff, and permanent failure detection
   const syncOfflineCommands = useCallback(async () => {
     if (!organization?.id || !user || isSyncing) return;
 
@@ -210,7 +214,9 @@ export const useDealManagement = (user, organization, addNotification) => {
 
       logger.log(`[Offline Sync] Processing ${pending.length} queued commands...`);
       const syncedIds = [];
-      let hasErrors = false;
+      const conflictIds = [];
+      const permanentFailureIds = [];
+      let retriableErrors = false;
 
       for (const command of pending) {
         try {
@@ -222,21 +228,39 @@ export const useDealManagement = (user, organization, addNotification) => {
             const finalUpdates = { ...updates, last_activity: new Date().toISOString() };
 
             // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
-            // This ensures we NEVER get false success conditions
             const { data: updateResult } = await api.deal('update-deal', {
               dealId,
               updates: finalUpdates,
               organizationId: organization.id
             });
 
-            // Invariant: updateResult.success is always defined after api.deal
+            // Phase 7: Check for conflict (deal was modified while offline)
+            if (updateResult.code === 'CONFLICT' || updateResult.code === 'VERSION_CONFLICT') {
+              logger.log(`[Offline Sync] Conflict detected for deal ${dealId} - server version wins`);
+              await markCommandConflict(command.id, updateResult.deal);
+              conflictIds.push(command.id);
+              // Update local state with server version
+              if (updateResult.deal && isMountedRef.current) {
+                setDeals(prevDeals =>
+                  prevDeals.filter(d => d != null).map(d => d.id === dealId ? updateResult.deal : d)
+                );
+              }
+              continue;
+            }
+
             if (!updateResult.success) {
               throw new Error(updateResult.error || 'Update failed');
+            }
+
+            // Update local state with confirmed server response
+            if (updateResult.deal && isMountedRef.current) {
+              setDeals(prevDeals =>
+                prevDeals.filter(d => d != null).map(d => d.id === dealId ? updateResult.deal : d)
+              );
             }
           } else if (command.type === OFFLINE_COMMAND_TYPES.CREATE_DEAL) {
             const { deal } = command.payload;
 
-            // PHASE J: Use auth-aware api-client with Authorization header
             const { data: createResult } = await api.post('create-deal', {
               dealData: deal,
               organizationId: organization.id
@@ -245,16 +269,27 @@ export const useDealManagement = (user, organization, addNotification) => {
             if (!createResult.success && createResult.error) {
               throw new Error(createResult.error);
             }
+
+            // Phase 7: Replace optimistic local deal with server response
+            if (createResult.deal && command.localId && isMountedRef.current) {
+              setDeals(prevDeals => {
+                // Remove the optimistic local deal and add the real one
+                const filtered = prevDeals.filter(d => d != null && d.id !== command.localId);
+                return [createResult.deal, ...filtered];
+              });
+            }
           } else if (command.type === OFFLINE_COMMAND_TYPES.DELETE_DEAL) {
             const { dealId } = command.payload;
 
-            // PHASE J: Use auth-aware api-client with Authorization header
             const { data: deleteResult } = await api.post('delete-deal', {
               dealId,
               organizationId: organization.id
             });
 
-            if (!deleteResult.success && deleteResult.error) {
+            // Phase 7: NOT_FOUND on delete means deal was already deleted - treat as success
+            if (deleteResult.code === 'NOT_FOUND') {
+              logger.log(`[Offline Sync] Deal ${dealId} already deleted - marking as synced`);
+            } else if (!deleteResult.success && deleteResult.error) {
               throw new Error(deleteResult.error);
             }
           }
@@ -265,21 +300,65 @@ export const useDealManagement = (user, organization, addNotification) => {
           logger.log(`[Offline Sync] ✓ Synced command: ${command.type}`);
         } catch (cmdError) {
           console.error(`[Offline Sync] ✗ Failed to sync command ${command.id}:`, cmdError);
-          await updateCommandStatus(command.id, COMMAND_STATUS.FAILED, cmdError.message);
-          hasErrors = true;
-          // Stop processing on first error to maintain FIFO order
-          break;
+
+          // Phase 7: Check if max retries exceeded
+          const attempts = (command.attempts || 0) + 1;
+          const maxAttempts = command.maxAttempts || 5;
+
+          if (attempts >= maxAttempts) {
+            // Permanent failure - exceeded max retries
+            logger.log(`[Offline Sync] Command ${command.id} exceeded max retries (${maxAttempts})`);
+            await markCommandPermanentFailure(command.id, cmdError.message);
+            permanentFailureIds.push(command.id);
+          } else {
+            // Transient failure - will retry
+            await updateCommandStatus(command.id, COMMAND_STATUS.FAILED, cmdError.message);
+            retriableErrors = true;
+
+            // Phase 7: For 5xx errors, use exponential backoff and stop processing
+            // to avoid hammering a struggling server
+            if (cmdError.status >= 500) {
+              logger.log('[Offline Sync] Server error detected - stopping sync for backoff');
+              break;
+            }
+          }
         }
       }
 
-      // Clear synced commands
+      // Clear synced and conflict-resolved commands
+      const clearedIds = [...syncedIds, ...conflictIds];
+      if (clearedIds.length > 0) {
+        await clearCommands(clearedIds, syncedIds.length > 0 ? 'synced' : 'conflict');
+      }
+
+      // Notify user of results
       if (syncedIds.length > 0) {
-        await clearCommands(syncedIds);
         addNotification(`Synced ${syncedIds.length} offline change${syncedIds.length > 1 ? 's' : ''}`, 'success');
       }
 
-      if (hasErrors) {
-        addNotification('Some offline changes failed to sync. Will retry.', 'warning');
+      if (conflictIds.length > 0) {
+        addNotification(
+          `${conflictIds.length} change${conflictIds.length > 1 ? 's were' : ' was'} overwritten by newer server data`,
+          'info'
+        );
+      }
+
+      if (permanentFailureIds.length > 0) {
+        addNotification(
+          `${permanentFailureIds.length} change${permanentFailureIds.length > 1 ? 's' : ''} could not be saved after multiple attempts`,
+          'warning'
+        );
+      }
+
+      if (retriableErrors) {
+        // Schedule retry with exponential backoff (5s, 10s, 20s, etc.)
+        const retryDelay = Math.min(5000 * Math.pow(2, pending[0]?.attempts || 0), 60000);
+        logger.log(`[Offline Sync] Scheduling retry in ${retryDelay}ms`);
+        setTimeout(() => {
+          if (isMountedRef.current && navigator.onLine) {
+            syncOfflineCommands();
+          }
+        }, retryDelay);
       }
 
       // Update pending count

@@ -303,11 +303,22 @@ async function calculateAdminAnalytics(supabase: any, organizationId: string): P
       closingStages.some(stage => d.stage?.toLowerCase().includes(stage))
     );
 
-    // Top loss reason
+    // PHASE 4: Top loss reason - check unified field first, then legacy
     const lossReasons = lostThisWeek
-      .map((d: any) => d.lost_reason)
+      .map((d: any) => d.outcome_reason_category || d.lost_reason)
       .filter(Boolean);
-    const topLossReason = getMostCommon(lossReasons) || 'Not enough budget';
+    // Map unified reason categories to human-readable labels
+    const reasonLabels: Record<string, string> = {
+      'competitor': 'Lost to Competitor',
+      'no_interest': 'No Longer Interested',
+      'budget': 'Budget Constraints',
+      'timing': 'Wrong Timing',
+      'no_fit': 'Not a Fit',
+      'unresponsive': 'Unresponsive',
+      'other': 'Other'
+    };
+    const rawTopReason = getMostCommon(lossReasons) || 'budget';
+    const topLossReason = reasonLabels[rawTopReason] || rawTopReason || 'Not enough budget';
 
     // Leaderboard (top 3 by deals won value)
     const ownerStats = new Map<string, { name: string; wonCount: number; wonValue: number }>();
@@ -450,11 +461,22 @@ async function calculateUserAnalytics(supabase: any, organizationId: string, use
       closingStages.some(stage => d.stage?.toLowerCase().includes(stage))
     );
 
-    // Top loss reason
+    // PHASE 4: Top loss reason - check unified field first, then legacy
     const lossReasons = lostThisWeek
-      .map((d: any) => d.lost_reason)
+      .map((d: any) => d.outcome_reason_category || d.lost_reason)
       .filter(Boolean);
-    const topLossReason = getMostCommon(lossReasons) || 'Not enough budget';
+    // Map unified reason categories to human-readable labels
+    const reasonLabels: Record<string, string> = {
+      'competitor': 'Lost to Competitor',
+      'no_interest': 'No Longer Interested',
+      'budget': 'Budget Constraints',
+      'timing': 'Wrong Timing',
+      'no_fit': 'Not a Fit',
+      'unresponsive': 'Unresponsive',
+      'other': 'Other'
+    };
+    const rawTopReason = getMostCommon(lossReasons) || 'budget';
+    const topLossReason = reasonLabels[rawTopReason] || rawTopReason || 'Not enough budget';
 
     // Get user targets
     const { data: userTargets } = await supabase

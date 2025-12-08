@@ -590,14 +590,14 @@ export const Dashboard = () => {
         {/* SF-UI-001 FIX: Added flex-wrap and gap to prevent button overflow on mobile */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div className="min-w-0 flex-1">
-            <h1 className="text-large-title text-white tracking-tight mb-1">Pipeline</h1>
+            <h1 className="text-large-title text-white tracking-tight mb-2">Pipeline</h1>
             <p className="text-subheadline text-white/50">Manage your revenue pipeline</p>
           </div>
           {/* FIX #2.1: Touch target minimum 44px + FIX #3.2: ARIA label + FIX #6: Keyboard shortcut hint */}
           {/* SF-UI-001 FIX: Added flex-shrink-0 to prevent button from shrinking and overflow */}
           <button
             onClick={handleNewDealClick}
-            className="flex-shrink-0 bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-5 py-2.5 min-h-touch rounded-2xl font-semibold flex items-center gap-2.5 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98] group"
+            className="flex-shrink-0 bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 hover:from-[#0CE3B1] hover:to-[#16A085] text-white px-6 py-3 min-h-touch rounded-2xl font-semibold flex items-center gap-2 transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98] group"
             aria-label="Create new deal (Cmd+N)"
             title="Create new deal (⌘N)"
             data-tour="new-deal-button"
@@ -613,13 +613,13 @@ export const Dashboard = () => {
 
             {/* FIX CRITICAL #2: Pipeline loading error banner with retry */}
             {pipelineError && (
-              <div className="bg-rose-500/10 backdrop-blur-md border border-rose-400/30 rounded-2xl p-5 mb-7 shadow-[0_4px_20px_rgba(244,63,94,0.1)]">
+              <div className="bg-rose-500/10 backdrop-blur-md border border-rose-400/30 rounded-2xl p-6 mb-6 shadow-[0_4px_20px_rgba(244,63,94,0.1)]">
                 <div className="flex items-start gap-4">
-                  <div className="p-2.5 bg-rose-500/20 rounded-xl">
+                  <div className="p-3 bg-rose-500/20 rounded-xl">
                     <AlertCircle className="w-5 h-5 text-rose-400" />
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-semibold text-rose-300 mb-1.5 tracking-tight">
+                    <h4 className="font-semibold text-rose-300 mb-2 tracking-tight">
                       Pipeline Loading Error
                     </h4>
                     <p className="text-sm text-rose-200/70 mb-4 leading-relaxed">
@@ -627,7 +627,7 @@ export const Dashboard = () => {
                     </p>
                     <button
                       onClick={handleRetryPipeline}
-                      className="bg-rose-500/80 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2.5 transition-all duration-300 min-h-touch shadow-[0_4px_16px_rgba(244,63,94,0.3)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)]"
+                      className="bg-rose-500/80 hover:bg-rose-500 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all duration-300 min-h-touch shadow-[0_4px_16px_rgba(244,63,94,0.3)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)]"
                       aria-label="Retry loading pipeline"
                     >
                       <RefreshCw className="w-4 h-4" aria-hidden="true" />
@@ -766,7 +766,7 @@ export const Dashboard = () => {
               {/* FIX REVOPS #1: Extended filters with revenue lifecycle stages - height matched to search */}
               {/* VISUAL FIX: Removed overflow-x-auto and flex-shrink-0 to eliminate gray rectangle spacer */}
               {/* PHASE 18 PERF: Using static FILTER_BUTTONS constant (no re-creation on render) */}
-              <div className="flex flex-wrap gap-2 bg-white/[0.02] backdrop-blur-md rounded-2xl p-1.5 border border-white/[0.08] h-auto min-h-[48px] shadow-[0_2px_12px_rgba(0,0,0,0.08)]" role="group" aria-label="Filter deals by status and stage">
+              <div className="flex flex-wrap gap-2 bg-white/[0.02] backdrop-blur-md rounded-2xl p-2 border border-white/[0.08] h-auto min-h-[48px] shadow-[0_2px_12px_rgba(0,0,0,0.08)]" role="group" aria-label="Filter deals by status and stage">
                 {FILTER_BUTTONS.map(({ id, label, tooltip }) => (
                   <button
                     key={id}

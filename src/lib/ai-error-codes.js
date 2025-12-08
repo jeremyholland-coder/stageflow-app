@@ -6,9 +6,20 @@
  * informs backend error responses.
  *
  * TASK 2 & 3: Centralized error classification for consistent UX.
+ * Phase 3: Integrated with unified error system for Apple-grade messaging.
  *
  * @author StageFlow Engineering
  */
+
+// Phase 3: Import unified error system for Apple-grade messaging
+import {
+  normalizeError,
+  UNIFIED_ERROR_CODES,
+  ERROR_SEVERITY as UNIFIED_SEVERITY,
+  ERROR_MESSAGES,
+  isRetryable,
+  getAction as getUnifiedAction
+} from './unified-errors';
 
 /**
  * Standard AI error codes
@@ -264,10 +275,162 @@ export function getErrorAction(code, retryable, context = {}) {
   }
 }
 
+// ============================================================================
+// Phase 3: UNIFIED ERROR INTEGRATION
+// ============================================================================
+
+/**
+ * AI Error Code to Unified Error Code mapping
+ * Ensures consistent messaging across the application
+ */
+const AI_TO_UNIFIED_MAP = {
+  [AI_ERROR_CODES.INVALID_API_KEY]: UNIFIED_ERROR_CODES.INVALID_API_KEY,
+  [AI_ERROR_CODES.NO_PROVIDERS]: UNIFIED_ERROR_CODES.NO_PROVIDERS,
+  [AI_ERROR_CODES.AI_LIMIT_REACHED]: UNIFIED_ERROR_CODES.AI_LIMIT_REACHED,
+  [AI_ERROR_CODES.SESSION_ERROR]: UNIFIED_ERROR_CODES.SESSION_EXPIRED,
+  [AI_ERROR_CODES.UNAUTHORIZED]: UNIFIED_ERROR_CODES.UNAUTHORIZED,
+  [AI_ERROR_CODES.RATE_LIMITED]: UNIFIED_ERROR_CODES.RATE_LIMITED,
+  [AI_ERROR_CODES.ALL_PROVIDERS_FAILED]: UNIFIED_ERROR_CODES.ALL_PROVIDERS_FAILED,
+  [AI_ERROR_CODES.PROVIDER_ERROR]: UNIFIED_ERROR_CODES.AI_PROVIDER_ERROR,
+  [AI_ERROR_CODES.TIMEOUT]: UNIFIED_ERROR_CODES.TIMEOUT,
+  [AI_ERROR_CODES.NETWORK_ERROR]: UNIFIED_ERROR_CODES.NETWORK_ERROR,
+  [AI_ERROR_CODES.STREAM_ERROR]: UNIFIED_ERROR_CODES.STREAM_ERROR,
+  [AI_ERROR_CODES.OFFLINE]: UNIFIED_ERROR_CODES.OFFLINE,
+  [AI_ERROR_CODES.UNKNOWN]: UNIFIED_ERROR_CODES.UNKNOWN_ERROR,
+};
+
+/**
+ * Phase 3: Normalize AI error to unified format
+ *
+ * Converts AI-specific errors to the unified error format with
+ * Apple-grade messaging, recovery guidance, and action buttons.
+ *
+ * @param {Error|Object|string} error - The error to normalize
+ * @param {string} context - Context identifier for logging
+ * @returns {Object} Normalized error with unified format:
+ *   - code: Unified error code
+ *   - title: Apple-grade error title
+ *   - message: User-friendly message
+ *   - recovery: Recovery guidance
+ *   - severity: Error severity level
+ *   - retryable: Whether error is retryable
+ *   - action: Suggested action { label, type, path }
+ *   - aiCode: Original AI-specific error code
+ *   - raw: Original error object
+ */
+export function normalizeAIError(error, context = 'AIAssistant') {
+  // First classify the error to get the AI-specific code
+  const classification = classifyError(error);
+  const aiCode = classification.code;
+
+  // Map to unified code
+  const unifiedCode = AI_TO_UNIFIED_MAP[aiCode] || UNIFIED_ERROR_CODES.AI_PROVIDER_ERROR;
+
+  // Get unified error details
+  const unifiedError = normalizeError({ code: unifiedCode }, context);
+
+  // Merge with AI-specific context
+  return {
+    ...unifiedError,
+    code: unifiedCode,
+    aiCode: aiCode,
+    // Use AI-specific message if available (may have more context)
+    message: unifiedError.message,
+    // Preserve AI error classification for internal use
+    classification: classification,
+    // Enhance action with AI-specific paths
+    action: enhanceActionForAI(unifiedError.action, aiCode),
+  };
+}
+
+/**
+ * Enhance unified action with AI-specific navigation paths
+ */
+function enhanceActionForAI(action, aiCode) {
+  // Customize action paths for AI-specific errors
+  if (aiCode === AI_ERROR_CODES.INVALID_API_KEY || aiCode === AI_ERROR_CODES.NO_PROVIDERS) {
+    return {
+      ...action,
+      label: action.label || 'Open Settings',
+      type: 'navigate',
+      path: '/settings?tab=ai',
+    };
+  }
+
+  if (aiCode === AI_ERROR_CODES.AI_LIMIT_REACHED) {
+    return {
+      ...action,
+      label: 'Upgrade Plan',
+      type: 'navigate',
+      path: '/settings?tab=billing',
+    };
+  }
+
+  return action;
+}
+
+/**
+ * Phase 3: Check if user is offline
+ *
+ * Used by AI flows to fail fast when offline instead of
+ * waiting for timeout.
+ *
+ * @returns {boolean} True if offline
+ */
+export function isOffline() {
+  // Use Navigator.onLine API
+  if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+    return !navigator.onLine;
+  }
+  // Default to online if API not available
+  return false;
+}
+
+/**
+ * Phase 3: Create offline error
+ *
+ * Returns a pre-formatted offline error for immediate display.
+ *
+ * @param {string} context - Context identifier
+ * @returns {Object} Normalized offline error
+ */
+export function createOfflineError(context = 'AIAssistant') {
+  return normalizeAIError(
+    { code: AI_ERROR_CODES.OFFLINE, message: 'You are currently offline' },
+    context
+  );
+}
+
+/**
+ * Phase 3: Determine if an AI request should proceed
+ *
+ * Pre-flight check before making AI requests. Returns an error
+ * object if the request should not proceed, or null if OK.
+ *
+ * @param {Object} options - Check options
+ * @param {boolean} options.requireOnline - Whether to require online status
+ * @returns {Object|null} Error object if should not proceed, null if OK
+ */
+export function shouldBlockAIRequest(options = {}) {
+  const { requireOnline = true } = options;
+
+  // Check offline status
+  if (requireOnline && isOffline()) {
+    return createOfflineError('pre-flight');
+  }
+
+  return null;
+}
+
 export default {
   AI_ERROR_CODES,
   ERROR_SEVERITY,
   classifyError,
   getErrorMessage,
-  getErrorAction
+  getErrorAction,
+  // Phase 3 exports
+  normalizeAIError,
+  isOffline,
+  createOfflineError,
+  shouldBlockAIRequest,
 };

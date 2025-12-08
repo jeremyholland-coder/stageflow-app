@@ -1,7 +1,9 @@
 import React, { useState, useMemo, memo, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
-import { GripVertical, Plus, TrendingUp, AlertCircle, DollarSign, FileText, CheckCircle, Package, Users, Trophy, CheckCircle2, XCircle, Clock, Mail, Edit2, ArrowRight, Inbox, MoreVertical, Ban, UserCircle } from 'lucide-react';
+import { GripVertical, Plus, TrendingUp, AlertCircle, DollarSign, FileText, CheckCircle, Package, Users, Trophy, CheckCircle2, XCircle, Clock, Mail, Edit2, ArrowRight, Inbox, MoreVertical, Ban, UserCircle, Cloud } from 'lucide-react';
 import { useApp } from './AppShell';
 import { LostReasonModal } from './LostReasonModal';
+// Phase 9: Screen reader announcements for drag operations
+import { announce } from '../lib/accessibility';
 // UX FRICTION FIX: Removed StatusChangeConfirmationModal - now uses instant move with undo toast
 import { ConfidenceTooltip } from './ConfidenceTooltip';
 import { ZeroConfidenceTooltip } from './ZeroConfidenceTooltip';
@@ -17,6 +19,8 @@ import { ModalErrorBoundary } from './ErrorBoundaries';
 import { AssigneeSelector } from './AssigneeSelector';
 import { DisqualifyModal } from './DisqualifyModal';
 import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
+// PHASE 4: Unified outcome configuration
+import { getReasonDisplay, normalizeReasonCategory, createUnifiedOutcome } from '../config/outcomeConfig';
 
 // PERFORMANCE: Lazy load NewDealModal to avoid duplicate imports
 const NewDealModal = lazy(() => import('./NewDealModal').then(m => ({ default: m.NewDealModal })));
@@ -121,15 +125,25 @@ const STAGE_ID_ICONS = {
   lost: AlertCircle
 };
 
-// APPLE UX POLISH: Human-readable labels for disqualification reasons
-// Matches categories defined in DisqualifyModal.jsx
-const DISQUALIFY_REASON_LABELS = {
-  no_budget: 'No budget',
-  not_a_fit: 'Not a fit',
-  wrong_timing: 'Wrong timing',
-  went_with_competitor: 'Went with competitor',
-  unresponsive: 'Unresponsive',
-  other: 'Other'
+// PHASE 4: Helper to get reason label from unified config
+const getOutcomeLabel = (deal) => {
+  // Check unified field first
+  if (deal.outcome_reason_category) {
+    return getReasonDisplay(deal.outcome_reason_category).label;
+  }
+  // Fall back to legacy disqualified field
+  if (deal.disqualified_reason_category) {
+    return getReasonDisplay(normalizeReasonCategory(deal.disqualified_reason_category)).label;
+  }
+  // Fall back to legacy lost field
+  if (deal.lost_reason) {
+    // Strip "Other: " prefix if present
+    if (deal.lost_reason.startsWith('Other:')) {
+      return deal.lost_reason.substring(7).trim();
+    }
+    return deal.lost_reason;
+  }
+  return 'Unknown';
 };
 
 // FIX PHASE 8: Comprehensive color mapping for ALL pipeline templates (60+ stages)
@@ -499,6 +513,17 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         transition: 'all 0.2s ease-out'
       }}
     >
+      {/* Phase 7: Pending sync indicator for offline-created/modified deals */}
+      {(deal._pendingSync || deal.id?.startsWith?.('local_')) && (
+        <div
+          className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30"
+          title="Pending sync - will save when online"
+        >
+          <Cloud className="w-3 h-3 text-amber-400" />
+          <span className="text-[10px] font-medium text-amber-300">Pending</span>
+        </div>
+      )}
+
       {/* Top Section: Company Info + Value */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -596,23 +621,19 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
         </div>
       )}
 
+      {/* PHASE 4: Unified outcome reason display */}
       {/* Lost Reason – only for truly lost deals */}
-      {isLost && deal.lost_reason && (
-        <p className="text-sm truncate mb-3 text-red-400" title={deal.lost_reason}>
-          {/* Strip "Other: " prefix to show just the custom note */}
-          {deal.lost_reason.startsWith('Other:')
-            ? deal.lost_reason.substring(7).trim()
-            : deal.lost_reason}
+      {isLost && (deal.lost_reason || deal.outcome_reason_category) && (
+        <p className="text-sm truncate mb-3 text-red-400" title={getOutcomeLabel(deal)}>
+          {getOutcomeLabel(deal)}
         </p>
       )}
 
       {/* Disqualified Reason – only for disqualified leads */}
       {isDisqualified &&
-        (deal.disqualified_reason_notes || deal.disqualified_reason_category) && (
-          <p className="text-sm truncate mb-3 text-red-400" title={deal.disqualified_reason_notes || DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] || deal.disqualified_reason_category}>
-            {deal.disqualified_reason_notes ||
-              DISQUALIFY_REASON_LABELS[deal.disqualified_reason_category] ||
-              deal.disqualified_reason_category}
+        (deal.disqualified_reason_notes || deal.disqualified_reason_category || deal.outcome_reason_category) && (
+          <p className="text-sm truncate mb-3 text-red-400" title={deal.outcome_notes || deal.disqualified_reason_notes || getOutcomeLabel(deal)}>
+            {deal.outcome_notes || deal.disqualified_reason_notes || getOutcomeLabel(deal)}
           </p>
         )}
 
@@ -856,6 +877,9 @@ export const KanbanColumn = memo(({
       targetStage: stage.id,
       targetStageName: stage.name
     });
+
+    // Phase 9: Announce drop action to screen readers
+    announce(`Moving ${dealName || 'deal'} to ${stage.name} stage`);
 
     if (stage.id === 'lost') {
       console.log('[KANBAN][DROP] → Opening lost reason modal');

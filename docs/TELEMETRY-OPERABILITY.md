@@ -1,12 +1,14 @@
 # Telemetry & Observability Guide
 
-> Phase 1 Production Hardening - December 2025
+> Phase 1-5 Production Hardening - December 2025
 
 ## Overview
 
-StageFlow uses a lightweight telemetry system for production observability:
-- **Frontend**: Sentry SDK with request breadcrumbs
-- **Backend**: Correlation ID tracking with structured console logs
+StageFlow uses a comprehensive telemetry system for production observability:
+- **Frontend**: Sentry SDK with request breadcrumbs + throttled telemetry reporter
+- **Backend**: Correlation ID tracking with structured console logs + session telemetry
+- **Invariant Monitoring**: Auto-reporting of response validation failures
+- **UX Regression Detection**: Blank state monitoring for critical components
 - **No PII**: Only operational data (endpoints, status codes, durations)
 
 ---
@@ -66,6 +68,15 @@ Category: telemetry      - High-level events
 | `deal_update_success` | Deal update succeeds | hasStageChange, durationMs |
 | `deal_update_failed` | Deal update fails | errorCode, durationMs |
 | `deal_stage_change` | Stage changed | (empty) |
+| `session_validate_success` | Session validated | durationMs, hadInlineRefresh |
+| `session_validate_failed` | Session validation failed | code, durationMs |
+| `session_refresh_success` | Token refresh succeeded | durationMs |
+| `session_refresh_failed` | Token refresh failed | code, durationMs |
+| `session_rotated` | Session rotated elsewhere | reason |
+| `auth_anomaly` | Suspicious auth pattern | type, description |
+| `invariant_violation` | Response invariant breached | code, context |
+| `ux_regression` | UX regression detected | type, component |
+| `blank_state` | Blank state detected | component, expectedData |
 
 ---
 
@@ -202,3 +213,116 @@ The telemetry system explicitly does NOT log:
 - Authentication tokens
 
 Only operational metadata is captured: endpoints, status codes, durations, provider names, and error codes.
+
+---
+
+## Phase 5: Advanced Safety Nets
+
+### Throttled Telemetry Reporter
+
+Prevents flooding Sentry with duplicate errors:
+
+```javascript
+import { telemetryReporter } from './lib/telemetry-reporter';
+
+// Report invariant violation (throttled: max 5 per minute per code)
+telemetryReporter.reportInvariantViolation('MISSING_DEAL', {
+  context: 'update-deal',
+  responseKeys: ['success', 'error']
+});
+
+// Report UX regression (throttled: max 3 per minute per component)
+telemetryReporter.reportUXRegression('blank_state', {
+  component: 'KanbanBoard',
+  expectedData: 'deals'
+});
+
+// Get breach metrics
+const metrics = telemetryReporter.getBreachMetrics();
+```
+
+**Throttle Configuration:**
+- `invariant`: max 5 per minute per code, escalate at 10 unique
+- `ux_regression`: max 3 per minute per component, escalate at 5 unique
+- `auth_anomaly`: max 3 per minute, escalate at 5 unique
+- `session_error`: max 2 per minute, escalate at 5 unique
+- `blank_state`: max 3 per minute per component, escalate at 5 unique
+
+### Blank State Detection
+
+Monitors when critical components render with no data:
+
+```javascript
+import { useBlankStateDetector } from '../hooks/useBlankStateDetector';
+
+function KanbanBoard({ deals, loading, error }) {
+  useBlankStateDetector({
+    componentName: 'KanbanBoard',
+    data: deals,
+    isLoading: loading,
+    hasError: !!error,
+    gracePeriodMs: 2000, // Wait 2s before reporting
+  });
+
+  // ... render logic
+}
+```
+
+**Presets Available:**
+- `BLANK_STATE_PRESETS.LIST` - For list components (empty is valid)
+- `BLANK_STATE_PRESETS.NON_EMPTY_LIST` - For lists that should never be empty
+- `BLANK_STATE_PRESETS.OBJECT` - For single object components
+- `BLANK_STATE_PRESETS.TEXT` - For text content (AI responses)
+- `BLANK_STATE_PRESETS.OPTIONAL` - For optional data (never reports)
+
+### Session Telemetry
+
+Backend automatically tracks session validation events:
+
+| Metric | Description |
+|--------|-------------|
+| `session_validations_total` | Total validation attempts |
+| `session_validations_success` | Successful validations |
+| `session_validations_failed` | Failed validations |
+| `session_refreshes_total` | Token refresh attempts |
+| `session_rotations` | Sessions rotated elsewhere |
+| `auth_anomalies` | Suspicious patterns detected |
+
+### Search Patterns (Phase 5)
+
+```bash
+# Session validation failures
+[Telemetry] session_validate_failed
+
+# Session rotations (race condition)
+[Telemetry] session_rotated
+
+# Invariant violations
+[Telemetry] invariant_violation
+
+# Blank state detections
+blank_state
+
+# Auth anomalies
+[Telemetry] auth_anomaly
+
+# Escalations (systemic issues)
+[ESCALATION]
+```
+
+---
+
+## Files Reference (Updated)
+
+| File | Purpose |
+|------|---------|
+| `src/lib/sentry.js` | Frontend Sentry + correlation IDs |
+| `src/lib/api-client.js` | Request tracking + headers |
+| `src/lib/telemetry-reporter.js` | **NEW** Throttled telemetry reporter |
+| `src/lib/invariants.js` | Frontend invariant validation + auto-reporting |
+| `src/hooks/useBlankStateDetector.js` | **NEW** UX blank state detection hook |
+| `netlify/functions/lib/telemetry.ts` | Backend telemetry + session metrics |
+| `netlify/functions/lib/sentry-backend.ts` | Backend Sentry (lazy load) |
+| `netlify/functions/lib/invariant-validator.ts` | Backend invariant validation |
+| `netlify/functions/lib/logger.ts` | Correlation-aware logging |
+| `netlify/functions/auth-session.mts` | Session validation + telemetry |

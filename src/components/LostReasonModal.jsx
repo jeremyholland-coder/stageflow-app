@@ -1,13 +1,14 @@
-import React, { useState, memo } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { X, AlertCircle, Loader2 } from 'lucide-react';
+// PHASE 4: Use unified outcome configuration
+import {
+  OUTCOME_TYPES,
+  getReasonOptionsForOutcome
+} from '../config/outcomeConfig';
+import { useFocusTrap } from '../lib/accessibility';
 
-const LOST_REASONS = [
-  { id: 'competitor', label: 'Lost to Competitor', icon: '🏆' },
-  { id: 'no_interest', label: 'No Longer Interested', icon: '❌' },
-  { id: 'budget', label: 'Budget Constraints', icon: '💰' },
-  { id: 'timing', label: 'Timing/Not Ready', icon: '⏰' },
-  { id: 'other', label: 'Other', icon: '📝' }
-];
+// PHASE 4: Get lost reasons from unified config
+const LOST_REASONS = getReasonOptionsForOutcome(OUTCOME_TYPES.LOST);
 
 // NEXT-LEVEL: Memoize modal to prevent unnecessary re-renders (30-40% performance gain)
 export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) => {
@@ -15,6 +16,23 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
   const [otherText, setOtherText] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Phase 9: Focus trap for accessibility
+  const focusTrapRef = useFocusTrap(isOpen);
+
+  // Phase 9: Handle Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && !saving) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, saving, onClose]);
 
   if (!isOpen) return null;
 
@@ -74,8 +92,15 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
   };
 
   return (
-    <div className="modal-backdrop fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-50 md:p-4">
+    <div
+      className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[80] md:p-4"
+      role="presentation"
+    >
       <div
+        ref={focusTrapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lost-reason-modal-title"
         className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto p-6 shadow-2xl pb-safe"
         style={{
           maxHeight: '100dvh',
@@ -84,7 +109,7 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
       >
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h3 className="text-2xl font-bold text-white">
+            <h3 id="lost-reason-modal-title" className="text-2xl font-bold text-white">
               Why was this deal lost?
             </h3>
             <p className="text-sm text-gray-400 mt-1">

@@ -82,6 +82,11 @@ import {
   MissionControlContext,
   BasicMissionControlPlan
 } from './lib/mission-control-fallback';
+// PHASE 1 2025-12-08: Invariant validation for AI responses
+import {
+  validateAIResponse,
+  trackInvariantViolation
+} from './lib/invariant-validator';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1873,6 +1878,28 @@ export default async (req: Request, context: any) => {
         avgDaysToClose: performanceContext.orgAvgDaysToClose,
         highValueAtRisk: enrichedAnalysis.highValueAtRisk || 0
       };
+    }
+
+    // PHASE 1 2025-12-08: Validate AI response before returning
+    // Ensures we never return success without valid response content
+    try {
+      validateAIResponse(responseData, 'ai-assistant');
+    } catch (validationError: any) {
+      trackInvariantViolation('ai-assistant', validationError.code || 'UNKNOWN', {
+        responseKeys: Object.keys(responseData),
+        hasResponse: !!responseData.response,
+        hasProvider: !!responseData.provider,
+        error: validationError.message
+      });
+      console.error('[ai-assistant] INVARIANT VIOLATION:', validationError.message);
+      // Return graceful error instead of invalid success
+      return new Response(JSON.stringify({
+        ok: false,
+        error: { message: 'AI response validation failed', code: validationError.code }
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
     }
 
     // Phase 1 Telemetry: Track successful AI call
