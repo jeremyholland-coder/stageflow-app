@@ -110,7 +110,15 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     if (!accessToken) {
-      console.warn('[AUTH_SESSION] FAIL: No token found (cookies empty, no Authorization header)');
+      // P0 FIX 2025-12-08: Add explicit P0 logging tag for Netlify log search
+      console.error('[StageFlow][P0][AUTH_SESSION_FAILED]', {
+        reason: 'NO_TOKEN',
+        hasCookieToken,
+        hasAuthHeader,
+        cookieHeaderLength: cookieHeader.length,
+        origin,
+        timestamp: new Date().toISOString()
+      });
       // PHASE 5: Track failed validation (no token)
       trackSessionValidation(correlationId, false, 'NO_SESSION', Date.now() - startTime, {
         hasCookie: String(hasCookieToken),
@@ -119,7 +127,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       return {
         statusCode: 401,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Not authenticated', code: 'NO_SESSION' })
+        body: JSON.stringify({
+          error: 'Your session has expired or is invalid. Please sign in again.',
+          code: 'SESSION_INVALID',
+          message: 'Your session has expired or is invalid.'
+        })
       };
     }
 
@@ -210,12 +222,17 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     // All approaches failed - session is truly invalid
     if (!finalUser) {
-      console.error('[auth-session] All validation approaches failed');
-      // CRITICAL FIX: If we had a refresh token but it failed, the token may have been
-      // rotated elsewhere (another tab/device). Signal that a full re-auth is needed.
-      // If no refresh token existed, this is a clean "not authenticated" state.
+      // P0 FIX 2025-12-08: Add explicit P0 logging tag for Netlify log search
       const hadRefreshToken = !!refreshToken;
       const errorCode = hadRefreshToken ? 'SESSION_ROTATED' : 'SESSION_INVALID';
+
+      console.error('[StageFlow][P0][AUTH_SESSION_FAILED]', {
+        reason: 'ALL_VALIDATION_FAILED',
+        errorCode,
+        hadRefreshToken,
+        origin,
+        timestamp: new Date().toISOString()
+      });
 
       // PHASE 5: Track failed validation
       trackSessionValidation(correlationId, false, errorCode, Date.now() - startTime, {
@@ -231,10 +248,9 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         statusCode: 401,
         headers: corsHeaders,
         body: JSON.stringify({
-          error: hadRefreshToken
-            ? 'Session expired or rotated. Please refresh the page.'
-            : 'Not authenticated',
-          code: errorCode,
+          error: 'Your session has expired or is invalid. Please sign in again.',
+          code: 'SESSION_INVALID',
+          message: 'Your session has expired or is invalid.',
           // Signal frontend: if SESSION_ROTATED, try calling auth-refresh first then retry
           retryable: hadRefreshToken,
           retryHint: hadRefreshToken ? 'CALL_AUTH_REFRESH_FIRST' : null

@@ -485,14 +485,18 @@ export default async (req: Request, context: Context) => {
     // Phase 1 Telemetry: Track failed deal update
     trackDealUpdate(ctx.correlationId, false, false, calculateDuration(ctx), error.code || 'UNKNOWN_ERROR');
 
-    // FIX 2025-12-03: Enhanced error logging for debugging production issues
-    console.error("[update-deal] Error caught:", {
+    // P0 FIX 2025-12-08: Precise logging with P0 tag for Netlify log search
+    // This enables "Search logs for [StageFlow][P0][UPDATE_DEAL_FAILED]" investigation
+    console.error("[StageFlow][P0][UPDATE_DEAL_FAILED]", {
       correlationId: ctx.correlationId,
-      message: error.message,
-      code: error.code,
-      name: error.name,
-      statusCode: error.statusCode,
-      stack: error.stack?.split('\n').slice(0, 3).join('\n') // First 3 lines of stack
+      message: error?.message,
+      name: error?.name,
+      code: error?.code,
+      statusCode: error?.statusCode,
+      stack: error.stack?.split('\n').slice(0, 5).join('\n'),
+      // Include request context for debugging
+      requestMethod: req.method,
+      timestamp: new Date().toISOString()
     });
 
     // FIX 2025-12-03: More comprehensive auth error detection

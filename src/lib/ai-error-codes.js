@@ -89,8 +89,21 @@ export function classifyError(error) {
     return { code: AI_ERROR_CODES.INVALID_API_KEY, severity: ERROR_SEVERITY.ERROR, retryable: false };
   }
 
-  // Auth errors
-  if (status === 401 || errorCode === AI_ERROR_CODES.UNAUTHORIZED || errorMessage.includes('session')) {
+  // P0 FIX 2025-12-08: Auth errors - check SESSION_INVALID explicitly
+  // Backend now returns code: 'SESSION_INVALID' for all auth failures
+  if (
+    status === 401 ||
+    status === 403 ||
+    errorCode === AI_ERROR_CODES.UNAUTHORIZED ||
+    errorCode === AI_ERROR_CODES.SESSION_ERROR ||
+    errorCode === 'SESSION_INVALID' ||
+    errorCode === 'SESSION_ROTATED' ||
+    errorCode === 'NO_SESSION' ||
+    errorCode === 'AUTH_REQUIRED' ||
+    errorMessage.includes('session') ||
+    errorMessage.includes('sign in again') ||
+    errorMessage.includes('expired')
+  ) {
     return { code: AI_ERROR_CODES.SESSION_ERROR, severity: ERROR_SEVERITY.ERROR, retryable: false };
   }
 
@@ -158,7 +171,14 @@ function classifyErrorMessage(message) {
     return { code: AI_ERROR_CODES.TIMEOUT, severity: ERROR_SEVERITY.WARNING, retryable: true };
   }
 
-  if (lowerMessage.includes('session') || lowerMessage.includes('unauthorized')) {
+  // P0 FIX 2025-12-08: Better session/auth detection from messages
+  if (
+    lowerMessage.includes('session') ||
+    lowerMessage.includes('unauthorized') ||
+    lowerMessage.includes('sign in') ||
+    lowerMessage.includes('expired') ||
+    lowerMessage.includes('authentication')
+  ) {
     return { code: AI_ERROR_CODES.SESSION_ERROR, severity: ERROR_SEVERITY.ERROR, retryable: false };
   }
 

@@ -140,7 +140,10 @@ export const PhoneInput = ({
   required = false,
   className = '',
   id = 'phone',
-  disabled = false
+  disabled = false,
+  // P0 FIX 2025-12-08: Added variant prop for different contexts
+  // 'default' = settings/forms, 'modal' = DealDetailsModal dark theme
+  variant = 'default'
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -225,9 +228,44 @@ export const PhoneInput = ({
 
   const formattedNumber = phoneNumber ? formatPhoneNumber(phoneNumber, selectedCountry) : '';
 
+  // P0 FIX 2025-12-08: Variant-specific styling to match context
+  const isModalVariant = variant === 'modal';
+
+  // Button styles based on variant
+  const buttonBaseStyles = isModalVariant
+    ? 'flex items-center gap-2 px-3 py-3 border rounded-xl bg-gray-800/50 hover:bg-gray-700/50 transition'
+    : 'flex items-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-[#121212] hover:bg-gray-50 dark:hover:bg-[#1A1A1A] transition';
+
+  const buttonBorderStyles = isModalVariant
+    ? (error ? 'border-red-500/50' : 'border-gray-700')
+    : (error ? 'border-[#E74C3C] dark:border-[#FF6B6B]' : 'border-[#E0E0E0] dark:border-gray-700');
+
+  // Input styles based on variant
+  const inputStyles = isModalVariant
+    ? 'flex-1 px-4 py-3 border rounded-xl bg-gray-800/50 text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition'
+    : `flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-[#1ABC9C] dark:bg-[#121212] dark:text-[#E0E0E0] ${className}`;
+
+  const inputBorderStyles = isModalVariant
+    ? (error ? 'border-red-500/50' : 'border-gray-700')
+    : (error ? 'border-[#E74C3C] dark:border-[#FF6B6B]' : 'border-[#E0E0E0] dark:border-gray-700');
+
+  // Label styles based on variant
+  const labelStyles = isModalVariant
+    ? 'block text-sm font-medium text-white mb-2'
+    : 'block text-sm font-medium text-[#1A1A1A] dark:text-[#E0E0E0] mb-2';
+
+  // Text styles for country selector
+  const dialCodeStyles = isModalVariant
+    ? 'text-sm text-gray-400'
+    : 'text-sm text-[#6B7280] dark:text-[#9CA3AF]';
+
+  const chevronStyles = isModalVariant
+    ? 'w-4 h-4 text-gray-400'
+    : 'w-4 h-4 text-[#6B7280] dark:text-[#9CA3AF]';
+
   return (
     <div className="relative">
-      <label htmlFor={id} className="block text-sm font-medium text-[#1A1A1A] dark:text-[#E0E0E0] mb-2">
+      <label htmlFor={id} className={labelStyles}>
         Phone {required && '*'}
       </label>
 
@@ -238,16 +276,12 @@ export const PhoneInput = ({
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
             disabled={disabled}
-            className={`flex items-center gap-2 px-3 py-2 border rounded-lg bg-white dark:bg-[#121212] hover:bg-gray-50 dark:hover:bg-[#1A1A1A] transition ${
-              error
-                ? 'border-[#E74C3C] dark:border-[#FF6B6B]'
-                : 'border-[#E0E0E0] dark:border-gray-700'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`${buttonBaseStyles} ${buttonBorderStyles} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             aria-label="Select country"
           >
             <span className="text-2xl">{selectedCountry.flag}</span>
-            <span className="text-sm text-[#6B7280] dark:text-[#9CA3AF]">{selectedCountry.dial}</span>
-            <ChevronDown className="w-4 h-4 text-[#6B7280] dark:text-[#9CA3AF]" />
+            <span className={dialCodeStyles}>{selectedCountry.dial}</span>
+            <ChevronDown className={chevronStyles} />
           </button>
 
           {/* Dropdown */}
@@ -318,11 +352,7 @@ export const PhoneInput = ({
           onChange={handlePhoneChange}
           onBlur={onBlur}
           disabled={disabled}
-          className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-[#1ABC9C] dark:bg-[#121212] dark:text-[#E0E0E0] ${
-            error
-              ? 'border-[#E74C3C] dark:border-[#FF6B6B]'
-              : 'border-[#E0E0E0] dark:border-gray-700'
-          } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+          className={`${inputStyles} ${inputBorderStyles} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           placeholder={selectedCountry.format.replace(/X/g, '0')}
           aria-invalid={error ? 'true' : 'false'}
           aria-describedby={error ? `${id}-error` : undefined}
@@ -339,9 +369,9 @@ export const PhoneInput = ({
         </div>
       )}
 
-      {/* Hint */}
+      {/* Hint - P0 FIX 2025-12-08: Use variant-specific styling */}
       {!error && (
-        <p className="mt-2 text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+        <p className={`mt-2 text-xs ${isModalVariant ? 'text-gray-500' : 'text-[#6B7280] dark:text-[#9CA3AF]'}`}>
           Format: {selectedCountry.dial} {selectedCountry.format.replace(/X/g, '0')}
         </p>
       )}

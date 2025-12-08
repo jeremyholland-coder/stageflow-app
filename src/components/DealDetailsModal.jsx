@@ -495,12 +495,14 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
                 />
               </div>
+              {/* P0 FIX 2025-12-08: Use modal variant for consistent dark theme styling */}
               <PhoneInput
                 id="deal-phone"
                 value={formData.phone}
                 onChange={(value) => { setFormData({ ...formData, phone: value }); setIsDirty(true); }}
                 error={null}
                 required={false}
+                variant="modal"
               />
             </div>
 
