@@ -77,9 +77,10 @@ export const AIAssistant = ({ deals = [] }) => {
   const { announcePolite } = useAnnounce();
 
   // Load available AI providers
+  // P0 FIX 2025-12-08: Use stable IDs to prevent unnecessary refetches
   useEffect(() => {
     fetchProviders();
-  }, [user, organization]);
+  }, [user?.id, organization?.id]);
 
   // P0 FIX 2025-12-04: Use backend endpoint instead of direct Supabase query
   // Direct Supabase queries fail with RLS when persistSession: false (auth.uid() is NULL)
@@ -192,6 +193,13 @@ export const AIAssistant = ({ deals = [] }) => {
 
   const handleSendMessage = async (messageText = inputValue) => {
     if (!messageText.trim() || isLoading) return;
+
+    // P0 FIX 2025-12-08: Check provider fetch error BEFORE checking providers.length
+    // If there's a network error, we should show that, not "please configure provider"
+    if (providerFetchError) {
+      addNotification('Unable to reach AI services. Please try again.', 'error');
+      return;
+    }
 
     if (providers.length === 0) {
       addNotification('Please configure an AI provider in Integrations → AI Settings', 'error');

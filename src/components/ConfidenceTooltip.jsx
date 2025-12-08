@@ -277,22 +277,26 @@ function calculateConfidenceBreakdown(deal, finalScore) {
   };
 
   const stageScore = stageScores[deal.stage] || 30; // FIX H2: Lower default from 70% to 30%
-  
+
   // Age modifier
-  const daysOld = Math.floor(
-    (new Date() - new Date(deal.created || deal.created_at)) / (1000 * 60 * 60 * 24)
-  );
-  
+  // P0 FIX 2025-12-08: Handle missing created_at gracefully to prevent NaN
+  const createdDate = deal.created || deal.created_at;
+  const daysOld = createdDate
+    ? Math.floor((new Date() - new Date(createdDate)) / (1000 * 60 * 60 * 24))
+    : 0;
+
   let ageModifier = 0;
-  let ageReason = `Deal is ${daysOld} days old - no age penalty applied`;
-  
-  if (daysOld > 90) {
+  let ageReason = createdDate
+    ? `Deal is ${daysOld} days old - no age penalty applied`
+    : 'Deal age unknown - no age penalty applied';
+
+  if (createdDate && daysOld > 90) {
     ageModifier = -20;
     ageReason = `Deal is ${daysOld} days old - significant age penalty applied`;
-  } else if (daysOld > 60) {
+  } else if (createdDate && daysOld > 60) {
     ageModifier = -10;
     ageReason = `Deal is ${daysOld} days old - moderate age penalty applied`;
-  } else if (daysOld > 30) {
+  } else if (createdDate && daysOld > 30) {
     ageModifier = -5;
     ageReason = `Deal is ${daysOld} days old - minor age penalty applied`;
   }

@@ -137,11 +137,13 @@ const getOutcomeLabel = (deal) => {
   }
   // Fall back to legacy lost field
   if (deal.lost_reason) {
-    // Strip "Other: " prefix if present
+    // Strip "Other: " prefix if present and show the custom text
     if (deal.lost_reason.startsWith('Other:')) {
       return deal.lost_reason.substring(7).trim();
     }
-    return deal.lost_reason;
+    // P0 FIX 2025-12-08: Use getReasonDisplay for consistent labels
+    // Instead of returning raw category ID like 'competitor', show "Lost to Competitor"
+    return getReasonDisplay(deal.lost_reason).label;
   }
   return 'Unknown';
 };
