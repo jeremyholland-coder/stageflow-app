@@ -12,7 +12,7 @@ export default defineConfig({
     hookTimeout: 30000,
     // Run tests sequentially (important for e2e with shared state)
     sequence: {
-      concurrent: false
+      concurrent: false,
     },
     // P0 FIX 2025-12-07: Removed global setupFiles
     // E2E tests now define their own setup via globalSetup or in-file imports
@@ -20,6 +20,6 @@ export default defineConfig({
     // Report format
     reporters: ['verbose'],
     // Don't watch by default
-    watch: false
-  }
+    watch: false,
+  },
 });

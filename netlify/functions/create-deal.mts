@@ -149,11 +149,12 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // STEP 5: Sanitize deal data - only allow specific fields
+    // STEP 5: Sanitize deal data - only allow specific fields that exist in DB schema
+    // PHASE 10 FIX: Removed columns that don't exist in DB schema:
+    //   - company, contact_name, contact_email, contact_phone, expected_close, probability, source
+    //   These caused PGRST204 errors
     const allowedFields = [
-      "client", "email", "phone", "value", "stage", "status", "notes",
-      "company", "contact_name", "contact_email", "contact_phone",
-      "expected_close", "probability", "source"
+      "client", "email", "phone", "value", "stage", "status", "notes"
     ];
 
     // PHASE K FIX: removed `created_by` - column doesn't exist in deals table

@@ -23,6 +23,8 @@
     "test:e2e:headed": "playwright test --headed",
     "test:integration": "vitest run tests/e2e",
     "test:integration:watch": "vitest watch tests/e2e",
+    "test:scenarios": "netlify dev:exec vitest run tests/e2e/scenarios.test.ts",
+    "test:scenarios:local": "vitest run tests/e2e/scenarios.test.ts",
     "test:qa": "npm run test:integration && npm run test:e2e",
     "test:perf": "playwright test tests/ui/performance.spec.ts",
     "test:lighthouse": "node scripts/performance/lighthouse-audit.mjs",
