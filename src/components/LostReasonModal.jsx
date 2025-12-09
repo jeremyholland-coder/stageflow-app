@@ -102,7 +102,7 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
         role="dialog"
         aria-modal="true"
         aria-labelledby="lost-reason-modal-title"
-        className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto p-6 shadow-2xl pb-safe"
+        className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto overflow-x-hidden p-6 shadow-2xl pb-safe"
         style={{
           maxHeight: '100dvh',
           paddingBottom: 'max(env(safe-area-inset-bottom, 20px), 20px)'

@@ -436,14 +436,16 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
       {/* UI-BUG-1 FIX 2025-12-09: Raised z-index from 70 to 160 to render ABOVE navbar (z-[150]) */}
       <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl z-[160] overflow-hidden">
         <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-6 md:pt-10 md:px-12 lg:px-16 box-border">
+          {/* UI-FIX 2025-12-09: Added overflow-hidden to clip sticky header within rounded corners */}
           <div
             ref={focusTrapRef}
-            className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl mx-auto box-border"
+            className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl mx-auto box-border overflow-hidden"
             role="dialog"
             aria-modal="true"
             aria-labelledby="deal-details-title"
           >
-          <div className="sticky top-0 bg-gradient-to-br from-gray-900 to-black border-b border-gray-700 p-6 flex items-center justify-between z-10">
+          {/* UI-FIX 2025-12-09: Added rounded-t-2xl to match parent container corners */}
+          <div className="sticky top-0 bg-gradient-to-br from-gray-900 to-black border-b border-gray-700 p-6 flex items-center justify-between z-10 rounded-t-2xl">
             <div>
               <h2 id="deal-details-title" className="text-2xl font-bold text-white">Deal Details</h2>
               <div className="flex items-center gap-4 mt-2 text-sm text-gray-400">
@@ -743,3 +745,35 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 });
 
 DealDetailsModal.displayName = 'DealDetailsModal';
+
+/**
+ * ACCEPTANCE CRITERIA (UI-FIX 2025-12-09)
+ * ========================================
+ *
+ * 1. Phone field
+ *    - At 1440px width: Phone input + country selector fully inside modal
+ *    - No horizontal scroll in the overlay
+ *    - On mobile: Layout degrades gracefully (stacked or cleanly wrapped), no overflow
+ *
+ * 2. Deal Details modal
+ *    - Centered, with equal left/right padding
+ *    - Corners are smooth; no visible protruding corners at top
+ *    - Feedback tab does not visually overlap the modal
+ *
+ * 3. Other modals & forms
+ *    - No input or label extends beyond the right edge of its card at standard widths (1024, 1280, 1440)
+ *    - All modals use a consistent overlay + card shell (same radius, padding, z-index discipline)
+ *
+ * 4. Code quality
+ *    - No "just for this viewport" hacks unless absolutely necessary and commented
+ *    - All changes are in JSX/Tailwind classes; no global CSS regressions
+ *
+ * ROOT CAUSE FIXES APPLIED:
+ * - PhoneInput.jsx: Added `w-full min-w-0` to outer container and `min-w-0` to input
+ *   (allows flex-1 items to shrink below intrinsic content width)
+ * - DealDetailsModal.jsx: Added `overflow-hidden` to modal-content container
+ *   (clips sticky header within rounded corners)
+ * - DealDetailsModal.jsx: Added `rounded-t-2xl` to sticky header
+ *   (matches parent container radius for seamless visual integration)
+ * - All modals: Added `overflow-x-hidden` or `overflow-hidden` for consistent clipping
+ */

@@ -157,7 +157,7 @@ export const ReorderStagesModal = ({ isOpen, onClose, stages, onSave }) => {
       {/* Modal */}
       <div className="fixed inset-0 z-[61] flex items-center justify-center p-4">
         <div
-          className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
+          className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

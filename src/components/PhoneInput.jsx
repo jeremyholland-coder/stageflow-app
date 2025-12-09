@@ -264,12 +264,12 @@ export const PhoneInput = ({
     : 'w-4 h-4 text-[#6B7280] dark:text-[#9CA3AF]';
 
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0">
       <label htmlFor={id} className={labelStyles}>
         Phone {required && '*'}
       </label>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 w-full min-w-0">
         {/* Country Selector */}
         <div className="relative">
           <button
@@ -345,6 +345,7 @@ export const PhoneInput = ({
         </div>
 
         {/* Phone Number Input */}
+        {/* UI-FIX 2025-12-09: Added min-w-0 to allow flex-1 to shrink below intrinsic width */}
         <input
           id={id}
           type="tel"
@@ -352,7 +353,7 @@ export const PhoneInput = ({
           onChange={handlePhoneChange}
           onBlur={onBlur}
           disabled={disabled}
-          className={`${inputStyles} ${inputBorderStyles} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`${inputStyles} ${inputBorderStyles} min-w-0 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           placeholder={selectedCountry.format.replace(/X/g, '0')}
           aria-invalid={error ? 'true' : 'false'}
           aria-describedby={error ? `${id}-error` : undefined}

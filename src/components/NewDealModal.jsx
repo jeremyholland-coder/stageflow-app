@@ -357,7 +357,7 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
       {/* CRITICAL FIX: iOS keyboard covering inputs - use dynamic viewport height (100dvh) */}
       <div
         ref={focusTrapRef}
-        className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl shadow-2xl w-full md:max-w-2xl min-h-screen md:min-h-0 md:h-auto overflow-y-auto pb-safe"
+        className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-none md:rounded-2xl shadow-2xl w-full md:max-w-2xl min-h-screen md:min-h-0 md:h-auto overflow-y-auto overflow-x-hidden pb-safe"
         style={{
           maxHeight: '100dvh',
           paddingBottom: 'max(env(safe-area-inset-bottom, 20px), 20px)'
@@ -366,7 +366,8 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
         aria-modal="true"
         aria-labelledby="new-deal-title"
       >
-        <div className="sticky top-0 bg-gradient-to-br from-gray-900 to-black border-b border-gray-700 p-6 flex items-center justify-between">
+        {/* UI-FIX 2025-12-09: Added rounded-t-2xl for desktop to match parent corners */}
+        <div className="sticky top-0 bg-gradient-to-br from-gray-900 to-black border-b border-gray-700 p-6 flex items-center justify-between md:rounded-t-2xl">
           <h2 id="new-deal-title" className="text-2xl font-bold text-white">New Deal</h2>
           <button
             onClick={onClose}

@@ -110,7 +110,8 @@ export const OrphanedDealsModal = ({
 
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        {/* UI-FIX 2025-12-09: Added overflow-hidden to clip content within rounded corners */}
+        <div className="bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="p-6 border-b border-gray-700">
             <div className="flex items-center justify-between">
