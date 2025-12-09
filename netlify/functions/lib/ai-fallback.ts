@@ -229,6 +229,11 @@ export function classifyError(error: any, statusCode?: number): { shouldFallback
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INVALID_KEY };
   }
 
+  // P0 FIX 2025-12-09: Detect ENCRYPTION_KEY not set (causes all provider decryption to fail)
+  if (message.includes('encryption_key') || message.includes('encryption key')) {
+    return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.INVALID_KEY };
+  }
+
   // FIX 2025-12-03: Permission/billing errors
   if (message.includes('permission denied') || message.includes('forbidden') || message.includes('not authorized')) {
     return { shouldFallback: true, errorType: FALLBACK_TRIGGERS.PERMISSION_DENIED };

@@ -51,11 +51,31 @@ export default async (req: Request, context: Context) => {
   }
 
   // Phase 1 Telemetry: Build request context for tracing
-  const ctx = buildRequestContext(req, 'update-deal');
-  trackTelemetryEvent(TelemetryEvents.DEAL_UPDATE_START, ctx.correlationId, {
-    endpoint: ctx.endpoint,
-    method: ctx.method,
-  });
+  // P0 FIX 2025-12-09: Wrap ctx initialization in try-catch to prevent uncaught exceptions
+  // If buildRequestContext fails, we still want the function to work with a fallback context
+  let ctx: { correlationId: string; endpoint: string; method: string; startTime: number; frontendStartTime: number | null };
+  try {
+    ctx = buildRequestContext(req, 'update-deal');
+  } catch (ctxError) {
+    console.warn('[update-deal] buildRequestContext failed, using fallback:', ctxError);
+    ctx = {
+      correlationId: `fallback-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      endpoint: 'update-deal',
+      method: req.method,
+      startTime: Date.now(),
+      frontendStartTime: null
+    };
+  }
+
+  // P0 FIX 2025-12-09: Wrap telemetry in try-catch - telemetry failures should never block the request
+  try {
+    trackTelemetryEvent(TelemetryEvents.DEAL_UPDATE_START, ctx.correlationId, {
+      endpoint: ctx.endpoint,
+      method: ctx.method,
+    });
+  } catch (telemetryError) {
+    console.warn('[update-deal] Telemetry tracking failed (non-fatal):', telemetryError);
+  }
 
   // Add correlation ID to response headers for end-to-end tracing
   corsHeaders['X-Correlation-ID'] = ctx.correlationId;
@@ -478,7 +498,12 @@ export default async (req: Request, context: Context) => {
     }
 
     // Phase 1 Telemetry: Track successful deal update
-    trackDealUpdate(ctx.correlationId, true, stageChanged, calculateDuration(ctx));
+    // P0 FIX 2025-12-09: Wrap in try-catch - telemetry failures should never block successful updates
+    try {
+      trackDealUpdate(ctx.correlationId, true, stageChanged, calculateDuration(ctx));
+    } catch (telemetryError) {
+      console.warn('[update-deal] Success telemetry failed (non-fatal):', telemetryError);
+    }
 
     // FIX 2025-12-02: Include success: true for proper frontend error handling
     // M5 HARDENING 2025-12-04: Include ignoredFields for debugging
@@ -499,7 +524,12 @@ export default async (req: Request, context: Context) => {
 
   } catch (error: any) {
     // Phase 1 Telemetry: Track failed deal update
-    trackDealUpdate(ctx.correlationId, false, false, calculateDuration(ctx), error.code || 'UNKNOWN_ERROR');
+    // P0 FIX 2025-12-09: Wrap in try-catch - telemetry failures should never mask the real error
+    try {
+      trackDealUpdate(ctx.correlationId, false, false, calculateDuration(ctx), error.code || 'UNKNOWN_ERROR');
+    } catch (telemetryError) {
+      console.warn('[update-deal] Error telemetry failed (non-fatal):', telemetryError);
+    }
 
     // P0 FIX 2025-12-08: Precise logging with P0 tag for Netlify log search
     // This enables "Search logs for [StageFlow][P0][UPDATE_DEAL_FAILED]" investigation

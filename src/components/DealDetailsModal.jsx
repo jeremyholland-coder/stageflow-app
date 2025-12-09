@@ -414,11 +414,12 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   return (
     <>
       {/* TASK 1 FIX: Top-anchored modal with internal scroll, body scroll locked via fixed backdrop */}
+      {/* P0 FIX 2025-12-09: Increased horizontal padding and added box-sizing to prevent right-side clipping */}
       <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl z-[70] overflow-hidden">
-        <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-4 md:pt-10 md:px-6">
+        <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-6 md:pt-10 md:px-12 lg:px-16 box-border">
           <div
             ref={focusTrapRef}
-            className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl mx-auto"
+            className="modal-content bg-gradient-to-br from-gray-900 to-black border border-teal-500/30 rounded-2xl shadow-2xl w-full max-w-2xl mx-auto box-border"
             role="dialog"
             aria-modal="true"
             aria-labelledby="deal-details-title"

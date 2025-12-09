@@ -1310,6 +1310,23 @@ export default async (req: Request, context: any) => {
   let aiProviderUsed: string | null = null;
 
   try {
+    // P0 FIX 2025-12-09: Early check for ENCRYPTION_KEY to give clear error
+    // Without this key, ALL AI providers will fail because we can't decrypt stored API keys
+    if (!process.env.ENCRYPTION_KEY) {
+      console.error("[StageFlow][AI][CRITICAL] ENCRYPTION_KEY not set - AI providers cannot decrypt API keys");
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'AI configuration error. Please contact support.',
+        code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
+        message: 'Server configuration error: Unable to access AI provider credentials. Please contact support.',
+        // Include details for debugging in development
+        details: process.env.NODE_ENV !== 'production' ? 'ENCRYPTION_KEY environment variable not set' : undefined
+      }), {
+        status: 200, // Return 200 so frontend can parse the error JSON
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+
     // DIAGNOSTICS 2025-12-04: Runtime environment health check
     const envProblems = verifyProviderEnvironment();
     if (envProblems.length > 0) {
