@@ -359,6 +359,9 @@ export const CustomQueryView = ({
   isOnline: isOnlineProp,
   // APMDOS: New props for adaptive onboarding
   hasAIProviderProp,
+  // P0 FIX 2025-12-09: Auth error state from useAIProviderStatus
+  // When true, session is expired - show session message, not "AI unavailable"
+  aiAuthError: aiAuthErrorProp,
   user: userProp,
   organization: organizationProp
 }) => {
@@ -383,6 +386,8 @@ export const CustomQueryView = ({
   // Prevents double-clicks and provides timeout UX specifically for Plan My Day
   const [isPlanning, setIsPlanning] = useState(false);
   const planMyDayTimeoutRef = useRef(null);
+  // P0 FIX: Synchronous ref lock for Plan My Day (state-based isPlanning has React re-render window)
+  const planMyDayLockRef = useRef(false);
 
   // PLAN MY DAY REFACTOR: Track loading state for new loading component
   const [showPlanMyDayLoading, setShowPlanMyDayLoading] = useState(false);
@@ -429,9 +434,12 @@ export const CustomQueryView = ({
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic
   // FIX 2025-12-03: Also destructure authError to distinguish auth failures from "no provider"
-  const { hasProvider: hasProviders, authError: aiAuthError, providersLoaded, providerFetchError } = useAIProviderStatus(user, organization);
+  // P0 FIX 2025-12-09: Renamed hook result to _hookAuthError to allow prop override
+  const { hasProvider: hasProviders, authError: _hookAuthError, providersLoaded, providerFetchError } = useAIProviderStatus(user, organization);
   // APMDOS: Determine hasAIProvider - use prop if provided, otherwise use hook result
   const hasAIProvider = hasAIProviderProp !== undefined ? hasAIProviderProp : hasProviders;
+  // P0 FIX 2025-12-09: Use prop if provided, otherwise use hook result (consistent pattern)
+  const aiAuthError = aiAuthErrorProp !== undefined ? aiAuthErrorProp : _hookAuthError;
 
   // FIX 2025-12-08: Log provider status for debugging (helps identify early-bail issues)
   // This log only fires on initial render and when status changes
@@ -760,21 +768,30 @@ export const CustomQueryView = ({
       // P1 HOTFIX 2025-12-07: Check for ok: false in JSON body (new backend pattern)
       // Backend now returns HTTP 200 with ok: false for provider failures
       // We need to detect this BEFORE trying to read the SSE stream
+      //
+      // P0 FIX 2025-12-09: "ReadableStream is locked" fix
+      // If Content-Type is JSON, we MUST handle it fully and return.
+      // Calling response.json() consumes the body - we can NEVER call getReader() after.
+      // Previously, if JSON didn't match error conditions, we fell through to streaming code.
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
-        // This is a JSON error response, not SSE stream
-        const errorData = await response.json().catch(() => ({}));
-        if (errorData.ok === false || errorData.error || errorData.code) {
+        // This is a JSON response - consume body once and handle completely
+        const jsonData = await response.json().catch(() => ({}));
+
+        // Check for error conditions
+        const isErrorResponse = jsonData.ok === false || jsonData.error || jsonData.code;
+
+        if (isErrorResponse) {
           // P1 HOTFIX: Handle backend error response gracefully
           setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
           setLoading(false);
           setIsSubmitting(false);
           submissionLockRef.current = false;
           const guidance = getErrorGuidance({
-            code: errorData.code || errorData.error?.code,
-            message: errorData.message || errorData.error?.message,
-            data: errorData,
-            isAllProvidersFailed: errorData.code === 'ALL_PROVIDERS_FAILED'
+            code: jsonData.code || jsonData.error?.code,
+            message: jsonData.message || jsonData.error?.message,
+            data: jsonData,
+            isAllProvidersFailed: jsonData.code === 'ALL_PROVIDERS_FAILED'
           }, {
             onRetry: () => {
               setInlineError(null);
@@ -785,6 +802,28 @@ export const CustomQueryView = ({
           setInlineError(guidance);
           return;
         }
+
+        // P0 FIX 2025-12-09: Even if JSON doesn't match error patterns,
+        // we CANNOT fall through to streaming code - body is already consumed.
+        // This handles unexpected JSON responses from backend (shouldn't happen, but safety first).
+        console.error('[CustomQueryView] Unexpected JSON response from streaming endpoint:', Object.keys(jsonData));
+        setConversationHistory(prev => prev.filter(msg => msg.id !== aiMessageId));
+        setLoading(false);
+        setIsSubmitting(false);
+        submissionLockRef.current = false;
+        setInlineError({
+          message: 'Unexpected response from AI service. Please try again.',
+          action: {
+            label: 'Retry',
+            onClick: () => {
+              setInlineError(null);
+              handleQueryStreaming(currentQuery);
+            }
+          },
+          severity: 'warning',
+          retryable: true
+        });
+        return; // CRITICAL: Must return to prevent "ReadableStream is locked"
       }
 
       // Read SSE stream with timeout protection
@@ -1386,11 +1425,14 @@ Guidelines:
   const handleQuickAction = async (actionType) => {
     // M2 HARDENING: Special guard for Plan My Day to prevent overlapping requests
     if (actionType === 'plan_my_day') {
-      if (isPlanning) {
+      // P0 FIX: Use synchronous ref check first (React state has re-render window)
+      if (planMyDayLockRef.current || isPlanning) {
         // M2 HARDENING: Show hint instead of silently ignoring
         addNotification('Already planning your day...', 'info');
         return;
       }
+      // P0 FIX: Acquire synchronous lock BEFORE any state updates
+      planMyDayLockRef.current = true;
       setIsPlanning(true);
       // PLAN MY DAY REFACTOR: Show loading component immediately
       setShowPlanMyDayLoading(true);
@@ -1399,6 +1441,7 @@ Guidelines:
       // M2 HARDENING: Set up 50-second timeout for Plan My Day specifically
       planMyDayTimeoutRef.current = setTimeout(() => {
         console.warn('[StageFlow][AI][WARN] Plan My Day timeout after 50 seconds');
+        planMyDayLockRef.current = false; // P0 FIX: Release synchronous lock
         setIsPlanning(false);
         setShowPlanMyDayLoading(false);
         setLoading(false);
@@ -1425,6 +1468,7 @@ Guidelines:
     if (isSubmitting || loading || submissionLockRef.current) {
       // M2 HARDENING: Clear planning state if we early-return
       if (actionType === 'plan_my_day') {
+        planMyDayLockRef.current = false; // P0 FIX: Release synchronous lock
         setIsPlanning(false);
         setShowPlanMyDayLoading(false);
         if (planMyDayTimeoutRef.current) {
@@ -1653,6 +1697,7 @@ Guidelines:
       // M2 HARDENING: Clear planning state and timeout when complete
       // PLAN MY DAY REFACTOR: Also clear loading state
       if (lastQuickActionRef.current === 'plan_my_day') {
+        planMyDayLockRef.current = false; // P0 FIX: Release synchronous lock
         setIsPlanning(false);
         setShowPlanMyDayLoading(false);
         if (planMyDayTimeoutRef.current) {
@@ -1809,6 +1854,7 @@ Guidelines:
                 if (streamAbortControllerRef.current) {
                   streamAbortControllerRef.current.abort();
                 }
+                planMyDayLockRef.current = false; // P0 FIX: Release synchronous lock
                 setShowPlanMyDayLoading(false);
                 setIsPlanning(false);
                 setLoading(false);

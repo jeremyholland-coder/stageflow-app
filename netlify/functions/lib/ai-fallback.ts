@@ -82,7 +82,18 @@ export const SOFT_FAILURE_PATTERNS = [
   "please try again later",
   "service temporarily unavailable",
   "server is busy",
-  "capacity limit"
+  "capacity limit",
+  // P2 FIX 2025-12-09: Additional soft failure patterns
+  "cannot process your request",
+  "request could not be processed",
+  "technical difficulties",
+  "service is unavailable",
+  "connection was refused",
+  "failed to connect",
+  "error processing",
+  "internal server error",
+  "something went wrong",
+  "i'm having trouble"
 ] as const;
 
 // FIX 2025-12-04: Task-aware fallback order affinity scores

@@ -55,7 +55,7 @@ export const LLM_PROVIDERS = {
     endpoint: 'https://api.anthropic.com/v1/messages',
     headers: (apiKey) => ({
       'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      'anthropic-version': '2024-01-01',
       'Content-Type': 'application/json'
     }),
     validateFormat: (key) => {

@@ -82,7 +82,8 @@ export const DASHBOARD_CARDS = {
     // New users see onboarding wizard, activated users see full coaching
     isAvailable: ({ checkingAI }) => !checkingAI,
 
-    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, hasAIProvider, user, organization }) => ({
+    // P0 FIX 2025-12-09: Added aiAuthError to distinguish session errors from "no provider"
+    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, hasAIProvider, aiAuthError, user, organization }) => ({
       healthAlert,
       orphanedDealIds,
       onDismissAlert,
@@ -90,6 +91,8 @@ export const DASHBOARD_CARDS = {
       targets: targets || {},
       // APMDOS: Pass activation state props
       hasAIProvider,
+      // P0 FIX 2025-12-09: Pass auth error state so CustomQueryView can show "session expired" instead of "AI unavailable"
+      aiAuthError,
       user,
       organization
     })

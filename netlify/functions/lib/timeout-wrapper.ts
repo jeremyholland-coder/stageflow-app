@@ -59,7 +59,7 @@ export const TIMEOUTS = {
   STRIPE_API: 10000,           // 10s - Stripe is usually fast
   STRIPE_WEBHOOK: 5000,        // 5s - webhook processing should be quick
   EMAIL_API: 10000,            // 10s - Resend/SendGrid
-  AI_PROVIDER: 30000,          // 30s - AI APIs are notoriously slow
+  AI_PROVIDER: 60000,          // P1 FIX 2025-12-09: Increased from 30s to 60s for complex queries (Plan My Day)
 
   // Auth operations
   AUTH_CHECK: 5000,            // 5s - auth should be fast

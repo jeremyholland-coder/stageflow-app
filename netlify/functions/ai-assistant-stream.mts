@@ -41,6 +41,26 @@ console.log("[StageFlow][AI][DIAGNOSTICS][ai-assistant-stream]", {
   NODE_ENV: process.env.NODE_ENV,
   BUILD_TIMESTAMP: new Date().toISOString()
 });
+
+// P0 FIX: Early validation of ENCRYPTION_KEY at cold-start
+// This prevents cryptic errors later when trying to decrypt API keys
+const ENCRYPTION_KEY_VALID = (() => {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    console.error('[StageFlow][AI][FATAL] ENCRYPTION_KEY not set - all AI features will fail');
+    return false;
+  }
+  if (!/^[0-9a-fA-F]+$/.test(key)) {
+    console.error('[StageFlow][AI][FATAL] ENCRYPTION_KEY contains invalid hex characters');
+    return false;
+  }
+  if (key.length !== 64) {
+    console.error('[StageFlow][AI][FATAL] ENCRYPTION_KEY wrong length:', key.length, 'expected: 64');
+    return false;
+  }
+  return true;
+})();
+
 import {
   detectChartType,
   calculateChartData,
@@ -91,6 +111,11 @@ const supabase = createClient(
 // CRITICAL FIX: Streaming timeout protection
 // Each chunk must arrive within this time, or stream is considered hung
 const STREAM_CHUNK_TIMEOUT = 45000; // 45 seconds per chunk
+
+// P1 FIX 2025-12-09: Connection timeout for streaming fetch calls
+// This aborts the entire fetch if connection isn't established within this time
+// Prevents hanging on DNS failures, provider outages, or network issues
+const STREAM_CONNECTION_TIMEOUT = 60000; // 60 seconds to establish connection
 
 // Model tier definitions (premium = 3, standard = 2, economy = 1)
 const MODEL_TIERS: { [key: string]: number } = {
@@ -157,9 +182,17 @@ async function readStreamWithTimeout(reader: ReadableStreamDefaultReader<Uint8Ar
 // Stream from OpenAI
 // PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
 // PHASE 19 FIX: Return accumulated text for structured response parsing
+// P1 FIX 2025-12-09: Added AbortController for connection timeout protection
 async function streamOpenAI(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController): Promise<string> {
   const encoder = new TextEncoder();
   let accumulatedText = '';
+
+  // P1 FIX: AbortController prevents hanging if provider doesn't respond
+  const abortController = new AbortController();
+  const connectionTimeoutId = setTimeout(() => {
+    abortController.abort();
+    console.error('[OpenAI] Connection timeout - aborting fetch');
+  }, STREAM_CONNECTION_TIMEOUT);
 
   const messages = [
     {
@@ -194,8 +227,12 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       temperature: 0.7,
       max_tokens: 500,
       stream: true
-    })
+    }),
+    signal: abortController.signal
   });
+
+  // P1 FIX: Clear connection timeout once response starts
+  clearTimeout(connectionTimeoutId);
 
   if (!response.ok) {
     throw new Error(`OpenAI API error: ${response.status}`);
@@ -233,10 +270,14 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       }
     }
   } catch (error: any) {
-    // CRITICAL FIX: Handle timeout errors gracefully
+    // CRITICAL FIX: Handle timeout and abort errors gracefully
     if (error.name === 'TimeoutError') {
       const errorEncoder = new TextEncoder();
       controller.enqueue(errorEncoder.encode(`data: ${JSON.stringify({ error: 'AI response timed out. Please try again.' })}\n\n`));
+    } else if (error.name === 'AbortError') {
+      // P1 FIX: Handle connection timeout abort
+      const errorEncoder = new TextEncoder();
+      controller.enqueue(errorEncoder.encode(`data: ${JSON.stringify({ error: 'Connection to AI provider timed out. Please try again.' })}\n\n`));
     } else {
       throw error;
     }
@@ -249,9 +290,17 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 // Stream from Anthropic
 // PHASE 5.1: Updated to Advisor persona with StageFlow philosophy
 // PHASE 19 FIX: Return accumulated text for structured response parsing
+// P1 FIX 2025-12-09: Added AbortController for connection timeout protection
 async function streamAnthropic(apiKey: string, message: string, context: string, model: string, conversationHistory: any[], controller: ReadableStreamDefaultController): Promise<string> {
   const encoder = new TextEncoder();
   let accumulatedText = '';
+
+  // P1 FIX: AbortController prevents hanging if provider doesn't respond
+  const abortController = new AbortController();
+  const connectionTimeoutId = setTimeout(() => {
+    abortController.abort();
+    console.error('[Anthropic] Connection timeout - aborting fetch');
+  }, STREAM_CONNECTION_TIMEOUT);
 
   const systemPrompt = `You are a professional sales advisor for StageFlow - an AI-powered partnership and pipeline management platform. ${context}.
 
@@ -278,7 +327,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
+      'anthropic-version': '2024-01-01'
     },
     body: JSON.stringify({
       model: model || 'claude-3-5-sonnet-20241022',
@@ -286,8 +335,12 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       system: systemPrompt,
       messages: messages,
       stream: true
-    })
+    }),
+    signal: abortController.signal
   });
+
+  // P1 FIX: Clear connection timeout once response starts
+  clearTimeout(connectionTimeoutId);
 
   if (!response.ok) {
     throw new Error(`Anthropic API error: ${response.status}`);
@@ -323,10 +376,14 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
       }
     }
   } catch (error: any) {
-    // CRITICAL FIX: Handle timeout errors gracefully
+    // CRITICAL FIX: Handle timeout and abort errors gracefully
     if (error.name === 'TimeoutError') {
       const errorEncoder = new TextEncoder();
       controller.enqueue(errorEncoder.encode(`data: ${JSON.stringify({ error: 'AI response timed out. Please try again.' })}\n\n`));
+    } else if (error.name === 'AbortError') {
+      // P1 FIX: Handle connection timeout abort
+      const errorEncoder = new TextEncoder();
+      controller.enqueue(errorEncoder.encode(`data: ${JSON.stringify({ error: 'Connection to AI provider timed out. Please try again.' })}\n\n`));
     } else {
       throw error;
     }
@@ -356,15 +413,16 @@ export default async (req: Request, context: any) => {
   try {
     // P0 FIX 2025-12-09: Early check for ENCRYPTION_KEY to give clear error
     // Without this key, ALL AI providers will fail because we can't decrypt stored API keys
-    if (!process.env.ENCRYPTION_KEY) {
-      console.error("[StageFlow][AI][CRITICAL] ENCRYPTION_KEY not set - AI providers cannot decrypt API keys");
+    // Uses cold-start validation result for performance (no re-validation per request)
+    if (!ENCRYPTION_KEY_VALID) {
+      console.error("[StageFlow][AI][CRITICAL] ENCRYPTION_KEY invalid - AI providers cannot decrypt API keys");
       return new Response(JSON.stringify({
         ok: false,
         error: 'Server configuration error',
         code: AI_ERROR_CODES.CONFIG_ERROR,
         message: 'Server configuration error: Unable to access AI provider credentials. Please contact your administrator.',
         isConfigError: true,
-        details: process.env.NODE_ENV !== 'production' ? 'ENCRYPTION_KEY environment variable not set' : undefined
+        details: process.env.NODE_ENV !== 'production' ? 'ENCRYPTION_KEY environment variable missing or invalid' : undefined
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -602,14 +660,16 @@ export default async (req: Request, context: any) => {
     try {
       providers = await getProvidersWithCache(supabase as any, organizationId);
     } catch (providerError) {
-      // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
+      // P0 FIX: Return 200 with ok:false so frontend can show graceful error
+      // Returning 503 causes fetch to throw, triggering ErrorBoundary instead of inline error
       console.error('[StageFlow][AI][ERROR] Provider fetch failed:', providerError);
       return new Response(JSON.stringify({
+        ok: false,
         error: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
         code: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
         message: 'Unable to load AI provider configuration. Please retry in a few moments.'
       }), {
-        status: 503,
+        status: 200, // P0 FIX: 200 + ok:false for graceful frontend handling
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
@@ -762,7 +822,24 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
                 throw { message: `Gemini API error: ${geminiResponse.status}`, status: geminiResponse.status, errorType };
               }
               const geminiData = await geminiResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-              responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate response.';
+
+              // P0 FIX: Validate Gemini response structure before accessing nested properties
+              if (!geminiData.candidates || geminiData.candidates.length === 0) {
+                console.error('[ai-stream] Gemini returned empty candidates array:', JSON.stringify(geminiData).substring(0, 500));
+                throw { message: 'Gemini returned no candidates', status: 500, errorType: 'PROVIDER_ERROR' };
+              }
+
+              const candidate = geminiData.candidates[0];
+              if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+                console.error('[ai-stream] Gemini candidate missing content/parts:', JSON.stringify(candidate).substring(0, 500));
+                throw { message: 'Gemini response missing content', status: 500, errorType: 'PROVIDER_ERROR' };
+              }
+
+              responseText = candidate.content.parts[0]?.text || '';
+              if (!responseText) {
+                console.warn('[ai-stream] Gemini returned empty text content');
+                responseText = 'Unable to generate response. Please try again.';
+              }
 
               // FIX 2025-12-04: Streaming soft-failure handling for last provider (match non-stream behavior)
               // Check if the response content indicates a soft failure (200 OK but error message)

@@ -278,11 +278,18 @@ function analyzeDealsPipeline(deals: any[]): any {
   const highValueAtRisk = stagnantDeals.filter(d => d.value > 10000);
 
   // Calculate stage durations
+  // P1 FIX: Add null date validation to prevent NaN results
   const stageDurations = Object.entries(byStage).map(([stage, data]: [string, any]) => {
-    const avgAge = data.deals.reduce((sum: number, d: any) => {
-      const created = new Date(d.created || d.created_at);
+    let validDeals = 0;
+    const totalAge = data.deals.reduce((sum: number, d: any) => {
+      const dateStr = d.created || d.created_at;
+      if (!dateStr) return sum; // P1 FIX: Skip deals without dates
+      const created = new Date(dateStr);
+      if (isNaN(created.getTime())) return sum; // P1 FIX: Skip invalid dates
+      validDeals++;
       return sum + Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
-    }, 0) / data.count;
+    }, 0);
+    const avgAge = validDeals > 0 ? totalAge / validDeals : 0; // P1 FIX: Prevent division by zero
 
     return { stage, avgAge: Math.round(avgAge), count: data.count };
   });
@@ -942,7 +949,7 @@ Focus on sustainable momentum and genuine relationship development.`;
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2024-01-01'
       },
       body: JSON.stringify({
         model: modelName || 'claude-3-5-sonnet-20241022', // Use database model, fallback to sonnet
@@ -1254,6 +1261,31 @@ async function callAIProvider(provider: any, message: string, context: any, conv
       decryptedKeyPrefix: apiKey ? apiKey.substring(0, 3) + '***' : null, // Only first 3 chars for format validation
       decryptError: null
     });
+
+    // P0 FIX: Validate decrypted API key before use
+    // Empty or too-short keys indicate decryption issues or corrupted data
+    if (!apiKey || apiKey.length < 10) {
+      console.error('[AI][KeyDecrypt] API key validation failed:', {
+        keyPresent: !!apiKey,
+        keyLength: apiKey?.length || 0,
+        provider: provider.provider_type
+      });
+      throw new Error('Decrypted API key is invalid. Please re-save your AI provider configuration.');
+    }
+
+    // P0 FIX: Validate API key format per provider (basic sanity checks)
+    const keyFormat = {
+      openai: apiKey.startsWith('sk-'),
+      anthropic: apiKey.startsWith('sk-ant-'),
+      google: apiKey.length >= 20 // Gemini keys don't have consistent prefix
+    };
+
+    if (provider.provider_type === 'openai' && !keyFormat.openai) {
+      console.warn('[AI][KeyDecrypt] OpenAI key format unexpected - proceeding but may fail');
+    }
+    if (provider.provider_type === 'anthropic' && !keyFormat.anthropic) {
+      console.warn('[AI][KeyDecrypt] Anthropic key format unexpected - proceeding but may fail');
+    }
   } catch (error: any) {
     decryptError = error;
     // DIAGNOSTIC LOG B: Decryption failure metadata

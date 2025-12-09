@@ -21,6 +21,7 @@
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:webkit": "playwright test --project=webkit",
     "test:e2e:headed": "playwright test --headed",
+    "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/e2e",
     "test:integration:watch": "vitest watch tests/e2e",
     "test:scenarios": "netlify dev:exec vitest run tests/e2e/scenarios.test.ts",

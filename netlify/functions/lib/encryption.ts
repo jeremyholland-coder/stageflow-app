@@ -10,19 +10,40 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32; // 256 bits
 
 /**
+ * P0 FIX: Validate hex string format before conversion
+ * Buffer.from(key, 'hex') doesn't throw on invalid hex - it silently creates wrong buffer
+ */
+function isValidHex(str: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(str);
+}
+
+/**
  * Get encryption key from environment
+ * P0 FIX: Added strict hex format validation
  */
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
     throw new Error('ENCRYPTION_KEY environment variable not set');
   }
-  
+
+  // P0 FIX: Validate hex format BEFORE Buffer.from (which silently fails on invalid hex)
+  if (!isValidHex(key)) {
+    console.error('[Encryption] ENCRYPTION_KEY contains invalid hex characters');
+    throw new Error('ENCRYPTION_KEY must be a valid hex string (0-9, a-f only)');
+  }
+
+  // P0 FIX: Check length before conversion (must be exactly 64 hex chars for 32 bytes)
+  if (key.length !== KEY_LENGTH * 2) {
+    console.error('[Encryption] ENCRYPTION_KEY wrong length:', key.length, 'expected:', KEY_LENGTH * 2);
+    throw new Error(`ENCRYPTION_KEY must be exactly ${KEY_LENGTH * 2} hex characters (got ${key.length})`);
+  }
+
   const keyBuffer = Buffer.from(key, 'hex');
   if (keyBuffer.length !== KEY_LENGTH) {
     throw new Error(`Encryption key must be ${KEY_LENGTH} bytes (${KEY_LENGTH * 2} hex chars)`);
   }
-  
+
   return keyBuffer;
 }
 

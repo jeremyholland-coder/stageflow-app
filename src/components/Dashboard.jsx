@@ -169,6 +169,10 @@ export const Dashboard = () => {
   const [healthAlert, setHealthAlert] = useState(null); // AI-powered health alerts
   const [orphanedDealIds, setOrphanedDealIds] = useState(new Set()); // Track recovered orphaned deals
 
+  // APPLE-GRADE UX: Subscription check state with retry capability
+  const [subscriptionCheck, setSubscriptionCheck] = useState({ status: 'idle', canRetry: false });
+  const subscriptionCheckRef = useRef(null); // Track polling interval for cleanup
+
   // PHASE W4: WelcomeBlock dismiss state (localStorage-backed)
   const [welcomeDismissed, setWelcomeDismissed] = useState(() => {
     return localStorage.getItem('stageflow_welcome_dismissed') === 'true';
@@ -244,11 +248,91 @@ export const Dashboard = () => {
   // Load dashboard card preferences
   const { preferences: cardPreferences, loading: loadingPreferences } = useDashboardPreferences(user?.id, organization?.id);
 
+  // APPLE-GRADE UX: Subscription check with retry capability
+  // Extracted as a reusable function so users can manually retry
+  const checkSubscriptionWithPolling = useCallback(async () => {
+    if (!organization?.id) return;
+
+    // Clear any existing polling
+    if (subscriptionCheckRef.current) {
+      clearInterval(subscriptionCheckRef.current);
+      subscriptionCheckRef.current = null;
+    }
+
+    setSubscriptionCheck({ status: 'polling', canRetry: false });
+    logger.log('[Stripe] Starting subscription status check');
+
+    let pollCount = 0;
+    const maxPolls = 15; // 15 polls × 2s = 30s max
+
+    const checkStatus = async () => {
+      try {
+        const { data: org, error } = await supabase
+          .from('organizations')
+          .select('plan, subscription_status')
+          .eq('id', organization.id)
+          .single();
+
+        if (error) {
+          logger.error('[Stripe] Failed to check subscription:', error);
+          pollCount++;
+          if (pollCount >= maxPolls) {
+            clearInterval(subscriptionCheckRef.current);
+            subscriptionCheckRef.current = null;
+            setSubscriptionCheck({ status: 'timeout', canRetry: true });
+          }
+          return;
+        }
+
+        // Check if plan changed from free
+        if (org.plan && org.plan !== 'free') {
+          clearInterval(subscriptionCheckRef.current);
+          subscriptionCheckRef.current = null;
+          setSubscriptionCheck({ status: 'success', canRetry: false });
+          addNotification(`Upgrade successful! Welcome to ${org.plan.charAt(0).toUpperCase() + org.plan.slice(1)}`, 'success');
+          logger.log('[Stripe] Subscription activated:', org.plan);
+
+          // Trigger confetti celebration
+          if (window.confetti) {
+            window.confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 }
+            });
+          }
+          return;
+        }
+
+        pollCount++;
+        if (pollCount >= maxPolls) {
+          clearInterval(subscriptionCheckRef.current);
+          subscriptionCheckRef.current = null;
+          setSubscriptionCheck({ status: 'timeout', canRetry: true });
+          logger.warn('[Stripe] Subscription check timeout after 30s');
+        }
+      } catch (error) {
+        logger.error('[Stripe] Subscription check failed:', error);
+        pollCount++;
+        if (pollCount >= maxPolls) {
+          clearInterval(subscriptionCheckRef.current);
+          subscriptionCheckRef.current = null;
+          setSubscriptionCheck({ status: 'timeout', canRetry: true });
+        }
+      }
+    };
+
+    // Initial check immediately
+    await checkStatus();
+
+    // Continue polling if status is still 'polling' (not resolved yet)
+    // Note: We always start the interval since checkStatus handles early termination
+    subscriptionCheckRef.current = setInterval(checkStatus, 2000);
+  }, [organization?.id, addNotification]);
+
   // FIX v1.7.62 (#1): Stripe Checkout Success/Failure Feedback
   // After user completes Stripe checkout, they're redirected to /dashboard?session_id=XXX
-  // Poll subscription status and show feedback
   useEffect(() => {
-    if (!organization?.id || !addNotification) return;
+    if (!organization?.id) return;
 
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
@@ -259,63 +343,17 @@ export const Dashboard = () => {
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, document.title, cleanUrl);
 
-    // Show initial feedback
-    addNotification('Processing your upgrade...', 'info');
     logger.log('[Stripe] Checkout session detected:', sessionId);
-
-    // Poll for subscription update (webhook may take 2-10 seconds)
-    let pollCount = 0;
-    const maxPolls = 15; // 15 polls × 2s = 30s max
-
-    const checkSubscriptionStatus = async () => {
-      try {
-        const { data: org, error } = await supabase
-          .from('organizations')
-          .select('plan, subscription_status')
-          .eq('id', organization.id)
-          .single();
-
-        if (error) {
-          logger.error('[Stripe] Failed to check subscription:', error);
-          return;
-        }
-
-        // Check if plan changed from what we expect
-        if (org.plan && org.plan !== 'free') {
-          clearInterval(pollInterval);
-          addNotification(`Upgrade successful! Welcome to ${org.plan.charAt(0).toUpperCase() + org.plan.slice(1)}`, 'success');
-          logger.log('[Stripe] Subscription activated:', org.plan);
-
-          // Trigger confetti or celebration effect
-          if (window.confetti) {
-            window.confetti({
-              particleCount: 100,
-              spread: 70,
-              origin: { y: 0.6 }
-            });
-          }
-        }
-      } catch (error) {
-        logger.error('[Stripe] Subscription check failed:', error);
-      }
-
-      pollCount++;
-      if (pollCount >= maxPolls) {
-        clearInterval(pollInterval);
-        logger.warn('[Stripe] Subscription check timeout after 30s');
-        addNotification('Upgrade is processing. If your plan doesn\'t update in a few minutes, please contact support.', 'info');
-      }
-    };
-
-    // Poll every 2 seconds
-    const pollInterval = setInterval(checkSubscriptionStatus, 2000);
-
-    // Initial check immediately
-    checkSubscriptionStatus();
+    checkSubscriptionWithPolling();
 
     // Cleanup on unmount
-    return () => clearInterval(pollInterval);
-  }, [organization?.id, addNotification]);
+    return () => {
+      if (subscriptionCheckRef.current) {
+        clearInterval(subscriptionCheckRef.current);
+        subscriptionCheckRef.current = null;
+      }
+    };
+  }, [organization?.id, checkSubscriptionWithPolling]);
 
   // NEXT-LEVEL: Smart prefetch likely navigation targets during idle time
   // Dramatically improves perceived navigation performance (500-2000ms → <50ms)
@@ -627,6 +665,76 @@ export const Dashboard = () => {
 
         {/* Always show dashboard content - onboarding tour will guide new users */}
         <>
+            {/* APPLE-GRADE UX: Subscription check status banner */}
+            {subscriptionCheck.status === 'polling' && (
+              <div className="bg-[#0CE3B1]/10 backdrop-blur-md border border-[#0CE3B1]/30 rounded-2xl p-4 mb-6 shadow-[0_4px_20px_rgba(12,227,177,0.1)]">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="w-5 h-5 text-[#0CE3B1] animate-spin" />
+                  <div className="flex-1">
+                    <p className="text-sm text-[#0CE3B1] font-medium">
+                      Processing your upgrade...
+                    </p>
+                    <p className="text-xs text-white/50 mt-0.5">
+                      This usually takes a few seconds
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {subscriptionCheck.status === 'timeout' && subscriptionCheck.canRetry && (
+              <div className="bg-amber-500/10 backdrop-blur-md border border-amber-400/30 rounded-2xl p-4 mb-6 shadow-[0_4px_20px_rgba(245,158,11,0.1)]">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-amber-500/20 rounded-xl">
+                    <AlertCircle className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-amber-300 text-sm">
+                      Upgrade still processing
+                    </h4>
+                    <p className="text-xs text-amber-200/70 mt-0.5">
+                      Your payment was received. The upgrade may take a moment to activate.
+                    </p>
+                  </div>
+                  <button
+                    onClick={checkSubscriptionWithPolling}
+                    className="bg-amber-500/80 hover:bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm flex items-center gap-2 transition-all duration-200 min-h-[36px] shadow-[0_2px_10px_rgba(245,158,11,0.2)] hover:shadow-[0_4px_14px_rgba(245,158,11,0.3)]"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Check Again
+                  </button>
+                  <button
+                    onClick={() => setSubscriptionCheck({ status: 'idle', canRetry: false })}
+                    className="text-amber-300/60 hover:text-amber-300 p-2 rounded-lg hover:bg-amber-500/10 transition-all"
+                    aria-label="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {subscriptionCheck.status === 'success' && (
+              <div className="bg-[#0CE3B1]/10 backdrop-blur-md border border-[#0CE3B1]/30 rounded-2xl p-4 mb-6 shadow-[0_4px_20px_rgba(12,227,177,0.1)]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-[#0CE3B1]/20 rounded-xl">
+                    <Zap className="w-5 h-5 text-[#0CE3B1]" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-[#0CE3B1] font-medium">
+                      Upgrade complete! Welcome to your new plan.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSubscriptionCheck({ status: 'idle', canRetry: false })}
+                    className="text-[#0CE3B1]/60 hover:text-[#0CE3B1] p-2 rounded-lg hover:bg-[#0CE3B1]/10 transition-all"
+                    aria-label="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* FIX CRITICAL #2: Pipeline loading error banner with retry */}
             {pipelineError && (

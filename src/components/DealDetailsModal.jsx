@@ -26,6 +26,9 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
   const autoSaveTimerRef = useRef(null);
   const lastSavedDataRef = useRef(null);
+  // P0 FIX 2025-12-09: Track status reset timer to prevent race condition
+  // Old bug: setTimeout would reset to 'idle' even if a new save started
+  const statusResetTimerRef = useRef(null);
   // Track if form has changes (used for auto-save trigger, not blocking close)
   const [isDirty, setIsDirty] = useState(false);
 
@@ -100,6 +103,13 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
 
     // Don't auto-save if stage is lost and no reason provided
     if (dataToSave.stage === 'lost' && !dataToSave.lost_reason) return;
+
+    // P0 FIX 2025-12-09: Clear any pending status reset timer before starting new save
+    // This prevents the race condition where a previous save's timer resets status
+    if (statusResetTimerRef.current) {
+      clearTimeout(statusResetTimerRef.current);
+      statusResetTimerRef.current = null;
+    }
 
     setAutoSaveStatus('saving');
 
@@ -178,8 +188,12 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
         onDealUpdated(result.deal);
       }
 
-      // Reset status after 2 seconds
-      setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      // P0 FIX 2025-12-09: Reset status after 2 seconds using ref to prevent race condition
+      // Store timer in ref so it can be cancelled if a new save starts
+      statusResetTimerRef.current = setTimeout(() => {
+        setAutoSaveStatus('idle');
+        statusResetTimerRef.current = null;
+      }, 2000);
     } catch (error) {
       // FIX 2025-12-06: Enhanced error logging with full context
       console.error('[DealDetailsModal] Auto-save FAILED:', {
@@ -240,11 +254,15 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     };
   }, [formData, isDirty, isOpen, performAutoSave]);
 
-  // Cleanup timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
+      }
+      // P0 FIX 2025-12-09: Also cleanup status reset timer
+      if (statusResetTimerRef.current) {
+        clearTimeout(statusResetTimerRef.current);
       }
     };
   }, []);

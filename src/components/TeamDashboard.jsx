@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase, ensureValidSession } from '../lib/supabase';
 import {
   Users, TrendingUp, TrendingDown, DollarSign, Target, Loader2,
-  Check, X, Search, ChevronDown, Building2, Pencil
+  Check, X, Search, ChevronDown, Building2, Pencil, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { useApp } from './AppShell';
 import { useRealTimeDeals } from '../hooks/useRealTimeDeals';
@@ -165,6 +165,8 @@ export const TeamDashboard = () => {
   const [organization, setOrganization] = useState(null);
   const [organizationId, setOrganizationId] = useState(null);
   const debounceTimerRef = useRef(null);
+  // APPLE-GRADE UX: Track load errors for retry UI
+  const [loadError, setLoadError] = useState(null);
 
   // Pagination
   const [displayedCount, setDisplayedCount] = useState(TEAM_PAGE_SIZE);
@@ -234,11 +236,13 @@ export const TeamDashboard = () => {
   const loadTeamData = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null); // APPLE-GRADE UX: Clear previous errors
 
       const sessionCheck = await ensureValidSession();
       if (!sessionCheck.valid) {
         logger.warn('[TeamDashboard] Session invalid:', sessionCheck.error);
         setLoading(false);
+        setLoadError('Session expired. Please refresh the page.');
         return;
       }
 
@@ -488,6 +492,13 @@ export const TeamDashboard = () => {
       }
     } catch (error) {
       console.error('Error loading team data:', error);
+      // APPLE-GRADE UX: Show user-friendly error with context
+      const isTimeout = error.message?.includes('timed out');
+      setLoadError(
+        isTimeout
+          ? 'Team data is taking longer than expected. Please try again.'
+          : 'Unable to load team data. Please check your connection and try again.'
+      );
     } finally {
       setLoading(false);
     }
@@ -741,6 +752,28 @@ export const TeamDashboard = () => {
           <Loader2 className="w-7 h-7 animate-spin text-[#0CE3B1]" />
         </div>
         <p className="text-sm text-white/50 font-medium">Loading team data...</p>
+      </div>
+    );
+  }
+
+  // APPLE-GRADE UX: Error state with retry button
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 px-6">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-500/20 to-rose-500/5 flex items-center justify-center shadow-[0_4px_20px_rgba(244,63,94,0.15)]">
+          <AlertCircle className="w-7 h-7 text-rose-400" />
+        </div>
+        <div className="text-center space-y-2">
+          <h4 className="text-lg font-semibold text-white">Unable to Load Team Data</h4>
+          <p className="text-sm text-white/50 max-w-md">{loadError}</p>
+        </div>
+        <button
+          onClick={loadTeamData}
+          className="bg-gradient-to-br from-[#0CE3B1] to-[#0CE3B1]/80 text-white py-3 px-6 rounded-xl font-semibold hover:from-[#0CE3B1] hover:to-[#16A085] transition-all duration-300 shadow-[0_4px_20px_rgba(12,227,177,0.3)] hover:shadow-[0_6px_28px_rgba(12,227,177,0.4)] hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Try Again
+        </button>
       </div>
     );
   }

@@ -252,12 +252,30 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // M1 HARDENING: No org = not loaded yet (not an error)
       setProvidersLoaded(false);
       setProviderFetchError(null);
+      setAuthError(false); // P1 FIX: Clear auth error on org change
+      setStatusMayBeStale(false);
       return;
     }
+
+    // P1 FIX: Reset state when org changes to prevent showing old org's data
+    // This runs before cache check, ensuring clean state for new org
+    setAuthError(false);
+    setStatusMayBeStale(false);
+    setProviderFetchError(null);
 
     // IMMEDIATE cache check (no delay) - provides instant UI update
     const cacheKey = `ai_provider_${organization.id}`;
     const cached = localStorage.getItem(cacheKey);
+
+    // APPLE-GRADE UX: Stale-while-revalidate thresholds
+    // FRESH: < 1 min - show cache, skip refresh (data is current)
+    // STALE: 1-30 min - show cache immediately, background refresh
+    // EXPIRED: > 30 min - show loading, fetch fresh
+    const FRESH_THRESHOLD = 60 * 1000; // 1 minute
+
+    // NEXT-LEVEL: Use AbortController for proper cleanup (prevents memory leaks)
+    const abortController = new AbortController();
+    let needsBackgroundRefresh = false;
 
     if (cached) {
       try {
@@ -265,28 +283,39 @@ export function useAIProviderStatus(user, organization, options = {}) {
         const age = Date.now() - timestamp;
 
         if (age < cacheTTL) {
-          // Cache hit! Use immediately, no delay needed
+          // Cache is valid - show immediately
           console.info('[StageFlow][AI][INFO] Cache hit on mount:', { hasProvider: cachedValue, age: Math.round(age/1000) + 's' });
           setHasProvider(cachedValue);
           setChecking(false);
           // M1 HARDENING: Cache hit = loaded successfully
           setProvidersLoaded(true);
           setProviderFetchError(null);
-          return; // Don't do delayed DB query, cache is fresh
+
+          // APPLE-GRADE UX: Stale-while-revalidate pattern
+          // If cache is "fresh" (<1 min), skip background refresh
+          // If cache is "stale but usable" (1-30 min), do background refresh
+          if (age >= FRESH_THRESHOLD) {
+            needsBackgroundRefresh = true;
+            console.info('[StageFlow][AI][INFO] Cache stale, triggering background refresh');
+          }
+
+          if (!needsBackgroundRefresh) {
+            return; // Cache is fresh, no refresh needed
+          }
         }
       } catch (err) {
         console.info('[StageFlow][AI][INFO] Corrupted cache on mount');
       }
     }
 
-    // Cache miss or stale - do delayed DB query
-    // NEXT-LEVEL: Use AbortController for proper cleanup (prevents memory leaks)
-    const abortController = new AbortController();
-
     // PERFORMANCE: Delay lets dashboard/UI render immediately while we query DB
+    // Background refresh uses longer delay (2s) to not compete with UI
+    // Cache miss uses shorter delay (500ms) since user needs the data
+    const queryDelay = needsBackgroundRefresh ? 2000 : delay;
+
     const timer = setTimeout(() => {
       checkAIProviders(abortController.signal);
-    }, delay);
+    }, queryDelay);
 
     return () => {
       // CRITICAL: Cleanup timeout and abort any in-flight requests

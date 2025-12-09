@@ -386,6 +386,8 @@ export const MissionControlPanel = ({
   targets = {},
   // APMDOS: New props for adaptive onboarding
   hasAIProvider: hasAIProviderProp,
+  // P0 FIX 2025-12-09: Auth error state - when true, show "session expired" not "AI unavailable"
+  aiAuthError: aiAuthErrorProp,
   user: userProp,
   organization: organizationProp
 }) => {
@@ -653,6 +655,8 @@ export const MissionControlPanel = ({
             orphanedDealIds={orphanedDealIds}
             onDismissAlert={onDismissAlert}
             hasAIProviderProp={hasAIProviderProp}
+            // P0 FIX 2025-12-09: Pass auth error state for session-specific messaging
+            aiAuthError={aiAuthErrorProp}
             user={user}
             organization={organization}
           />

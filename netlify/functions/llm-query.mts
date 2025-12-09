@@ -60,7 +60,7 @@ const getProviderConfig = (providerName: string, encryptedKey: string, modelName
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2024-01-01'
       },
       requestFormatter: (prompt: string) => ({
         model: modelName,
