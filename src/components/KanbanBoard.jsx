@@ -885,15 +885,18 @@ export const KanbanColumn = memo(({
     // Phase 9: Announce drop action to screen readers
     announce(`Moving ${dealName || 'deal'} to ${stage.name} stage`);
 
-    if (stage.id === 'lost') {
-      console.log('[KANBAN][DROP] → Opening lost reason modal');
+    // P0 WAR ROOM FIX 2025-12-09: Use centralized stage-status checks
+    // This ensures all pipelines (healthcare, VC, real estate, etc.) work correctly
+    if (isLostStage(stage.id)) {
+      console.log('[KANBAN][DROP] → Opening lost reason modal for stage:', stage.id);
       onLostReasonRequired(dealId, dealName, stage.id);
-    } else if (stage.id === 'retention') {
-      console.log('[KANBAN][DROP] → Moving to retention (status: won)');
+    } else if (isWonStage(stage.id)) {
+      console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
       onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
     } else {
+      // P0 WAR ROOM FIX 2025-12-09: Use centralized functions for active stage detection
       const isMovingFromWonOrLost = currentStatus === 'won' || currentStatus === 'lost';
-      const isMovingToActiveStage = stage.id !== 'retention' && stage.id !== 'lost';
+      const isMovingToActiveStage = !isWonStage(stage.id) && !isLostStage(stage.id);
 
       if (isMovingFromWonOrLost && isMovingToActiveStage) {
         console.log('[KANBAN][DROP] → Opening status change confirmation modal');

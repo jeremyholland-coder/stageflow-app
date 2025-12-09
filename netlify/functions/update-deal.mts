@@ -140,27 +140,25 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // STEP 6: Sanitize updates - only allow specific fields
-    // FIX 2025-12-02: Added client, email, phone (frontend field names)
-    // alongside contact_name, contact_email, contact_phone (legacy/alternate names)
-    // PHASE 4 2025-12-08: Added unified outcome fields
+    // STEP 6: Sanitize updates - only allow specific fields that exist in DB schema
+    // P0 WAR ROOM FIX 2025-12-09: Removed fields that don't exist in DB schema:
+    //   - company, expected_close, probability (caused PGRST204 errors)
+    //   - client_name, name, contact_email, contact_phone (legacy aliases not in schema)
+    // Only fields that actually exist in the deals table are allowed
     const allowedFields = [
-      // Core deal fields - support both naming conventions
-      "client", "client_name", "name",
-      "email", "contact_email",
-      "phone", "contact_phone",
-      "value", "stage", "status", "probability",
-      "company", "notes", "expected_close", "last_activity",
-      // Legacy lost fields (still supported for backward compatibility)
+      // Core deal fields (verified to exist in DB)
+      "client", "email", "phone", "value", "stage", "status", "notes",
+      "last_activity",
+      // Lost fields (verified to exist)
       "lost_reason", "lost_reason_notes",
-      // AI health fields
+      // AI health fields (verified to exist)
       "ai_health_score", "ai_health_analysis", "ai_health_updated_at",
-      // Deal assignment fields
+      // Deal assignment fields (verified to exist)
       "assigned_to", "assigned_by", "assigned_at",
-      // Legacy disqualification fields (still supported for backward compatibility)
+      // Disqualification fields (verified to exist)
       "disqualified_reason_category", "disqualified_reason_notes",
       "stage_at_disqualification", "disqualified_at", "disqualified_by",
-      // PHASE 4: Unified outcome fields
+      // Unified outcome fields (verified to exist)
       "outcome_reason_category", "outcome_notes",
       "outcome_recorded_at", "outcome_recorded_by"
     ];

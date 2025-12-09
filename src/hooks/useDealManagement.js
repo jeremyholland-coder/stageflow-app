@@ -507,9 +507,27 @@ export const useDealManagement = (user, organization, addNotification) => {
       }
 
       // Deal updated by team member
+      // P0 WAR ROOM FIX 2025-12-09: Prevent realtime overwrites during optimistic updates
+      // If local deal has more recent last_activity, skip the realtime update
       setDeals(prevDeals => {
         // ROOT CAUSE FIX: Safe null check before accessing .id
-        const updated = prevDeals.filter(d => d != null).map(d => d.id === normalizedUpdatedDeal.id ? normalizedUpdatedDeal : d);
+        const updated = prevDeals.filter(d => d != null).map(d => {
+          if (d.id !== normalizedUpdatedDeal.id) return d;
+
+          // P0 WAR ROOM: Race condition protection
+          // If local deal was updated more recently than realtime event, keep local version
+          const localTime = d.last_activity ? new Date(d.last_activity).getTime() : 0;
+          const realtimeTime = normalizedUpdatedDeal.last_activity
+            ? new Date(normalizedUpdatedDeal.last_activity).getTime() : 0;
+
+          if (localTime > realtimeTime) {
+            console.log('[RealTime] Skipping stale update for deal:', d.id,
+              'local:', d.last_activity, 'realtime:', normalizedUpdatedDeal.last_activity);
+            return d; // Keep local version
+          }
+
+          return normalizedUpdatedDeal;
+        });
         // Auto-update cache
         if (organization?.id) dealsCache.set(organization.id, updated);
         return updated;

@@ -331,31 +331,33 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
   };
 
   const handleStageChange = (newStage) => {
-    // CRITICAL: If changing to "lost", show reason modal first
-    if (newStage === 'lost' && deal.stage !== 'lost') {
+    // P0 WAR ROOM FIX 2025-12-09: Centralized stage/status sync for all stages
+    // Uses getStatusForStage for consistent handling across all pipelines
+
+    // CRITICAL: If changing to any "lost" stage, show reason modal first
+    const isLostStage = newStage === 'lost' || newStage === 'deal_lost';
+    if (isLostStage && deal.stage !== 'lost' && deal.stage !== 'deal_lost') {
       setPendingStageChange(newStage);
       setShowLostModal(true);
       return; // Don't update formData yet, wait for reason
     }
 
-    // CRITICAL: Auto-change status to "won" when moving to retention
+    // Get the correct status for this stage using centralized logic
+    const newStatus = getStatusForStage(newStage);
+
     // H6-D: Mark form as dirty when stage changes
     setIsDirty(true);
-    if (newStage === 'retention') {
-      setFormData({ ...formData, stage: newStage, status: 'won' });
-    } else {
-      // Normal stage change
-      setFormData({ ...formData, stage: newStage });
-    }
+    setFormData({ ...formData, stage: newStage, status: newStatus });
   };
 
   const handleLostReasonConfirm = (reason) => {
-    // Update form data with lost stage, status, and reason
+    // P0 WAR ROOM FIX 2025-12-09: Use the pending stage (could be 'lost' or 'deal_lost')
     // H6-D: Mark form as dirty
     setIsDirty(true);
+    const targetStage = pendingStageChange || 'lost';
     setFormData({
       ...formData,
-      stage: 'lost',
+      stage: targetStage,
       status: 'lost',
       lost_reason: reason
     });
