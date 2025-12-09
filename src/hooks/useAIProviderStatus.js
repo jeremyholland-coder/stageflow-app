@@ -156,6 +156,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // STRUCTURAL FIX A1: Verify backend configuration, not just DB rows
       // Provider rows in DB don't guarantee AI functionality (ENCRYPTION_KEY must exist)
       let configHealthy = true;
+      let configErrorCode = null; // P0 FIX 2025-12-09: Track config error code
       if (hasProviderRows) {
         try {
           const healthResp = await fetch('/.netlify/functions/ai-assistant', {
@@ -170,10 +171,21 @@ export function useAIProviderStatus(user, organization, options = {}) {
           });
           const healthData = await healthResp.json();
           configHealthy = healthData.configHealthy !== false;
+          // P0 FIX 2025-12-09: Capture error code for better UX messaging
+          if (!configHealthy && healthData.code) {
+            configErrorCode = healthData.code;
+            console.warn('[useAIProviderStatus] Config unhealthy:', healthData.code, healthData.error);
+          }
         } catch (e) {
           console.warn('[useAIProviderStatus] Health check failed, assuming unhealthy');
           configHealthy = false;
         }
+      }
+
+      // P0 FIX 2025-12-09: Set distinct error for CONFIG_ERROR vs "no providers"
+      // This ensures Dashboard shows correct message
+      if (hasProviderRows && !configHealthy && configErrorCode === 'CONFIG_ERROR') {
+        setProviderFetchError('AI is temporarily unavailable due to a server configuration issue. Please contact support.');
       }
 
       const hasProviderValue = hasProviderRows && configHealthy;

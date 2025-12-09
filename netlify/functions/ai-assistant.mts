@@ -1401,13 +1401,20 @@ export default async (req: Request, context: any) => {
 
     // STRUCTURAL FIX A1: Support health check requests
     // Return configHealthy without running full AI query
+    // P0 FIX 2025-12-09: Return error code when config is unhealthy so frontend shows correct message
     if (healthCheckOnly) {
+      const isConfigHealthy = !!process.env.ENCRYPTION_KEY;
       return new Response(JSON.stringify({
-        ok: true,
-        configHealthy: !!process.env.ENCRYPTION_KEY,
-        healthCheck: true
+        ok: isConfigHealthy, // P0 FIX: ok should be false when config is unhealthy
+        configHealthy: isConfigHealthy,
+        healthCheck: true,
+        // P0 FIX: Include error code so frontend can distinguish CONFIG_ERROR from NO_PROVIDERS
+        ...(isConfigHealthy ? {} : {
+          error: 'Server configuration error - AI providers cannot decrypt API keys',
+          code: 'CONFIG_ERROR'
+        })
       }), {
-        status: 200,
+        status: 200, // Keep 200 for health check (it's not a request failure, just a config issue)
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }

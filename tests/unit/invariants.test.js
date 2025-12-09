@@ -119,8 +119,10 @@ describe('validateDealSchema', () => {
     expect(() => validateDealSchema(missingStatus, 'test')).toThrow(InvariantViolationError);
   });
 
-  it('should throw for invalid stage value', () => {
-    const invalidStage = { ...validDeal, stage: 'fake_invalid_stage' };
+  it('should throw for invalid stage FORMAT (not snake_case)', () => {
+    // P0 FIX 2025-12-09: Stage validation is now PERMISSIVE for custom pipelines
+    // Only stages with INVALID FORMAT should fail (spaces, uppercase, special chars)
+    const invalidStage = { ...validDeal, stage: 'Invalid Stage Format' }; // Spaces + uppercase = invalid
     expect(() => validateDealSchema(invalidStage, 'test')).toThrow(InvariantViolationError);
 
     try {
@@ -128,6 +130,12 @@ describe('validateDealSchema', () => {
     } catch (e) {
       expect(e.code).toBe('INVARIANT_INVALID_STAGE');
     }
+  });
+
+  it('should ACCEPT custom stages in valid snake_case format', () => {
+    // P0 FIX 2025-12-09: Custom pipeline stages should be valid
+    const customStage = { ...validDeal, stage: 'custom_pipeline_stage' };
+    expect(() => validateDealSchema(customStage, 'test')).not.toThrow();
   });
 
   it('should throw for invalid status value', () => {
@@ -359,13 +367,16 @@ describe('P0 Regression: False Success Prevention', () => {
     expect(normalized.success).toBe(false);
   });
 
-  it('should NEVER consider invalid stage as success', () => {
+  it('should NEVER consider invalid stage FORMAT as success', () => {
+    // P0 FIX 2025-12-09: Stage validation is now PERMISSIVE for custom pipelines
+    // We allow custom stage names like 'healthcare_review' or 'vc_due_diligence'
+    // Only stages with INVALID FORMAT (spaces, uppercase, special chars) should fail
     const invalidStageDeal = {
       success: true,
       deal: {
         id: 'uuid-123',
         organization_id: 'org-456',
-        stage: 'not_a_real_stage',
+        stage: 'Invalid Stage With Spaces', // Invalid format - has spaces and uppercase
         status: 'active'
       }
     };
@@ -374,6 +385,24 @@ describe('P0 Regression: False Success Prevention', () => {
 
     const normalized = normalizeDealResponse(invalidStageDeal, 'test');
     expect(normalized.success).toBe(false);
+  });
+
+  it('should ACCEPT custom stages in valid snake_case format', () => {
+    // P0 FIX 2025-12-09: Custom pipeline stages should be valid
+    const customStageDeal = {
+      success: true,
+      deal: {
+        id: 'uuid-123',
+        organization_id: 'org-456',
+        stage: 'healthcare_review', // Valid format - custom stage
+        status: 'active'
+      }
+    };
+
+    expect(isValidSuccessResponse(customStageDeal)).toBe(true);
+
+    const normalized = normalizeDealResponse(customStageDeal, 'test');
+    expect(normalized.success).toBe(true);
   });
 
   it('should ALWAYS have success: true OR success: false after normalization', () => {

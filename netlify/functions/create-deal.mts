@@ -1,6 +1,8 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
+// P0 FIX 2025-12-09: Import AuthError for instanceof checks (more reliable than name checks)
+import { AuthError } from "./lib/auth-errors";
 // PHASE 1 2025-12-08: Invariant validation for guaranteed response consistency
 import {
   validateDealSchema,
@@ -345,22 +347,45 @@ export default async (req: Request, context: Context) => {
       stack: error.stack?.split('\n').slice(0, 3).join('\n') // First 3 lines of stack
     });
 
-    // PHASE G FIX: Handle AuthError instances properly
-    // AuthError classes have statusCode property and specific error codes
-    // Previous check for string matches missed errors like "Missing authentication cookies"
+    // P0 FIX 2025-12-09: Use instanceof AuthError FIRST (most reliable check)
+    // instanceof works even when error.name is mangled by minification
+    if (error instanceof AuthError) {
+      console.warn("[create-deal] AuthError instance detected, returning", error.statusCode || 401);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error.message || "Authentication required",
+          code: error.code || "AUTH_REQUIRED"
+        }),
+        { status: error.statusCode || 401, headers: corsHeaders }
+      );
+    }
+
+    // PHASE G FIX: Fallback auth error detection for non-AuthError errors
+    const errorMessage = error.message?.toLowerCase() || '';
+    const errorCode = error.code || '';
     const isAuthError = error.statusCode === 401 ||
                         error.statusCode === 403 ||
+                        errorCode === 'UNAUTHORIZED' ||
+                        errorCode === 'TOKEN_EXPIRED' ||
+                        errorCode === 'INVALID_TOKEN' ||
+                        errorCode === 'AUTH_REQUIRED' ||
+                        errorCode === 'NO_SESSION' ||
+                        errorCode === 'SESSION_INVALID' ||
+                        errorCode === 'SESSION_ROTATED' ||
                         error.name === 'UnauthorizedError' ||
                         error.name === 'TokenExpiredError' ||
                         error.name === 'InvalidTokenError' ||
-                        error.code === 'UNAUTHORIZED' ||
-                        error.code === 'TOKEN_EXPIRED' ||
-                        error.message?.includes("auth") ||
-                        error.message?.includes("unauthorized") ||
-                        error.message?.includes("token") ||
-                        error.message?.includes("cookie");
+                        error.name === 'AuthError' ||
+                        errorMessage.includes("auth") ||
+                        errorMessage.includes("unauthorized") ||
+                        errorMessage.includes("token") ||
+                        errorMessage.includes("cookie") ||
+                        errorMessage.includes("session") ||
+                        errorMessage.includes("please log in");
 
     if (isAuthError) {
+      console.warn("[create-deal] Auth error detected via fallback checks, returning", error.statusCode || 401);
       return new Response(
         JSON.stringify({
           success: false,
@@ -373,8 +398,7 @@ export default async (req: Request, context: Context) => {
 
     // FIX 2025-12-09: JSON parse errors should return 400, not 500
     // This happens when client sends malformed JSON in request body
-    const errorMessage400 = error.message?.toLowerCase() || '';
-    if (error.name === 'SyntaxError' || errorMessage400.includes('json') || errorMessage400.includes('unexpected token')) {
+    if (error.name === 'SyntaxError' || errorMessage.includes('json') || errorMessage.includes('unexpected token')) {
       console.warn("[create-deal] JSON parse error detected, returning 400");
       return new Response(
         JSON.stringify({

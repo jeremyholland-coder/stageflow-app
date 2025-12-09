@@ -1,6 +1,8 @@
 import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
+// P0 FIX 2025-12-09: Import AuthError for instanceof checks (more reliable than name checks)
+import { AuthError } from "./lib/auth-errors";
 // Phase 1 Telemetry: Request tracking and metrics
 import {
   buildRequestContext,
@@ -557,23 +559,31 @@ export default async (req: Request, context: Context) => {
       timestamp: new Date().toISOString()
     });
 
-    // FIX 2025-12-03: More comprehensive auth error detection
-    // Check multiple properties since error structure may vary between auth-errors.ts and runtime errors
+    // P0 FIX 2025-12-09: Use instanceof AuthError FIRST (most reliable check)
+    // instanceof works even when error.name is mangled by minification
+    if (error instanceof AuthError) {
+      console.warn("[update-deal] AuthError instance detected, returning", error.statusCode || 401);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error.message || "Authentication required",
+          code: error.code || "AUTH_REQUIRED"
+        }),
+        { status: error.statusCode || 401, headers: corsHeaders }
+      );
+    }
+
+    // FIX 2025-12-03: Fallback auth error detection for non-AuthError errors
+    // Check multiple properties since error structure may vary
     const errorMessage = error.message?.toLowerCase() || '';
     const errorName = error.name || '';
     const errorCode = error.code || '';
 
     const isAuthError =
-      // Status code checks
+      // Status code checks (HIGHEST PRIORITY - statusCode is set by our error classes)
       error.statusCode === 401 ||
       error.statusCode === 403 ||
-      // Custom error class names from auth-errors.ts
-      errorName === 'UnauthorizedError' ||
-      errorName === 'TokenExpiredError' ||
-      errorName === 'InvalidTokenError' ||
-      errorName === 'ForbiddenError' ||
-      errorName === 'OrganizationAccessError' ||
-      // Error codes
+      // Error codes (set by our error classes)
       errorCode === 'UNAUTHORIZED' ||
       errorCode === 'TOKEN_EXPIRED' ||
       errorCode === 'INVALID_TOKEN' ||
@@ -581,17 +591,27 @@ export default async (req: Request, context: Context) => {
       errorCode === 'NO_SESSION' ||
       errorCode === 'SESSION_INVALID' ||
       errorCode === 'SESSION_ROTATED' ||
-      // Message content checks (case-insensitive)
+      errorCode === 'FORBIDDEN' ||
+      errorCode === 'ORG_ACCESS_DENIED' ||
+      // Custom error class names (may be mangled in production)
+      errorName === 'UnauthorizedError' ||
+      errorName === 'TokenExpiredError' ||
+      errorName === 'InvalidTokenError' ||
+      errorName === 'ForbiddenError' ||
+      errorName === 'OrganizationAccessError' ||
+      errorName === 'AuthError' ||
+      // Message content checks (case-insensitive) - LAST RESORT
       errorMessage.includes('auth') ||
       errorMessage.includes('unauthorized') ||
       errorMessage.includes('token') ||
       errorMessage.includes('cookie') ||
       errorMessage.includes('session') ||
       errorMessage.includes('not authenticated') ||
-      errorMessage.includes('login');
+      errorMessage.includes('login') ||
+      errorMessage.includes('please log in');
 
     if (isAuthError) {
-      console.warn("[update-deal] Auth error detected, returning 401");
+      console.warn("[update-deal] Auth error detected via fallback checks, returning", error.statusCode || 401);
       return new Response(
         JSON.stringify({
           success: false,

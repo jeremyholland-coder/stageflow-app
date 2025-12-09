@@ -176,6 +176,12 @@ export async function fetchWithRetry(url, options = {}) {
       error.status = response.status;
       error.response = response;
       error.data = errorData; // FIX: Include parsed error data for caller
+      // P0 FIX 2025-12-09: Copy error code from response data to error.code
+      // This ensures error.code is available for frontend error handling (useDealManagement, etc.)
+      // Without this, error.code was undefined and all errors were treated as generic failures
+      error.code = errorData.code || null;
+      // P0 FIX 2025-12-09: Also set statusCode for consistency with AuthError classes
+      error.statusCode = response.status;
       throw error;
     }
 

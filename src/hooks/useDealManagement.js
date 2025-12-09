@@ -918,20 +918,41 @@ export const useDealManagement = (user, organization, addNotification) => {
       // H6-H HARDENING 2025-12-04: Context-aware error messages for deal operations
       let userMessage = 'Deal update failed. Please try again.';
 
-      // P0 FIX 2025-12-08: Comprehensive error code handling
-      // Check for backend error codes first (these come from update-deal.mts)
-      if (error.code === 'VALIDATION_ERROR' || error.code === 'UPDATE_VALIDATION_ERROR') {
-        userMessage = error.message || 'Invalid data. Please check your input.';
-      } else if (error.code === 'FORBIDDEN') {
-        userMessage = 'You don\'t have permission to update this deal.';
-      } else if (error.code === 'NOT_FOUND') {
-        userMessage = 'Deal not found. It may have been deleted.';
-      } else if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_ERROR') {
+      // P0 FIX 2025-12-09: Get error code from multiple sources
+      // - error.code (set by api-client.js parseError)
+      // - error.data?.code (from backend response via retry-logic.js)
+      // - error.statusCode or error.status (HTTP status)
+      const errorCode = error.code || error.data?.code;
+      const httpStatus = error.statusCode || error.status;
+
+      // P0 FIX 2025-12-09: Auth errors must be caught FIRST - check status codes AND error codes
+      // Backend now returns 401 with code=UNAUTHORIZED for auth failures
+      const isAuthError =
+        httpStatus === 401 ||
+        httpStatus === 403 ||
+        errorCode === 'AUTH_REQUIRED' ||
+        errorCode === 'SESSION_ERROR' ||
+        errorCode === 'UNAUTHORIZED' ||
+        errorCode === 'TOKEN_EXPIRED' ||
+        errorCode === 'INVALID_TOKEN' ||
+        errorCode === 'SESSION_INVALID' ||
+        errorCode === 'SESSION_ROTATED' ||
+        error.message?.toLowerCase()?.includes('session') ||
+        error.message?.toLowerCase()?.includes('authentication');
+
+      if (isAuthError) {
         userMessage = 'Session expired. Please refresh the page.';
-      } else if (error.code === 'RATE_LIMITED' || error.code === 'THROTTLED') {
+        console.warn('[KANBAN][UPDATE_DEAL] Auth error detected:', { errorCode, httpStatus });
+      } else if (errorCode === 'VALIDATION_ERROR' || errorCode === 'UPDATE_VALIDATION_ERROR') {
+        userMessage = error.message || 'Invalid data. Please check your input.';
+      } else if (errorCode === 'FORBIDDEN') {
+        userMessage = 'You don\'t have permission to update this deal.';
+      } else if (errorCode === 'NOT_FOUND') {
+        userMessage = 'Deal not found. It may have been deleted.';
+      } else if (errorCode === 'RATE_LIMITED' || errorCode === 'THROTTLED') {
         // P0 FIX 2025-12-08: Handle rate limiting from session validation
         userMessage = 'Too many requests. Please wait a moment and try again.';
-      } else if (error.code === 'SERVER_ERROR') {
+      } else if (errorCode === 'SERVER_ERROR') {
         // FIX_S1_B1: Check for backend-provided detailed message
         const backendMsg = error.data?.error || error.data?.details;
         if (backendMsg && typeof backendMsg === 'string' && backendMsg.length < 150) {
