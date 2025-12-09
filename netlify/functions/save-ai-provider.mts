@@ -1,7 +1,6 @@
 import type { Context } from '@netlify/functions';
 import { createClient, User } from '@supabase/supabase-js';
 import { encrypt } from './lib/encryption';
-// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { requirePermission, PERMISSIONS } from './lib/rbac';
@@ -9,6 +8,8 @@ import { requirePermission, PERMISSIONS } from './lib/rbac';
 import { invalidateProviderCache } from './lib/provider-cache';
 // TASK 4: Model validation
 import { validateModel, getDefaultModel } from './lib/ai-models';
+// ENGINE REBUILD Phase 5: Centralized CORS config
+import { buildCorsHeaders } from './lib/cors';
 
 /**
  * FIX 2025-12-01: Verify AI key works by making a test request
@@ -108,23 +109,9 @@ async function verifyAIKey(providerType: string, apiKey: string): Promise<{ veri
 export default async (req: Request, context: Context) => {
   // SECURITY FIX: Specific origin instead of wildcard
   // P0 FIX 2025-12-08: Added all Netlify deploy origins to prevent CORS errors
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-rev-ops.netlify.app',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 5: Use centralized CORS config
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+  const headers = buildCorsHeaders(origin, { methods: 'POST, OPTIONS' });
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers });

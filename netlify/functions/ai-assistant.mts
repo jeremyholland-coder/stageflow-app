@@ -3,6 +3,10 @@ import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 import { decrypt, isLegacyEncryption, decryptLegacy } from './lib/encryption';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, requireOrgAccess, createAuthErrorResponse } from './lib/auth-middleware';
+// ENGINE REBUILD Phase 5: Centralized CORS config
+import { buildCorsHeaders } from './lib/cors';
+// ENGINE REBUILD Phase 5: AI error classification spine
+import { classifyAIError, normalizeAIResponse, type AIErrorInfo } from './lib/ai-spine';
 // M3 HARDENING 2025-12-04: Standardized error codes across all AI endpoints
 import { AI_ERROR_CODES } from './lib/ai-error-codes';
 // Phase 1 Telemetry: Request tracking and AI metrics
@@ -1274,22 +1278,9 @@ async function callAIProvider(provider: any, message: string, context: any, conv
 export default async (req: Request, context: any) => {
   // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
   // P0 FIX 2025-12-08: Added all Netlify deploy origins to prevent CORS errors
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-rev-ops.netlify.app',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 5: Use centralized CORS config
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+  const corsHeaders = buildCorsHeaders(origin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
@@ -2014,26 +2005,34 @@ export default async (req: Request, context: any) => {
       });
     }
 
-    // Check for auth/session errors - provide specific guidance
-    if (error?.message?.includes('401') || error?.message?.includes('session') || error?.message?.includes('auth')) {
-      return new Response(JSON.stringify({
-        error: AI_ERROR_CODES.SESSION_ERROR,
-        code: AI_ERROR_CODES.SESSION_ERROR,
-        message: "Session expired or invalid. Please sign out and sign back in.",
-        response: "We couldn't verify your session. Please sign out and sign back in, then try again.",
-        suggestions: ['Sign out and sign back in', 'Clear your browser cache if the issue persists']
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-    }
+    // ENGINE REBUILD Phase 5: Use AI spine for error classification
+    // This provides consistent, user-friendly error messages across all AI failures
+    const classifiedError = classifyAIError(error, 'unknown');
+    console.log('[ai-assistant] Classified error:', {
+      code: classifiedError.code,
+      retryable: classifiedError.retryable,
+      originalMessage: error?.message?.substring(0, 100)
+    });
+
+    // Map spine error codes to appropriate HTTP status
+    const statusCode = classifiedError.code === 'SESSION_INVALID' ? 401 :
+                       classifiedError.code === 'INVALID_API_KEY' || classifiedError.code === 'MISCONFIGURED' ? 400 :
+                       classifiedError.code === 'NO_PROVIDERS' ? 404 :
+                       classifiedError.retryable ? 503 : 500;
 
     return new Response(JSON.stringify({
-      error: error?.message || 'Internal server error',
-      response: "I encountered an error processing your request. Please check your AI provider configuration in Integrations → AI Settings.",
-      suggestions: []
+      ok: false,
+      error: classifiedError, // Full AIErrorInfo object for frontend
+      code: classifiedError.code,
+      message: classifiedError.message,
+      response: classifiedError.message, // Legacy field for backwards compatibility
+      retryable: classifiedError.retryable,
+      retryAfterSeconds: classifiedError.retryAfterSeconds,
+      suggestions: classifiedError.retryable
+        ? ['Try again in a few moments', 'Check your AI provider status']
+        : ['Check your AI provider API keys in Settings', 'Contact support if the issue persists']
     }), {
-      status: 500,
+      status: statusCode,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }

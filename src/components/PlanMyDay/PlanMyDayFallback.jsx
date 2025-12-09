@@ -32,6 +32,8 @@ import {
 
 // Import stagnation thresholds from config
 import { STAGNATION_THRESHOLDS } from '../../config/pipelineConfig';
+// ENGINE REBUILD Phase 8: Use domain spine for stage display names
+import { getStageDisplayName } from '../../domain/stageLabels';
 
 /**
  * Metric card component
@@ -90,12 +92,8 @@ const DealCard = ({ deal, type = 'velocity' }) => {
     return `$${value.toFixed(0)}`;
   };
 
-  const formatStage = (stage) => {
-    if (!stage) return 'Unknown';
-    return stage
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase());
-  };
+  // ENGINE REBUILD Phase 8: Use spine for stage display names
+  const formatStage = (stage) => getStageDisplayName(stage);
 
   return (
     <div className={`flex items-center gap-4 p-4 rounded-xl border-l-4 transition-all duration-300 hover:bg-white/[0.03] ${getTypeStyles()}`}>
@@ -253,7 +251,7 @@ export const PlanMyDayFallback = ({
       recommendedActions.push({
         priority: 'high',
         action: `Reach out to ${topDeal.client}`,
-        reason: `$${(topDeal.value / 1000).toFixed(0)}K deal is stagnating in ${topDeal.stage?.replace(/_/g, ' ')}`
+        reason: `$${(topDeal.value / 1000).toFixed(0)}K deal is stagnating in ${getStageDisplayName(topDeal.stage)}`
       });
     }
 
@@ -263,7 +261,7 @@ export const PlanMyDayFallback = ({
       recommendedActions.push({
         priority: 'high',
         action: `Push ${closeDeal.client} to close`,
-        reason: `Ready to close - in ${closeDeal.stage?.replace(/_/g, ' ')} stage`
+        reason: `Ready to close - in ${getStageDisplayName(closeDeal.stage)} stage`
       });
     }
 

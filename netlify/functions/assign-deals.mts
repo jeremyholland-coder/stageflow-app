@@ -13,27 +13,20 @@ import { createClient } from '@supabase/supabase-js';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { notifyUser } from './lib/notifications-service';
+// ENGINE REBUILD Phase 8: Use centralized CORS spine
+import { getCorsOrigin } from './lib/cors';
 
 export const handler = async (event: any) => {
-  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
-  // P0 FIX 2025-12-08: Added stageflow-rev-ops.netlify.app for staging deploys
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-rev-ops.netlify.app',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 8: Use centralized CORS config
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
+  const corsOrigin = getCorsOrigin(requestOrigin);
 
   const headers = {
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Correlation-ID',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Expose-Headers': 'X-Correlation-ID',
     'Content-Type': 'application/json'
   };
 

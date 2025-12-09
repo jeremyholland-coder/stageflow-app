@@ -1,6 +1,8 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { setSessionCookies } from "./lib/cookie-auth";
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { getCorsOrigin, ALLOWED_ORIGINS } from './lib/cors';
 
 /**
  * Password Reset with Auto-Login
@@ -24,21 +26,10 @@ import { setSessionCookies } from "./lib/cookie-auth";
  * Without these headers, browsers ignore Set-Cookie from fetch responses with credentials mode
  */
 
-// CORS headers for browser requests - CRITICAL for Set-Cookie to work with credentials: 'include'
+// ENGINE REBUILD Phase 9: Use centralized CORS spine
 const getCorsHeaders = (event: HandlerEvent) => {
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'https://stageflow-rev-ops.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
   const requestOrigin = event.headers?.origin || '';
-  // Allow Netlify deploy previews
-  const isNetlifyPreview = requestOrigin.includes('.netlify.app') && requestOrigin.includes('stageflow');
-  const corsOrigin = allowedOrigins.includes(requestOrigin) || isNetlifyPreview
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
+  const corsOrigin = getCorsOrigin(requestOrigin);
 
   return {
     'Access-Control-Allow-Origin': corsOrigin,

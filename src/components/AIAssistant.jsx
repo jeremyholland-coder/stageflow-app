@@ -242,10 +242,47 @@ export const AIAssistant = ({ deals = [] }) => {
         preferredProvider: selectedProvider?.provider_type
       });
 
+      // ENGINE REBUILD Phase 5: Handle normalized error format from backend
+      // Backend now sends { ok: false, error: AIErrorInfo } for failures
+      if (data.ok === false) {
+        const errorInfo = data.error || {};
+        const errorMessage = {
+          id: Date.now() + 1,
+          type: 'assistant',
+          content: errorInfo.message || data.message || data.response || 'AI request failed',
+          timestamp: new Date(),
+          isError: true,
+          errorCode: errorInfo.code || data.code,
+          retryable: errorInfo.retryable ?? data.retryable,
+        };
+        setMessages(prev => [...prev, errorMessage]);
+
+        // Set error state for ErrorSurface if needed
+        if (errorInfo.code) {
+          setError({ code: errorInfo.code, message: errorInfo.message, retryable: errorInfo.retryable });
+        }
+        return;
+      }
+
+      // ENGINE REBUILD: Validate response content is non-empty
+      const responseContent = data.response || '';
+      if (!responseContent.trim()) {
+        const emptyErrorMessage = {
+          id: Date.now() + 1,
+          type: 'assistant',
+          content: 'I received an empty response. Please try again.',
+          timestamp: new Date(),
+          isError: true,
+          errorCode: 'EMPTY_RESPONSE',
+        };
+        setMessages(prev => [...prev, emptyErrorMessage]);
+        return;
+      }
+
       const assistantMessage = {
         id: Date.now() + 1,
         type: 'assistant',
-        content: data.response,
+        content: responseContent,
         timestamp: new Date(),
         suggestions: data.suggestions || [],
         provider: data.provider || 'AI'
@@ -259,14 +296,15 @@ export const AIAssistant = ({ deals = [] }) => {
       const normalizedError = normalizeAIError(err, 'AIAssistant');
       setError(normalizedError);
 
-      // Phase 3: Use Apple-grade error message from unified system
+      // ENGINE REBUILD: Use error.message from normalized error (never undefined)
       const errorMessage = {
         id: Date.now() + 1,
         type: 'assistant',
-        content: normalizedError.message,
+        content: normalizedError.message || 'Something went wrong. Please try again.',
         timestamp: new Date(),
         isError: true,
         errorCode: normalizedError.code,
+        retryable: normalizedError.retryable,
       };
 
       setMessages(prev => [...prev, errorMessage]);

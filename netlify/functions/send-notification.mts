@@ -2,19 +2,16 @@ import type { Handler } from "@netlify/functions";
 import { NotificationPayloadSchema, validate } from "./lib/validation";
 import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
 import { createClient } from '@supabase/supabase-js';
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { getCorsOrigin } from './lib/cors';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = 'StageFlow Support <jeremy@startupstage.com>';
 
 const handler: Handler = async (event) => {
-  // PHASE 12: Consistent CORS headers
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'http://localhost:5173',
-    'http://localhost:8888'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+  const corsOrigin = getCorsOrigin(requestOrigin);
 
   const headers = {
     'Access-Control-Allow-Origin': corsOrigin,

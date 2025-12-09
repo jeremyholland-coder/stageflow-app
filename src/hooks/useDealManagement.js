@@ -8,6 +8,8 @@ import { cacheDeals, getCachedDeals } from '../lib/indexeddb-cache'; // NEXT-LEV
 import { dealsMemoryCache } from '../lib/memory-cache'; // OPT-4: In-memory cache (<1ms reads)
 import { logger } from '../lib/logger';
 import { api } from '../lib/api-client'; // PHASE J: Auth-aware API client with Authorization header
+// ENGINE REBUILD Phase 5: Import deal normalization spine for boundary validation
+import { normalizeDeal } from '../domain/deal';
 // OFFLINE: Import offline queue for "works on a plane" support
 import {
   enqueueCommand,
@@ -52,18 +54,21 @@ const dealsCache = {
       const cached = await getCachedDeals(orgId);
 
       if (cached) {
-        // DEFENSIVE: Filter out any null deals that might have slipped through
-        const validDeals = cached.filter(d => d != null && typeof d === 'object');
+        // ENGINE REBUILD Phase 5: Normalize cached deals through domain spine
+        // This ensures consistent structure even for older cached data
+        const normalizedDeals = cached
+          .map(d => normalizeDeal(d))
+          .filter(d => d !== null);
 
-        if (validDeals.length !== cached.length) {
-          console.warn('[Deals Cache] Filtered', cached.length - validDeals.length, 'null deals from IndexedDB');
+        if (normalizedDeals.length !== cached.length) {
+          console.warn('[Deals Cache] Normalized/filtered', cached.length - normalizedDeals.length, 'deals from IndexedDB');
         }
 
-        // Store in memory cache for next access
-        dealsMemoryCache.set(memKey, validDeals);
+        // Store normalized deals in memory cache for next access
+        dealsMemoryCache.set(memKey, normalizedDeals);
 
-        logger.log('[Deals Cache] ✓ IndexedDB HIT (50-100ms) -', validDeals.length, 'deals');
-        return validDeals;
+        logger.log('[Deals Cache] ✓ IndexedDB HIT (50-100ms) -', normalizedDeals.length, 'deals');
+        return normalizedDeals;
       }
 
       // TIER 3: Fallback to localStorage for backwards compatibility
@@ -78,14 +83,17 @@ const dealsCache = {
         return null;
       }
 
-      const validDeals = deals.filter(d => d != null && typeof d === 'object');
-      logger.log('[Deals Cache] ⚠️  localStorage fallback -', validDeals.length, 'deals');
+      // ENGINE REBUILD Phase 5: Normalize localStorage deals through domain spine
+      const normalizedDeals = deals
+        .map(d => normalizeDeal(d))
+        .filter(d => d !== null);
+      logger.log('[Deals Cache] ⚠️  localStorage fallback -', normalizedDeals.length, 'deals');
 
-      // Migrate to IndexedDB and memory cache
-      await cacheDeals(orgId, validDeals);
-      dealsMemoryCache.set(memKey, validDeals);
+      // Migrate normalized deals to IndexedDB and memory cache
+      await cacheDeals(orgId, normalizedDeals);
+      dealsMemoryCache.set(memKey, normalizedDeals);
 
-      return validDeals;
+      return normalizedDeals;
     } catch (e) {
       console.warn('[Deals Cache] Read error:', e);
       return null;
@@ -452,16 +460,23 @@ export const useDealManagement = (user, organization, addNotification) => {
         return;
       }
 
+      // ENGINE REBUILD Phase 5: Normalize incoming deal at boundary
+      const normalizedNewDeal = normalizeDeal(payload.new);
+      if (!normalizedNewDeal) {
+        console.error('[RealTime] INSERT payload failed normalization:', payload.new.id);
+        return;
+      }
+
       // New deal created by team member
       setDeals(prevDeals => {
         // ROOT CAUSE FIX: Filter out null deals AND check safely
         const validDeals = prevDeals.filter(d => d != null);
 
         // Avoid duplicates if we already optimistically added it
-        if (validDeals.some(d => d.id === payload.new.id)) {
+        if (validDeals.some(d => d.id === normalizedNewDeal.id)) {
           return validDeals;
         }
-        const updated = [payload.new, ...validDeals];
+        const updated = [normalizedNewDeal, ...validDeals];
         // Auto-update cache
         if (organization?.id) dealsCache.set(organization.id, updated);
         return updated;
@@ -484,10 +499,17 @@ export const useDealManagement = (user, organization, addNotification) => {
         return;
       }
 
+      // ENGINE REBUILD Phase 5: Normalize incoming deal at boundary
+      const normalizedUpdatedDeal = normalizeDeal(payload.new);
+      if (!normalizedUpdatedDeal) {
+        console.error('[RealTime] UPDATE payload failed normalization:', payload.new.id);
+        return;
+      }
+
       // Deal updated by team member
       setDeals(prevDeals => {
         // ROOT CAUSE FIX: Safe null check before accessing .id
-        const updated = prevDeals.filter(d => d != null).map(d => d.id === payload.new.id ? payload.new : d);
+        const updated = prevDeals.filter(d => d != null).map(d => d.id === normalizedUpdatedDeal.id ? normalizedUpdatedDeal : d);
         // Auto-update cache
         if (organization?.id) dealsCache.set(organization.id, updated);
         return updated;
@@ -553,7 +575,10 @@ export const useDealManagement = (user, organization, addNotification) => {
     if (hasCache) {
       logger.log('[Deals] ✅ Using IndexedDB cached deals (instant display) -', cachedDeals.length, 'deals');
       if (isMountedRef.current) {
-        setDeals(cachedDeals);
+        // ENGINE REBUILD Phase 9: Defense-in-depth normalization on cache read
+        // Ensures cached deals conform to current schema even if normalization logic changed
+        const normalizedCachedDeals = cachedDeals.map(d => normalizeDeal(d)).filter(Boolean);
+        setDeals(normalizedCachedDeals);
         setLoading(false); // PHASE B FIX: Ensure loading=false when we have cached data
         // Fresh data will load silently in background
       }
@@ -657,17 +682,21 @@ export const useDealManagement = (user, organization, addNotification) => {
         }
       }
 
-      // CRITICAL FIX: Filter out any null/undefined deals to prevent crashes
-      const validDeals = result.filter(deal => deal != null && typeof deal === 'object');
-      if (validDeals.length !== result.length) {
-        console.warn('[DEALS DEBUG] Filtered out', result.length - validDeals.length, 'invalid deals');
+      // ENGINE REBUILD Phase 5: Normalize deals at boundary using domain spine
+      // This ensures all deals have consistent structure, valid stages, and synced status
+      const normalizedDeals = result
+        .map(deal => normalizeDeal(deal))
+        .filter(deal => deal !== null);
+
+      if (normalizedDeals.length !== result.length) {
+        console.warn('[DEALS DEBUG] Normalized/filtered', result.length - normalizedDeals.length, 'invalid deals');
       }
 
-      // Cache the fresh data for next time
-      dealsCache.set(organization.id, validDeals);
+      // Cache the normalized data for next time
+      dealsCache.set(organization.id, normalizedDeals);
 
       if (isMountedRef.current && !abortSignal.aborted) {
-        setDeals(validDeals);
+        setDeals(normalizedDeals);
       }
 
         // Mark initial load as complete
@@ -1033,15 +1062,27 @@ export const useDealManagement = (user, organization, addNotification) => {
 
   const handleDealCreated = useCallback(async (newDeal) => {
     if (!isMountedRef.current) return;
-    setDeals(prevDeals => [newDeal, ...prevDeals]);
+    // ENGINE REBUILD Phase 9: Defense-in-depth normalization at state boundary
+    const normalizedDeal = normalizeDeal(newDeal);
+    if (!normalizedDeal) {
+      console.error('[handleDealCreated] Failed to normalize new deal:', newDeal?.id);
+      return;
+    }
+    setDeals(prevDeals => [normalizedDeal, ...prevDeals]);
     addNotification('Deal created successfully');
   }, [addNotification]);
 
   const handleDealUpdated = useCallback(async (updatedDeal) => {
     if (!isMountedRef.current || !updatedDeal) return;
+    // ENGINE REBUILD Phase 9: Defense-in-depth normalization at state boundary
+    const normalizedDeal = normalizeDeal(updatedDeal);
+    if (!normalizedDeal) {
+      console.error('[handleDealUpdated] Failed to normalize updated deal:', updatedDeal?.id);
+      return;
+    }
     // ROOT CAUSE FIX: Filter nulls before mapping
     setDeals(prevDeals =>
-      prevDeals.filter(d => d != null).map(d => d.id === updatedDeal.id ? updatedDeal : d)
+      prevDeals.filter(d => d != null).map(d => d.id === normalizedDeal.id ? normalizedDeal : d)
     );
   }, []);
 

@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Info, TrendingUp, Calendar, DollarSign, Sparkles, X } from 'lucide-react';
 import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
+// ENGINE REBUILD Phase 5: Use spine for stage display names
+import { getStageDisplayName } from '../domain/stageLabels';
 
 /**
  * Confidence Score Tooltip & Modal
@@ -317,7 +319,8 @@ function calculateConfidenceBreakdown(deal, finalScore) {
   return {
     stage: {
       score: stageScore,
-      reason: `Deal is in "${deal.stage}" stage`,
+      // ENGINE REBUILD Phase 5 (KANBAN-101): Use spine for display name
+      reason: `Deal is in "${getStageDisplayName(deal.stage)}" stage`,
       stages: 'Lead: 30% → Quote: 50% → Approval: 65% → Invoice: 80% → Delivery: 95% → Retention: 100%'
     },
     age: {

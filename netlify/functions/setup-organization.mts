@@ -6,27 +6,13 @@ import { getSupabaseConfig } from './lib/validate-config';
 import { withTimeout, TIMEOUTS, safeRequestJson } from './lib/timeout-wrapper';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, validateUserIdMatch, createAuthErrorResponse } from './lib/auth-middleware';
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { buildCorsHeaders } from './lib/cors';
 
 export default async (req: Request, context: Context) => {
-  // PHASE F FIX: Add CORS headers for browser requests
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const requestOrigin = req.headers.get("origin") || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json",
-  };
+  const corsHeaders = buildCorsHeaders(requestOrigin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight
   if (req.method === "OPTIONS") {

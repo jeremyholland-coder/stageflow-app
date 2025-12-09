@@ -2,6 +2,10 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
+// ENGINE REBUILD Phase 5: Centralized CORS config
+import { buildCorsHeaders } from './lib/cors';
+// ENGINE REBUILD Phase 5: AI error classification spine
+import { classifyAIError, type AIErrorInfo } from './lib/ai-spine';
 import {
   runWithConnectedProviders,
   ConnectedProvider,
@@ -151,23 +155,9 @@ async function callProvider(provider: ConnectedProvider, apiKey: string, prompt:
 export const handler: Handler = async (event) => {
   // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
   // P0 FIX 2025-12-08: Added all Netlify deploy origins to prevent CORS errors
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-rev-ops.netlify.app',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 5: Use centralized CORS config
   const origin = event.headers.origin || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+  const corsHeaders = buildCorsHeaders(origin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight OPTIONS request
   if (event.httpMethod === 'OPTIONS') {
@@ -359,12 +349,22 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    // ENGINE REBUILD Phase 5: Use AI spine for error classification
+    const classifiedError = classifyAIError(error, 'unknown');
+    console.log('[ai-insights] Classified error:', classifiedError.code);
+
+    const statusCode = classifiedError.code === 'SESSION_INVALID' ? 401 :
+                       classifiedError.retryable ? 503 : 500;
+
     return {
-      statusCode: 500,
+      statusCode,
       headers: corsHeaders,
       body: JSON.stringify({
-        error: 'AI insight failed',
-        details: error.message
+        ok: false,
+        error: classifiedError,
+        code: classifiedError.code,
+        insight: classifiedError.message, // User-friendly message
+        retryable: classifiedError.retryable
       })
     };
   }

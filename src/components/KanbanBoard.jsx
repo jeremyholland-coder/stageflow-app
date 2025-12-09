@@ -21,6 +21,8 @@ import { DisqualifyModal } from './DisqualifyModal';
 import { Portal, calculateDropdownPosition, Z_INDEX } from './ui/Portal';
 // PHASE 4: Unified outcome configuration
 import { getReasonDisplay, normalizeReasonCategory, createUnifiedOutcome } from '../config/outcomeConfig';
+// ENGINE REBUILD Phase 8: Use domain spine for stage display names
+import { getStageDisplayName, getStatusDisplay } from '../domain/stageLabels';
 
 // PERFORMANCE: Lazy load NewDealModal to avoid duplicate imports
 const NewDealModal = lazy(() => import('./NewDealModal').then(m => ({ default: m.NewDealModal })));
@@ -489,7 +491,7 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
       onKeyDown={handleKeyDown}
       tabIndex={0}
       role="button"
-      aria-label={`Deal: ${deal.client || 'Unnamed'}, Value: $${(Number(deal.value) || 0).toLocaleString()}, Stage: ${deal.stage}, ${deal.status === 'active' ? `Confidence: ${confidenceScore}%` : `Status: ${deal.status}`}. Press Enter to view details.${isDragLocked ? ' Drag temporarily disabled.' : ''}`}
+      aria-label={`Deal: ${deal.client || 'Unnamed'}, Value: $${(Number(deal.value) || 0).toLocaleString()}, Stage: ${getStageDisplayName(deal.stage)}, ${deal.status === 'active' ? `Confidence: ${confidenceScore}%` : `Status: ${getStatusDisplay(deal.status).label}`}. Press Enter to view details.${isDragLocked ? ' Drag temporarily disabled.' : ''}`}
       data-deal-id={deal.id}
       data-tour="deal-card"
       className={`

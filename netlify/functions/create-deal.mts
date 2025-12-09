@@ -5,8 +5,11 @@ import { requireAuth } from "./lib/auth-middleware";
 import {
   validateDealSchema,
   trackInvariantViolation,
-  VALID_STAGES
+  VALID_STAGES,
+  isValidStageFormat
 } from "./lib/invariant-validator";
+// ENGINE REBUILD Phase 5: Centralized CORS config
+import { buildCorsHeaders, getCorsOrigin, ALLOWED_ORIGINS } from "./lib/cors";
 // PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
 
 /**
@@ -44,25 +47,9 @@ export default async (req: Request, context: Context) => {
     );
   }
 
-  // PHASE 10 FIX: Secure CORS with whitelist instead of wildcard
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 5: Use centralized CORS config (fixes DEAL-102)
   const requestOrigin = req.headers.get("origin") || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Content-Type": "application/json",
-  };
+  const corsHeaders = buildCorsHeaders(requestOrigin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight
   if (req.method === "OPTIONS") {
@@ -200,17 +187,23 @@ export default async (req: Request, context: Context) => {
       sanitizedDeal.value = parseFloat(sanitizedDeal.value) || 0;
     }
 
-    // Validate stage value
-    if (!VALID_STAGES.has(sanitizedDeal.stage)) {
-      console.error("[create-deal] Invalid stage value:", sanitizedDeal.stage);
+    // ENGINE REBUILD Phase 5: PERMISSIVE stage validation (fixes DEAL-101)
+    // Use same logic as update-deal.mts - allow custom stages, just validate format
+    if (!isValidStageFormat(sanitizedDeal.stage)) {
+      console.error("[create-deal] Invalid stage format:", sanitizedDeal.stage);
       return new Response(
         JSON.stringify({
           success: false,
-          error: `Invalid stage value: ${sanitizedDeal.stage}`,
-          hint: "Stage must be a valid pipeline stage"
+          error: `Invalid stage format: ${sanitizedDeal.stage}. Stage must be lowercase snake_case.`,
+          code: "VALIDATION_ERROR",
+          hint: "Stage must be lowercase snake_case format (e.g., lead_captured, custom_stage)"
         }),
         { status: 400, headers: corsHeaders }
       );
+    }
+    // Warn if stage is not in known list (may be custom)
+    if (!VALID_STAGES.has(sanitizedDeal.stage)) {
+      console.log("[create-deal] ⚠️ Custom stage detected:", sanitizedDeal.stage, "- allowing");
     }
 
     console.warn("[create-deal] Sanitized deal data:", {

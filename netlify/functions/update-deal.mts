@@ -16,7 +16,8 @@ import {
   VALID_STAGES,
   isValidStageFormat
 } from "./lib/invariant-validator";
-// PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
+// ENGINE REBUILD Phase 5: Centralized CORS config
+import { buildCorsHeaders } from "./lib/cors";
 
 /**
  * UPDATE DEAL ENDPOINT
@@ -33,25 +34,9 @@ import {
  */
 
 export default async (req: Request, context: Context) => {
-  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 5: Use centralized CORS config (fixes DEAL-102)
   const requestOrigin = req.headers.get("origin") || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
-
-  const corsHeaders: Record<string, string> = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Content-Type": "application/json",
-  };
+  const corsHeaders: Record<string, string> = buildCorsHeaders(requestOrigin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight
   if (req.method === "OPTIONS") {
@@ -247,7 +232,30 @@ export default async (req: Request, context: Context) => {
     // STEP 7: Validate lost/disqualified mutual exclusivity
     // Lost and Disqualified are STRICTLY mutually exclusive states
     // PHASE 4 2025-12-08: Also populate unified outcome fields
-    const status = sanitizedUpdates.status || existingDeal.status;
+    // ENGINE REBUILD Phase 5 (DEAL-104): Auto-sync status from stage changes
+    // If stage implies a status (e.g., deal_won → won), auto-set status
+    let status = sanitizedUpdates.status || existingDeal.status;
+
+    if (sanitizedUpdates.stage && !sanitizedUpdates.status) {
+      // Check if the new stage implies a status change
+      const STAGE_TO_STATUS: Record<string, string> = {
+        'deal_won': 'won', 'closed_won': 'won', 'won': 'won', 'closed': 'won',
+        'investment_closed': 'won', 'contract_signed': 'won', 'escrow_completed': 'won', 'payment_received': 'won',
+        'deal_lost': 'lost', 'closed_lost': 'lost', 'lost': 'lost',
+      };
+      const impliedStatus = STAGE_TO_STATUS[sanitizedUpdates.stage];
+
+      // If stage implies "active" (any non-terminal stage), revert to active
+      if (!impliedStatus && (existingDeal.status === 'lost' || existingDeal.status === 'disqualified')) {
+        console.log(`[update-deal] ⚠️ Stage "${sanitizedUpdates.stage}" implies active status - reverting from "${existingDeal.status}"`);
+        sanitizedUpdates.status = 'active';
+        status = 'active';
+      } else if (impliedStatus && impliedStatus !== existingDeal.status) {
+        console.log(`[update-deal] Auto-syncing status from "${existingDeal.status}" to "${impliedStatus}" based on stage "${sanitizedUpdates.stage}"`);
+        sanitizedUpdates.status = impliedStatus;
+        status = impliedStatus;
+      }
+    }
 
     // PHASE 4: Map legacy reason IDs to unified taxonomy
     const LEGACY_TO_UNIFIED_REASON: Record<string, string> = {
@@ -270,7 +278,10 @@ export default async (req: Request, context: Context) => {
       // Lost deals must have a lost reason (check both legacy and unified fields)
       const hasLostReason = !!sanitizedUpdates.lost_reason || !!sanitizedUpdates.outcome_reason_category;
       const lostReason = sanitizedUpdates.lost_reason || sanitizedUpdates.outcome_reason_category;
-      const hasLostNotes = (lostReason === 'other' || lostReason === 'other')
+      // ENGINE REBUILD Phase 5 (DEAL-103): Fixed duplicate condition bug
+      // Check if reason is "other" OR starts with "Other:" (legacy custom format)
+      const isOtherReason = lostReason === 'other' || (typeof lostReason === 'string' && lostReason.startsWith('Other:'));
+      const hasLostNotes = isOtherReason
         ? !!(sanitizedUpdates.lost_reason_notes || sanitizedUpdates.outcome_notes)
         : true;
 

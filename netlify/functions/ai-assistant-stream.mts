@@ -79,6 +79,9 @@ import {
 import { classifyProviderError } from './lib/provider-error-classifier';
 // P0 FIX 2025-12-07: Import mission control fallback for graceful degradation
 import { buildMissionControlContext, buildBasicMissionControlPlan } from './lib/mission-control-fallback';
+// ENGINE REBUILD Phase 9: Centralized CORS + AI error classification
+import { buildCorsHeaders } from './lib/cors';
+import { classifyAIError } from './lib/ai-spine';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -334,24 +337,9 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
 }
 
 export default async (req: Request, context: any) => {
-  // PHASE 8 FIX 2025-12-03: Add CORS headers for Authorization support
-  // P0 FIX 2025-12-08: Added all Netlify deploy origins to prevent CORS errors
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-rev-ops.netlify.app',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+  const corsHeaders = buildCorsHeaders(origin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
@@ -952,30 +940,26 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
   } catch (error: any) {
     console.error('[StageFlow][AI][ERROR] AI Streaming error:', error);
 
-    // M3 HARDENING: Use standardized error codes for frontend classification
-    const errorMessage = error.message || 'AI request failed';
-    let errorCode: string = AI_ERROR_CODES.PROVIDER_ERROR;
-    let status = 200; // P1 HOTFIX 2025-12-07: Default to 200 for graceful degradation
+    // ENGINE REBUILD Phase 9: Use centralized AI spine for error classification
+    // This ensures consistent error codes and user-facing messages across all AI endpoints
+    const errorInfo = classifyAIError(error);
 
-    // Classify the error for proper frontend handling
-    // P1 HOTFIX 2025-12-07: Only use non-200 status for true auth errors
-    // All provider errors should return 200 with ok: false so frontend can handle gracefully
-    if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('401')) {
-      errorCode = AI_ERROR_CODES.INVALID_API_KEY;
-      status = 401; // Auth errors still return 401 for proper session handling
-    } else if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
-      errorCode = AI_ERROR_CODES.RATE_LIMITED;
-      status = 200; // P1 HOTFIX: Rate limits are data, not crashes
-    } else if (errorMessage.includes('timeout')) {
-      errorCode = AI_ERROR_CODES.TIMEOUT;
-      status = 200; // P1 HOTFIX: Timeouts are data, not crashes
-    }
+    // P1 HOTFIX 2025-12-07: Graceful degradation status code strategy
+    // - Return 200 for most provider errors so frontend can handle gracefully (ok: false in body)
+    // - Return 401 only for true auth errors (SESSION_INVALID, INVALID_API_KEY)
+    // This prevents fetch from throwing and allows frontend to inspect error details
+    const status = (errorInfo.code === 'SESSION_INVALID' || errorInfo.code === 'INVALID_API_KEY')
+      ? 401
+      : 200;
 
     return new Response(JSON.stringify({
-      ok: false, // P1 HOTFIX: Explicit ok: false for frontend detection
-      error: errorCode,
-      code: errorCode,
-      message: errorMessage
+      ok: false,
+      error: errorInfo.code,
+      code: errorInfo.code,
+      message: errorInfo.message,
+      retryable: errorInfo.retryable,
+      retryAfterSeconds: errorInfo.retryAfterSeconds,
+      dashboardUrl: errorInfo.dashboardUrl
     }), {
       status: status,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }

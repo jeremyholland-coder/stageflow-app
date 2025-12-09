@@ -2,7 +2,8 @@ import type { Context } from "@netlify/functions";
 import { getSupabaseClient } from "./lib/supabase-pool";
 import { requireAuth } from "./lib/auth-middleware";
 import { safeRequestJson } from "./lib/timeout-wrapper";
-// PHASE E: Removed unused createErrorResponse import - using manual CORS response instead
+// ENGINE REBUILD Phase 8: Use centralized CORS spine
+import { buildCorsHeaders } from './lib/cors';
 
 /**
  * DELETE DEAL ENDPOINT (Soft Delete)
@@ -18,25 +19,9 @@ import { safeRequestJson } from "./lib/timeout-wrapper";
  */
 
 export default async (req: Request, context: Context) => {
-  // PHASE 9 FIX: Secure CORS with whitelist instead of wildcard
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 8: Use centralized CORS config
   const requestOrigin = req.headers.get("origin") || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin)
-    ? requestOrigin
-    : 'https://stageflow.startupstage.com';
-
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Content-Type": "application/json",
-  };
+  const corsHeaders = buildCorsHeaders(requestOrigin, { methods: 'POST, OPTIONS' });
 
   // Handle preflight
   if (req.method === "OPTIONS") {

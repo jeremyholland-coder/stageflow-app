@@ -10,6 +10,8 @@ import {
   createUnifiedOutcome,
   normalizeReasonCategory
 } from '../config/outcomeConfig';
+// ENGINE REBUILD Phase 8: Use domain spine for stage display names
+import { getStageDisplayName } from '../domain/stageLabels';
 
 // PHASE 4: Helper to get reason label from unified config (with legacy support)
 const getOutcomeReasonLabel = (deal) => {
@@ -344,7 +346,8 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
                     <option value="all">All Reasons</option>
                     {uniqueReasons.map(reason => (
                       <option key={reason} value={reason}>
-                        {DISQUALIFY_REASON_LABELS[reason] || reason}
+                        {/* ENGINE REBUILD Phase 8: Use spine instead of undefined constant */}
+                        {getReasonDisplay(reason).label}
                       </option>
                     ))}
                   </select>
@@ -404,8 +407,9 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
 
                       {/* Last Stage */}
                       <div className="col-span-2">
-                        <p className="text-sm text-white/70 capitalize">
-                          {deal.stage_at_disqualification?.replace(/_/g, ' ') || '—'}
+                        <p className="text-sm text-white/70">
+                          {/* ENGINE REBUILD Phase 8: Use spine for stage display */}
+                          {getStageDisplayName(deal.stage_at_disqualification)}
                         </p>
                       </div>
 

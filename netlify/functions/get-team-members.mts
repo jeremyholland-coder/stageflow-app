@@ -1,6 +1,8 @@
 import type { Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { buildCorsHeaders } from './lib/cors';
 
 /**
  * GET TEAM MEMBERS ENDPOINT
@@ -18,23 +20,9 @@ import { requireAuth } from './lib/auth-middleware';
  */
 
 export default async (req: Request, context: Context) => {
-  // CORS headers
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'https://stageflow-app.netlify.app',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+  const headers = buildCorsHeaders(origin, { methods: 'GET, POST, OPTIONS' });
 
   // Handle preflight
   if (req.method === 'OPTIONS') {

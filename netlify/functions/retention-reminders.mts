@@ -8,16 +8,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { shouldUseNewAuth } from './lib/feature-flags';
 import { requireAuth, createAuthErrorResponse } from './lib/auth-middleware';
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { getCorsOrigin } from './lib/cors';
 
 export const handler = async (event: any) => {
-  // PHASE 12: Consistent CORS headers (no wildcard)
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'http://localhost:5173',
-    'http://localhost:8888'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const requestOrigin = event.headers?.origin || '';
-  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://stageflow.startupstage.com';
+  const corsOrigin = getCorsOrigin(requestOrigin);
 
   const headers = {
     'Access-Control-Allow-Origin': corsOrigin,

@@ -1,8 +1,9 @@
 import type { Context } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
-// PHASE F: Removed unused createErrorResponse import - using manual CORS response instead
 import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
+// ENGINE REBUILD Phase 9: Centralized CORS spine
+import { buildCorsHeaders } from './lib/cors';
 
 // Profile Save Endpoint
 //
@@ -14,21 +15,9 @@ import { withTimeout, TIMEOUTS } from './lib/timeout-wrapper';
 // DOES NOT MODIFY: Auth, billing, onboarding, or AI integrations
 
 export default async (req: Request, context: Context) => {
-  // CORS headers
-  const allowedOrigins = [
-    'https://stageflow.startupstage.com',
-    'http://localhost:8888',
-    'http://localhost:5173'
-  ];
+  // ENGINE REBUILD Phase 9: Use centralized CORS spine
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://stageflow.startupstage.com';
-
-  const headers = {
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  };
+  const headers = buildCorsHeaders(origin, { methods: 'POST, OPTIONS' });
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers });
