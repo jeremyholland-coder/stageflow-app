@@ -139,8 +139,9 @@ export function useAIProviderStatus(user, organization, options = {}) {
           }
           // FIX 2025-12-03: Mark this as auth error, not "no provider" state
           setAuthError(true);
-          // M1 HARDENING: Session error is a fetch error, not "no providers"
-          setProviderFetchError('Session expired. Please refresh the page.');
+          // FIX_S2_A2: Auth errors are session issues, NOT provider config issues
+          // Don't set providerFetchError - it causes false "AI unavailable" banner
+          setProviderFetchError(null);
           setProvidersLoaded(true);
           setChecking(false);
           return;
@@ -150,7 +151,32 @@ export function useAIProviderStatus(user, organization, options = {}) {
       }
 
       const result = await response.json();
-      const hasProviderValue = result.providers && result.providers.length > 0;
+      const hasProviderRows = result.providers && result.providers.length > 0;
+
+      // STRUCTURAL FIX A1: Verify backend configuration, not just DB rows
+      // Provider rows in DB don't guarantee AI functionality (ENCRYPTION_KEY must exist)
+      let configHealthy = true;
+      if (hasProviderRows) {
+        try {
+          const healthResp = await fetch('/.netlify/functions/ai-assistant', {
+            method: 'POST',
+            headers,
+            credentials: 'include',
+            body: JSON.stringify({
+              message: '__health_check__',
+              deals: [],
+              healthCheckOnly: true
+            })
+          });
+          const healthData = await healthResp.json();
+          configHealthy = healthData.configHealthy !== false;
+        } catch (e) {
+          console.warn('[useAIProviderStatus] Health check failed, assuming unhealthy');
+          configHealthy = false;
+        }
+      }
+
+      const hasProviderValue = hasProviderRows && configHealthy;
       setHasProvider(hasProviderValue);
       // FIX 2025-12-03: Clear auth error on successful fetch
       setAuthError(false);

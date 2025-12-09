@@ -55,9 +55,11 @@ const PLAN_MY_DAY_STORAGE_KEY = 'sf_plan_my_day_last_run';
  * - retryable: Whether this error can be retried
  */
 const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
-  // FIX 2025-12-02: Improved error code extraction to catch all sources
-  const errorCode = error?.code || error?.data?.code || error?.data?.error || error?.message || '';
-  const errorMessage = error?.message || error?.data?.message || '';
+  // FIX_S3_A1: ALL_PROVIDERS_FAILED nests error info in error.error object
+  const nestedError = error?.error;
+  const errorCode = error?.code || nestedError?.code || nestedError?.reason ||
+                    error?.data?.code || error?.message || '';
+  const errorMessage = error?.message || nestedError?.message || error?.data?.message || '';
   const status = error?.status || error?.statusCode || error?.data?.status || 0;
 
   // DEBUG_AI logging (when enabled)
@@ -99,6 +101,23 @@ const getErrorGuidance = (error, { onRetry, onNavigate } = {}) => {
       } : null,
       severity: 'warning',
       retryable: true
+    };
+  }
+
+  // P0 FIX 2025-12-09: Server configuration error (ENCRYPTION_KEY missing, etc.)
+  // This is an admin-level issue, not user-fixable from Settings
+  if (
+    errorCode.includes('CONFIG_ERROR') ||
+    error?.isConfigError ||
+    error?.data?.isConfigError ||
+    errorMessage.includes('Server configuration error')
+  ) {
+    return {
+      message: 'AI is temporarily unavailable due to a server configuration issue. Please contact support.',
+      action: null, // Not user-fixable - requires admin action
+      severity: 'error',
+      retryable: false,
+      isConfigError: true
     };
   }
 
@@ -1541,6 +1560,22 @@ Guidelines:
       });
 
       clearTimeout(timeoutId);
+
+      // FIX_S3_B1: Check for fallbackPlan even when AI providers fail
+      // ALL_PROVIDERS_FAILED includes fallbackPlan so users still get value
+      const fallbackPlan = data?.fallbackPlan || data?.error?.fallbackPlan;
+      if (!data?.response && fallbackPlan && fallbackPlan.tasks && fallbackPlan.tasks.length > 0) {
+        console.log('[CustomQueryView] AI failed but fallbackPlan available, using it');
+        const fallbackMessage = {
+          role: 'assistant',
+          content: fallbackPlan.summary || 'Here\'s a basic plan based on your pipeline:',
+          provider: 'StageFlow (Fallback)',
+          isFallback: true,
+          fallbackTasks: fallbackPlan.tasks
+        };
+        setConversationHistory(prev => [...prev, fallbackMessage]);
+        return;
+      }
 
       // Handle AI limit reached (propagated from fallback helper)
       if (data.error === 'AI_LIMIT_REACHED' || data.limitReached) {

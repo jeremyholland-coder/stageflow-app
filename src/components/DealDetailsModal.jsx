@@ -415,7 +415,8 @@ export const DealDetailsModal = memo(({ deal, isOpen, onClose, onDealUpdated, on
     <>
       {/* TASK 1 FIX: Top-anchored modal with internal scroll, body scroll locked via fixed backdrop */}
       {/* P0 FIX 2025-12-09: Increased horizontal padding and added box-sizing to prevent right-side clipping */}
-      <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl z-[70] overflow-hidden">
+      {/* UI-BUG-1 FIX 2025-12-09: Raised z-index from 70 to 160 to render ABOVE navbar (z-[150]) */}
+      <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl z-[160] overflow-hidden">
         <div className="w-full h-full overflow-y-auto pt-8 pb-6 px-6 md:pt-10 md:px-12 lg:px-16 box-border">
           <div
             ref={focusTrapRef}

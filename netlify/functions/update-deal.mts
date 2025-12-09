@@ -256,10 +256,21 @@ export default async (req: Request, context: Context) => {
 
     if (sanitizedUpdates.stage && !sanitizedUpdates.status) {
       // Check if the new stage implies a status change
+      // P0 BUG FIX 2025-12-09: Synchronized with frontend STAGE_STATUS_MAP (pipelineTemplates.js)
+      // All pipelines (standard, real estate, VC, healthcare) must have consistent won/lost mapping
       const STAGE_TO_STATUS: Record<string, string> = {
+        // Core won stages
         'deal_won': 'won', 'closed_won': 'won', 'won': 'won', 'closed': 'won',
-        'investment_closed': 'won', 'contract_signed': 'won', 'escrow_completed': 'won', 'payment_received': 'won',
-        'deal_lost': 'lost', 'closed_lost': 'lost', 'lost': 'lost',
+        // Real Estate pipeline won stages
+        'contract_signed': 'won', 'escrow_completed': 'won',
+        // VC/Investment pipeline won stages
+        'investment_closed': 'won', 'capital_received': 'won',
+        // Standard pipeline won stages
+        'payment_received': 'won', 'invoice_sent': 'won',
+        // Retention/Customer success stages
+        'retention': 'won', 'client_retention': 'won', 'customer_retained': 'won', 'portfolio_mgmt': 'won',
+        // Lost stages
+        'deal_lost': 'lost', 'closed_lost': 'lost', 'lost': 'lost', 'investment_lost': 'lost',
       };
       const impliedStatus = STAGE_TO_STATUS[sanitizedUpdates.stage];
 
@@ -424,7 +435,8 @@ export default async (req: Request, context: Context) => {
         updateError.code === '22001' || // String data too long
         updateError.code === '42501' || // RLS policy violation (insufficient_privilege)
         updateError.code === '42P01' || // Undefined table
-        updateError.code === 'PGRST116' || // PostgREST: Row not found
+        updateError.code === 'PGRST116' || // PostgREST: Row not found (single row expected)
+        updateError.code?.startsWith('PGRST') || // All PostgREST errors are client-attributable
         updateError.code?.startsWith('22') || // Data exception
         updateError.code?.startsWith('23') || // Integrity constraint violation
         updateError.code?.startsWith('42'); // Syntax/Access rule violation
@@ -587,6 +599,41 @@ export default async (req: Request, context: Context) => {
           code: error.code || "AUTH_REQUIRED"
         }),
         { status: error.statusCode || 401, headers: corsHeaders }
+      );
+    }
+
+    // FIX 2025-12-09: JSON parse errors should return 400, not 500
+    // This happens when client sends malformed JSON in request body
+    if (errorName === 'SyntaxError' || errorMessage.includes('json') || errorMessage.includes('unexpected token')) {
+      console.warn("[update-deal] JSON parse error detected, returning 400");
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Invalid request format. Please check your data and try again.",
+          code: "INVALID_JSON"
+        }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    // FIX_S1_A2: Connection/timeout errors are transient - return 503 (retryable), not 500
+    const isTransientError =
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('ETIMEDOUT') ||
+      errorMessage.includes('ECONNREFUSED') ||
+      errorMessage.includes('ECONNRESET') ||
+      errorMessage.includes('fetch failed') ||
+      errorName === 'AbortError';
+
+    if (isTransientError) {
+      console.warn("[update-deal] Transient connection error, returning 503");
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Connection issue. Please try again.",
+          code: "CONNECTION_ERROR"
+        }),
+        { status: 503, headers: corsHeaders }
       );
     }
 

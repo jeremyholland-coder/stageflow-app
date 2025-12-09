@@ -733,6 +733,24 @@ ${context.stagnantDeals > 0 ? `${context.stagnantDeals} deals may benefit from a
 ${context.highValueAtRisk > 0 ? `\nHigh-value opportunities to nurture:\n${context.highValueAtRiskList.map((d: any) => `• ${d.client}: $${(d.value || 0).toLocaleString()} in ${d.stage}`).join('\n')}` : ''}
 ${context.visualInstructions || ''}
 ${context.adaptationSnippet || ''}
+${context.taskMode === 'planning' ? `
+**PLAN MY DAY MODE - FOLLOW THESE INSTRUCTIONS EXACTLY:**
+Create a personalized daily action plan with these 4 sections:
+
+SECTION 1: Closest to Close (20-30 min focus)
+Review deals nearest to decision points. Focus on momentum - what's the next concrete step?
+
+SECTION 2: Momentum Builders (45-60 min focus)
+Identify newly added leads and deals needing movement. Focus on deals with activity potential.
+
+SECTION 3: Relationship Development Touchpoints (10-20 min focus)
+Surface existing customers due for check-in and long-tail relationships worth nurturing.
+
+SECTION 4: Personal Workflow Insights (Conditional)
+Share ONE brief insight about the user's work patterns based on their deal history.
+
+End each section with a helpful question like "Want help with the next step?"
+` : ''}
 Focus on sustainable momentum and genuine relationship development.`
     }
   ];
@@ -1256,7 +1274,8 @@ async function callAIProvider(provider: any, message: string, context: any, conv
   const visualInstructions = buildVisualSpecInstructions(taskType);
   const enrichedContext = {
     ...context,
-    visualInstructions // Added to context for prompt building
+    visualInstructions, // Added to context for prompt building
+    taskMode: taskType // STRUCTURAL FIX P1: Pass task mode for Plan My Day injection
   };
 
   // FIX 2025-12-04: Only 3 providers supported (OpenAI, Anthropic, Google)
@@ -1310,15 +1329,19 @@ export default async (req: Request, context: any) => {
   let aiProviderUsed: string | null = null;
 
   try {
+    // FIX_S2_B1: Track config health for response metadata
+    const configHealthy = !!process.env.ENCRYPTION_KEY;
+
     // P0 FIX 2025-12-09: Early check for ENCRYPTION_KEY to give clear error
     // Without this key, ALL AI providers will fail because we can't decrypt stored API keys
     if (!process.env.ENCRYPTION_KEY) {
       console.error("[StageFlow][AI][CRITICAL] ENCRYPTION_KEY not set - AI providers cannot decrypt API keys");
       return new Response(JSON.stringify({
         ok: false,
-        error: 'AI configuration error. Please contact support.',
-        code: AI_ERROR_CODES.ALL_PROVIDERS_FAILED,
-        message: 'Server configuration error: Unable to access AI provider credentials. Please contact support.',
+        error: 'Server configuration error',
+        code: AI_ERROR_CODES.CONFIG_ERROR,
+        message: 'Server configuration error: Unable to access AI provider credentials. Please contact your administrator.',
+        isConfigError: true, // Flag for frontend to show admin-specific message
         // Include details for debugging in development
         details: process.env.NODE_ENV !== 'production' ? 'ENCRYPTION_KEY environment variable not set' : undefined
       }), {
@@ -1334,10 +1357,28 @@ export default async (req: Request, context: any) => {
     }
 
     const body = await req.json() as any;
-    const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [], mode } = body;
+    const { message, deals = [], conversationHistory = [], preferredProvider, aiSignals = [], mode, healthCheckOnly } = body;
+
+    // STRUCTURAL FIX P1: Detect explicit Plan My Day mode
+    // This allows injecting Plan My Day instructions into system prompt
+    // FIX 2025-12-09: Changed inferTaskType → determineTaskType (inferTaskType was undefined!)
+    const taskMode = body.taskMode || determineTaskType(message);
 
     // PHASE 3: Store deals for catch block access
     requestDeals = deals;
+
+    // STRUCTURAL FIX A1: Support health check requests
+    // Return configHealthy without running full AI query
+    if (healthCheckOnly) {
+      return new Response(JSON.stringify({
+        ok: true,
+        configHealthy: !!process.env.ENCRYPTION_KEY,
+        healthCheck: true
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
 
     // PHASE 3: Support "basic" mode for non-AI fallback
     // When mode=basic, skip AI providers entirely and return deterministic plan
@@ -1600,14 +1641,16 @@ export default async (req: Request, context: any) => {
     try {
       providers = await getActiveProviders(organizationId);
     } catch (providerError) {
-      // P0 FIX: Provider fetch failed - return 503, NOT "no providers" message
+      // FIX_S2_A1: Provider fetch failed - return 200 with ok:false so frontend handles as data
       console.error('[StageFlow][AI][ERROR] Provider fetch failed:', providerError);
       return new Response(JSON.stringify({
+        ok: false,
         error: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
         code: AI_ERROR_CODES.PROVIDER_FETCH_ERROR,
-        message: 'Unable to load AI provider configuration. Please retry in a few moments.'
+        message: 'Unable to load AI provider configuration. Please retry in a few moments.',
+        retryable: true
       }), {
-        status: 503,
+        status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
@@ -1868,6 +1911,8 @@ export default async (req: Request, context: any) => {
 
     // Build response with optional chart data
     const responseData: any = {
+      ok: true,
+      configHealthy, // FIX_S2_B1: Include server config health for frontend
       response: aiResponse.response,
       provider: aiResponse.provider,
       suggestions,

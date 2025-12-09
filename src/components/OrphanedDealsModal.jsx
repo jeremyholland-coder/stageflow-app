@@ -62,9 +62,10 @@ export const OrphanedDealsModal = ({
         const newStage = selectedStages[deal.id];
         const newStatus = getStatusForStage(newStage);
 
-        // FIX 2025-12-03: Use api.post instead of direct fetch
+        // FIX 2025-12-03: Use api.deal for invariant validation
         // api-client calls ensureValidSession() and injects Authorization header
-        const { data: result } = await api.post('update-deal', {
+        // FIX 2025-12-09: Changed api.post → api.deal for response invariant enforcement
+        const { data: result } = await api.deal('update-deal', {
           dealId: deal.id,
           organizationId: organization.id,
           updates: {

@@ -248,15 +248,37 @@ export default async (req: Request, context: Context) => {
           organization_id: sanitizedDeal.organization_id
         }
       });
+
+      // DEAL-BUG-1 FIX 2025-12-09: Classify Supabase errors properly
+      // Return 400 for client errors, 500 only for true server errors
+      // Same classification logic as update-deal.mts
+      const isClientError =
+        insertError.code === '23505' || // Unique constraint violation
+        insertError.code === '23503' || // Foreign key violation
+        insertError.code === '23502' || // Not null violation
+        insertError.code === '22P02' || // Invalid text representation
+        insertError.code === '22001' || // String data too long
+        insertError.code === '42501' || // RLS policy violation
+        insertError.code === '42P01' || // Undefined table
+        insertError.code === 'PGRST116' || // PostgREST: Row not found
+        insertError.code?.startsWith('22') || // Data exception
+        insertError.code?.startsWith('23') || // Integrity constraint violation
+        insertError.code?.startsWith('42'); // Syntax/Access rule violation
+
+      const statusCode = isClientError ? 400 : 500;
+      const errorCode = isClientError ? 'CREATE_VALIDATION_ERROR' : 'SERVER_ERROR';
+
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Failed to create deal",
+          error: isClientError
+            ? `Failed to create deal: ${insertError.message}`
+            : "Something went wrong creating this deal. Please try again.",
+          code: errorCode,
           details: insertError.message,
-          code: insertError.code,
           hint: insertError.hint
         }),
-        { status: 500, headers: corsHeaders }
+        { status: statusCode, headers: corsHeaders }
       );
     }
 
@@ -294,6 +316,8 @@ export default async (req: Request, context: Context) => {
 
       console.error("[create-deal] INVARIANT VIOLATION:", validationError.message);
 
+      // DEAL-BUG-2 FIX 2025-12-09: Return 422 (Unprocessable Entity), not 500
+      // This is a validation error after successful insert, not a server error
       return new Response(
         JSON.stringify({
           success: false,
@@ -301,7 +325,7 @@ export default async (req: Request, context: Context) => {
           code: validationError.code || "INVARIANT_VIOLATION",
           details: validationError.message
         }),
-        { status: 500, headers: corsHeaders }
+        { status: 422, headers: corsHeaders }
       );
     }
 
@@ -344,6 +368,21 @@ export default async (req: Request, context: Context) => {
           code: error.code || "AUTH_REQUIRED"
         }),
         { status: error.statusCode || 401, headers: corsHeaders }
+      );
+    }
+
+    // FIX 2025-12-09: JSON parse errors should return 400, not 500
+    // This happens when client sends malformed JSON in request body
+    const errorMessage400 = error.message?.toLowerCase() || '';
+    if (error.name === 'SyntaxError' || errorMessage400.includes('json') || errorMessage400.includes('unexpected token')) {
+      console.warn("[create-deal] JSON parse error detected, returning 400");
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Invalid request format. Please check your data and try again.",
+          code: "INVALID_JSON"
+        }),
+        { status: 400, headers: corsHeaders }
       );
     }
 

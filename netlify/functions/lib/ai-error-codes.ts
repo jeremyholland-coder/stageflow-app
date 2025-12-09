@@ -18,6 +18,9 @@
  * These codes should be used in the `code` field of all AI error responses
  */
 export const AI_ERROR_CODES = {
+  // Server configuration errors (admin action required)
+  CONFIG_ERROR: 'CONFIG_ERROR',                     // Server misconfiguration (missing ENCRYPTION_KEY, etc.)
+
   // Provider configuration errors
   NO_PROVIDERS: 'NO_PROVIDERS',                     // No AI providers configured for this org
   PROVIDER_FETCH_ERROR: 'PROVIDER_FETCH_ERROR',     // Failed to load provider configuration from DB

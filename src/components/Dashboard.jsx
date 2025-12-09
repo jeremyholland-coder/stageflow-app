@@ -7,6 +7,9 @@ import { useDebounce } from '../hooks/useDebounce';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useAIProviderStatus } from '../hooks/useAIProviderStatus'; // NEXT-LEVEL: Shared hook eliminates duplicate code
 import { usePipelineStages } from '../hooks/usePipelineStages'; // NEXT-LEVEL: Shared pipeline loading hook
+// SECTION F: Debug mode for diagnostic panel
+import { useDebugMode, useDiagnosticInfo } from '../hooks/useDebugMode';
+import { DiagnosticPanel } from './DiagnosticPanel';
 // DashboardStats removed - statistics bar no longer rendered
 import { KanbanBoard } from './KanbanBoard';
 import { DashboardErrorBoundary, ChartErrorBoundary, ListErrorBoundary, ModalErrorBoundary } from './ErrorBoundaries';
@@ -175,7 +178,10 @@ export const Dashboard = () => {
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic (eliminates 50KB of duplicate code)
   // FIX 2025-12-03: Also destructure authError to distinguish auth failures from "no provider"
-  const { hasProvider: hasAIProvider, checking: checkingAI, refresh: refreshAIProviders, authError: aiAuthError } = useAIProviderStatus(user, organization);
+  const { hasProvider: hasAIProvider, checking: checkingAI, refresh: refreshAIProviders, authError: aiAuthError, providersLoaded, providerFetchError } = useAIProviderStatus(user, organization);
+
+  // SECTION F: Debug mode - show diagnostic panel when ?debug=1 is in URL
+  const isDebugMode = useDebugMode();
 
   // NEXT-LEVEL: Use shared pipeline hook (eliminates 86 lines of duplicate code)
   const {
@@ -223,6 +229,17 @@ export const Dashboard = () => {
     handleDealUpdated,
     handleDealDeleted
   } = useDealManagement(user, organization, addNotification);
+
+  // SECTION F: Collect diagnostic info when debug mode is enabled
+  const diagnosticInfo = useDiagnosticInfo({
+    user,
+    organization,
+    hasProvider: hasAIProvider,
+    providerFetchError,
+    providersLoaded,
+    deals,
+    isOnline: navigator.onLine
+  });
 
   // Load dashboard card preferences
   const { preferences: cardPreferences, loading: loadingPreferences } = useDashboardPreferences(user?.id, organization?.id);
@@ -810,6 +827,9 @@ export const Dashboard = () => {
             </ListErrorBoundary>
         </>
       </div>
+
+      {/* SECTION F: Debug diagnostic panel - shown when ?debug=1 is in URL */}
+      {isDebugMode && <DiagnosticPanel diagnostics={diagnosticInfo} />}
     </DashboardErrorBoundary>
   );
 };

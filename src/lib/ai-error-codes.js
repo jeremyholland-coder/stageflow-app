@@ -26,12 +26,19 @@ import {
  * These match what the backend returns and what the frontend expects
  */
 export const AI_ERROR_CODES = {
+  // P0 FIX 2025-12-09: Server config errors (admin action required, non-retryable)
+  CONFIG_ERROR: 'CONFIG_ERROR', // Missing ENCRYPTION_KEY or other server misconfiguration
+
   // Auth/Config errors (non-retryable)
   INVALID_API_KEY: 'INVALID_API_KEY',
   NO_PROVIDERS: 'NO_PROVIDERS',
   AI_LIMIT_REACHED: 'AI_LIMIT_REACHED',
   SESSION_ERROR: 'SESSION_ERROR',
   UNAUTHORIZED: 'UNAUTHORIZED',
+
+  // AI-BUG-1 FIX 2025-12-09: Added PROVIDER_FETCH_ERROR to match backend
+  // This is returned when DB query for providers fails (503 from backend)
+  PROVIDER_FETCH_ERROR: 'PROVIDER_FETCH_ERROR',
 
   // Provider errors (may be retryable)
   RATE_LIMITED: 'RATE_LIMITED',
@@ -77,12 +84,31 @@ export function classifyError(error) {
   const status = error?.status || error?.statusCode || 0;
 
   // Check for specific error codes first
+
+  // P0 FIX 2025-12-09: CONFIG_ERROR must be checked FIRST - it's a server misconfiguration
+  // that should NOT be shown as "temporarily unavailable" or prompt user to change settings
+  if (
+    errorCode === AI_ERROR_CODES.CONFIG_ERROR ||
+    errorCode === 'CONFIG_ERROR' ||
+    error?.isConfigError ||
+    errorMessage.includes('Server configuration error') ||
+    errorMessage.includes('ENCRYPTION_KEY')
+  ) {
+    return { code: AI_ERROR_CODES.CONFIG_ERROR, severity: ERROR_SEVERITY.ERROR, retryable: false };
+  }
+
   if (errorCode === AI_ERROR_CODES.AI_LIMIT_REACHED || error?.limitReached) {
     return { code: AI_ERROR_CODES.AI_LIMIT_REACHED, severity: ERROR_SEVERITY.ERROR, retryable: false };
   }
 
   if (errorCode === AI_ERROR_CODES.NO_PROVIDERS || errorMessage.includes('No AI provider')) {
     return { code: AI_ERROR_CODES.NO_PROVIDERS, severity: ERROR_SEVERITY.WARNING, retryable: false };
+  }
+
+  // AI-BUG-1 FIX 2025-12-09: Handle PROVIDER_FETCH_ERROR from backend
+  // This happens when the DB query for providers fails (status 503)
+  if (errorCode === AI_ERROR_CODES.PROVIDER_FETCH_ERROR || errorCode === 'PROVIDER_FETCH_ERROR') {
+    return { code: AI_ERROR_CODES.PROVIDER_FETCH_ERROR, severity: ERROR_SEVERITY.WARNING, retryable: true };
   }
 
   if (errorCode === AI_ERROR_CODES.INVALID_API_KEY || errorMessage.includes('Invalid API key')) {
@@ -199,11 +225,19 @@ function classifyErrorMessage(message) {
  */
 export function getErrorMessage(code, context = {}) {
   switch (code) {
+    // P0 FIX 2025-12-09: CONFIG_ERROR - server misconfiguration, NOT user-fixable
+    case AI_ERROR_CODES.CONFIG_ERROR:
+      return 'AI is temporarily unavailable due to a server configuration issue. Please contact support.';
+
     case AI_ERROR_CODES.INVALID_API_KEY:
       return 'Your AI provider key appears to be invalid or expired.';
 
     case AI_ERROR_CODES.NO_PROVIDERS:
       return 'No AI provider connected yet.';
+
+    // AI-BUG-1 FIX 2025-12-09: Add message for PROVIDER_FETCH_ERROR
+    case AI_ERROR_CODES.PROVIDER_FETCH_ERROR:
+      return 'Unable to load AI configuration. Please retry in a few moments.';
 
     case AI_ERROR_CODES.AI_LIMIT_REACHED:
       const { used, limit } = context;
@@ -263,6 +297,10 @@ export function getErrorMessage(code, context = {}) {
  */
 export function getErrorAction(code, retryable, context = {}) {
   switch (code) {
+    // P0 FIX 2025-12-09: CONFIG_ERROR is NOT user-fixable - don't show action
+    case AI_ERROR_CODES.CONFIG_ERROR:
+      return { label: '', type: 'none' }; // Admin must fix server config
+
     case AI_ERROR_CODES.INVALID_API_KEY:
       return { label: 'Update in Settings', type: 'settings' };
 
@@ -304,6 +342,8 @@ export function getErrorAction(code, retryable, context = {}) {
  * Ensures consistent messaging across the application
  */
 const AI_TO_UNIFIED_MAP = {
+  // P0 FIX 2025-12-09: CONFIG_ERROR maps to SERVER_ERROR (admin issue)
+  [AI_ERROR_CODES.CONFIG_ERROR]: UNIFIED_ERROR_CODES.SERVER_ERROR,
   [AI_ERROR_CODES.INVALID_API_KEY]: UNIFIED_ERROR_CODES.INVALID_API_KEY,
   [AI_ERROR_CODES.NO_PROVIDERS]: UNIFIED_ERROR_CODES.NO_PROVIDERS,
   [AI_ERROR_CODES.AI_LIMIT_REACHED]: UNIFIED_ERROR_CODES.AI_LIMIT_REACHED,

@@ -111,7 +111,8 @@ export const DisqualifyModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
   };
 
   return (
-    <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[80] md:p-4">
+    // UI-BUG-1 FIX 2025-12-09: Raised z-index from 80 to 170 to render ABOVE DealDetailsModal (z-[160])
+    <div className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[170] md:p-4">
       <div
         ref={containerRef}
         className="modal-content bg-gradient-to-br from-gray-900 to-black border border-amber-500/30 rounded-none md:rounded-2xl w-full md:max-w-2xl h-full md:h-auto overflow-y-auto p-6 shadow-2xl pb-safe"

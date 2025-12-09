@@ -92,10 +92,11 @@ export const FeedbackWidget = () => {
   return (
     <>
       {/* Feedback Tab - Fixed on right side (hidden on mobile) - PREMIUM DESIGN */}
-      {/* CRITICAL FIX: Increased z-index from 160 to 185 to render ABOVE dashboard and onboarding overlays */}
+      {/* P0 FIX 2025-12-09: Changed z-index from 185 to 50 to render BELOW modals (z-[70]+) */}
+      {/* This prevents the FEEDBACK tab from appearing above DealDetailsModal/LostReasonModal */}
       <button
         onClick={() => setIsOpen(true)}
-        className="hidden sm:flex fixed top-1/2 right-0 -translate-y-1/2 bg-gradient-to-br from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 text-white px-3 py-4 sm:py-6 rounded-l-xl shadow-lg hover:shadow-xl border-l border-t border-b border-teal-500/30 z-[185] group flex-col items-center transition-all duration-200"
+        className="hidden sm:flex fixed top-1/2 right-0 -translate-y-1/2 bg-gradient-to-br from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 text-white px-3 py-4 sm:py-6 rounded-l-xl shadow-lg hover:shadow-xl border-l border-t border-b border-teal-500/30 z-50 group flex-col items-center transition-all duration-200"
         style={{
           writingMode: 'vertical-rl',
           transform: 'translateY(-50%)',
@@ -109,10 +110,10 @@ export const FeedbackWidget = () => {
       </button>
 
       {/* Mobile Feedback Button - Floating at bottom-right corner - PREMIUM DESIGN */}
-      {/* CRITICAL FIX: Increased z-index from 160 to 185 to render ABOVE dashboard and onboarding overlays */}
+      {/* P0 FIX 2025-12-09: Changed z-index from 185 to 50 to render BELOW modals (z-[70]+) */}
       <button
         onClick={() => setIsOpen(true)}
-        className="sm:hidden fixed bottom-6 right-6 bg-teal-500 hover:bg-teal-600 text-white p-4 rounded-full shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 z-[185] hover:scale-110 active:scale-95 transition-all duration-200"
+        className="sm:hidden fixed bottom-6 right-6 bg-teal-500 hover:bg-teal-600 text-white p-4 rounded-full shadow-lg shadow-teal-500/20 hover:shadow-teal-500/40 z-50 hover:scale-110 active:scale-95 transition-all duration-200"
         style={{
           minWidth: '56px',
           minHeight: '56px'

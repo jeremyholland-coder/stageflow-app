@@ -92,8 +92,9 @@ export const LostReasonModal = memo(({ isOpen, onClose, onConfirm, dealName }) =
   };
 
   return (
+    // UI-BUG-1 FIX 2025-12-09: Raised z-index from 80 to 170 to render ABOVE DealDetailsModal (z-[160])
     <div
-      className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[80] md:p-4"
+      className="modal-backdrop fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[170] md:p-4"
       role="presentation"
     >
       <div

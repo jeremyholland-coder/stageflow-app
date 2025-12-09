@@ -278,7 +278,8 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
       // PART B: Enhanced error handling with structured response parsing
       let result;
       try {
-        const response = await api.post('create-deal', {
+        // FIX 2025-12-09: Changed api.post → api.deal for response invariant enforcement
+        const response = await api.deal('create-deal', {
           dealData: sanitizedData,
           organizationId: organization.id
         });

@@ -202,7 +202,7 @@ export function useDealMutations(orgId) {
       };
 
       // Use api-client for auth headers and retry logic
-      const { data } = await api.post('update-deal', {
+      const { data } = await api.deal('update-deal', {
         dealId,
         updates: finalUpdates,
         organizationId: orgId,
@@ -286,7 +286,7 @@ export function useDealMutations(orgId) {
         last_activity: new Date().toISOString(),
       };
 
-      const { data } = await api.post('update-deal', {
+      const { data } = await api.deal('update-deal', {
         dealId,
         updates,
         organizationId: orgId,
@@ -344,7 +344,8 @@ export function useDealMutations(orgId) {
     mutationFn: async (dealData) => {
       logger.debug('[DealsQuery] Creating deal:', dealData);
 
-      const { data } = await api.post('create-deal', {
+      // FIX 2025-12-09: Changed api.post → api.deal for response invariant enforcement
+      const { data } = await api.deal('create-deal', {
         dealData,
         organizationId: orgId,
       });

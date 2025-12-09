@@ -517,10 +517,24 @@ export const mapStage = (currentStage, toPipelineId) => {
 // Single source of truth for which stages map to which statuses
 export const STAGE_STATUS_MAP = {
   // Won stages - automatically set status to 'won'
-  WON_STAGES: new Set(['retention', 'closed_won', 'invoice_sent', 'payment_received', 'deal_won', 'client_retention', 'customer_retained', 'portfolio_mgmt', 'capital_received']),
+  // P0 BUG FIX 2025-12-09: Synchronized with backend STAGE_TO_STATUS (update-deal.mts:259-262)
+  // Missing stages were causing frontend/backend mismatch on optimistic updates
+  WON_STAGES: new Set([
+    // Core won stages (both frontend and backend)
+    'deal_won', 'closed_won', 'won', 'closed',
+    // Real Estate pipeline won stages
+    'contract_signed', 'escrow_completed',
+    // VC/Investment pipeline won stages
+    'investment_closed', 'capital_received',
+    // Standard pipeline won stages
+    'payment_received', 'invoice_sent',
+    // Retention/Customer success stages (frontend-only but valid)
+    'retention', 'client_retention', 'customer_retained', 'portfolio_mgmt'
+  ]),
 
   // Lost stages - automatically set status to 'lost'
-  LOST_STAGES: new Set(['lost', 'deal_lost', 'investment_lost']),
+  // P0 BUG FIX 2025-12-09: Synchronized with backend STAGE_TO_STATUS
+  LOST_STAGES: new Set(['lost', 'deal_lost', 'closed_lost', 'investment_lost']),
 };
 
 /**

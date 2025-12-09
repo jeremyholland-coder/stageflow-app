@@ -269,7 +269,8 @@ export const useDealManagement = (user, organization, addNotification) => {
           } else if (command.type === OFFLINE_COMMAND_TYPES.CREATE_DEAL) {
             const { deal } = command.payload;
 
-            const { data: createResult } = await api.post('create-deal', {
+            // FIX 2025-12-09: Changed api.post → api.deal for response invariant enforcement
+            const { data: createResult } = await api.deal('create-deal', {
               dealData: deal,
               organizationId: organization.id
             });
@@ -931,7 +932,13 @@ export const useDealManagement = (user, organization, addNotification) => {
         // P0 FIX 2025-12-08: Handle rate limiting from session validation
         userMessage = 'Too many requests. Please wait a moment and try again.';
       } else if (error.code === 'SERVER_ERROR') {
-        userMessage = error.message || 'Something went wrong. Please try again.';
+        // FIX_S1_B1: Check for backend-provided detailed message
+        const backendMsg = error.data?.error || error.data?.details;
+        if (backendMsg && typeof backendMsg === 'string' && backendMsg.length < 150) {
+          userMessage = backendMsg;
+        } else {
+          userMessage = error.message || 'Something went wrong. Please try again.';
+        }
       } else if (error.userMessage) {
         // P0 FIX 2025-12-08: Use userMessage if api-client provided one
         userMessage = error.userMessage;

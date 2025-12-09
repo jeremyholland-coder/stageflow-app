@@ -461,6 +461,9 @@ export class APIClient {
       enhancedError.userMessage = 'Too many requests. Please wait a moment.';
     } else if (error.code === 'TIMEOUT') {
       enhancedError.userMessage = 'Request timed out. Please check your connection.';
+    } else if (error.code === 'INVALID_JSON' || error.status === 400) {
+      // FIX 2025-12-09: Show user-friendly message for validation errors
+      enhancedError.userMessage = error.message || 'Invalid request. Please check your data.';
     } else {
       enhancedError.userMessage = error.message || 'An error occurred.';
     }
