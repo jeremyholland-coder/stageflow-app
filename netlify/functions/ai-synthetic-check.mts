@@ -120,14 +120,19 @@ async function checkProviderCount(): Promise<CheckResult> {
   try {
     const { data, error } = await supabase
       .from('ai_providers')
-      .select('provider_type', { count: 'exact' })
-      .eq('is_active', true);
+      // Select both active and is_active to support mixed schemas
+      .select('provider_type, active, is_active', { count: 'exact' });
 
     if (error) {
       return { ok: false, error: error.message, latencyMs: Date.now() - startTime };
     }
 
-    const count = data?.length || 0;
+    const activeProviders = (data || []).filter((p: any) => {
+      const isActive = typeof p.active === 'boolean' ? p.active : p.is_active;
+      return isActive === true;
+    });
+
+    const count = activeProviders.length;
 
     return {
       ok: count > 0,

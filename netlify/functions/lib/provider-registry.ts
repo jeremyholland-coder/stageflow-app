@@ -83,8 +83,10 @@ export interface AIProvider {
   organization_id: string;
   provider_type: AllowedProviderType | string;
   api_key_encrypted: string;
+  active?: boolean; // Newer column name in our schema
   model?: string;
-  is_active: boolean;
+  // Legacy support: some environments still use is_active
+  is_active?: boolean;
   created_at: string;
   updated_at?: string;
 }
@@ -186,18 +188,25 @@ export async function getConnectedProviders(
  * Used when useCache: false is specified
  */
 async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIProvider[]> {
+  // Support both legacy is_active and current active column names.
+  // Selecting both avoids schema mismatches across environments.
   const { data, error } = await supabase
     .from('ai_providers')
-    .select('*')
+    .select('id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at, updated_at')
     .eq('organization_id', orgId)
-    .eq('is_active', true)
     .order('created_at', { ascending: true }); // First connected = first in fallback chain
 
   if (error) {
     throw new ProviderFetchError(`Database error: ${error.message}`, 'DB_ERROR');
   }
 
-  return data || [];
+  // Normalize the active flag to handle either column name
+  const normalized = (data || []).filter((p: any) => {
+    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active;
+    return isActive === true;
+  });
+
+  return normalized as AIProvider[];
 }
 
 /**
