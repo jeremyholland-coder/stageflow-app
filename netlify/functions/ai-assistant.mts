@@ -40,6 +40,10 @@ import { verifyProviderEnvironment } from './lib/provider-registry';
 // [StageFlow][AI][DIAGNOSTICS] COLD-START ENVIRONMENT CHECK
 // This runs ONCE when the function cold-starts to verify environment config
 // ============================================================================
+// P0 FIX 2025-12-10: Add ENCRYPTION_KEY format validation (without logging the key)
+const _encryptionKeyForDiagnostics = process.env.ENCRYPTION_KEY || '';
+const _encryptionKeyFormatValid = _encryptionKeyForDiagnostics.length === 64 && /^[0-9a-fA-F]+$/.test(_encryptionKeyForDiagnostics);
+
 console.log("[StageFlow][AI][DIAGNOSTICS]", {
   // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
   // These checks confirm they're NOT being read from env (which is correct)
@@ -48,11 +52,19 @@ console.log("[StageFlow][AI][DIAGNOSTICS]", {
   GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
   // These are the ACTUAL required env vars for AI functionality:
   ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
+  // P0 FIX 2025-12-10: Validate key format without exposing the key itself
+  ENCRYPTION_KEY_FORMAT_VALID: _encryptionKeyFormatValid, // CRITICAL - must be TRUE
+  ENCRYPTION_KEY_LENGTH: _encryptionKeyForDiagnostics.length, // Should be 64
   SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
   SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
   NODE_ENV: process.env.NODE_ENV,
   BUILD_TIMESTAMP: new Date().toISOString()
 });
+
+// P0 FIX 2025-12-10: Log explicit error if ENCRYPTION_KEY is present but invalid format
+if (process.env.ENCRYPTION_KEY && !_encryptionKeyFormatValid) {
+  console.error("[StageFlow][AI][CONFIG] ENCRYPTION_KEY is present but invalid format (expected 64 hex chars, got " + _encryptionKeyForDiagnostics.length + " chars)");
+}
 // CENTRALIZED CONFIG: Import thresholds from single source of truth
 import { STAGNATION_THRESHOLDS } from '../../src/config/pipelineConfig';
 // PHASE 3: Task-aware model selection

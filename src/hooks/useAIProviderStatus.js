@@ -157,6 +157,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // Provider rows in DB don't guarantee AI functionality (ENCRYPTION_KEY must exist)
       let configHealthy = true;
       let configErrorCode = null; // P0 FIX 2025-12-09: Track config error code
+      let healthCheckNetworkFailed = false; // P0 FIX 2025-12-10: Track if health check itself failed
       if (hasProviderRows) {
         try {
           const healthResp = await fetch('/.netlify/functions/ai-assistant', {
@@ -177,8 +178,11 @@ export function useAIProviderStatus(user, organization, options = {}) {
             console.warn('[useAIProviderStatus] Config unhealthy:', healthData.code, healthData.error);
           }
         } catch (e) {
-          console.warn('[useAIProviderStatus] Health check failed, assuming unhealthy');
-          configHealthy = false;
+          // P0 FIX 2025-12-10: Network/timeout during AI health check should not
+          // erase valid provider state. Treat as soft warning, not "no provider".
+          console.warn('[useAIProviderStatus] Health check failed (network/timeout), assuming providers still valid:', e.message);
+          healthCheckNetworkFailed = true;
+          // Keep configHealthy = true (optimistic) - we have providers in DB
         }
       }
 
@@ -186,6 +190,10 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // This ensures Dashboard shows correct message
       if (hasProviderRows && !configHealthy && configErrorCode === 'CONFIG_ERROR') {
         setProviderFetchError('AI is temporarily unavailable due to a server configuration issue. Please contact support.');
+      } else if (healthCheckNetworkFailed) {
+        // P0 FIX 2025-12-10: Set soft warning for health check network failure
+        // Don't block AI - just warn user that health couldn't be verified
+        setProviderFetchError('AI health check failed. Using last known provider state.');
       }
 
       const hasProviderValue = hasProviderRows && configHealthy;
@@ -194,7 +202,10 @@ export function useAIProviderStatus(user, organization, options = {}) {
       setAuthError(false);
       // M1 HARDENING: Success - mark as loaded with no fetch error
       setProvidersLoaded(true);
-      setProviderFetchError(null);
+      // P0 FIX 2025-12-10: Only clear providerFetchError if we didn't set a soft warning above
+      if (!healthCheckNetworkFailed && !configErrorCode) {
+        setProviderFetchError(null);
+      }
       // M6 HARDENING: Fresh data, not stale
       setStatusMayBeStale(false);
       // M6 HARDENING: Store as lastKnownGoodStatus for fallback on future errors

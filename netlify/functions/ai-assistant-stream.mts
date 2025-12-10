@@ -727,6 +727,8 @@ export default async (req: Request, context: any) => {
         let accumulatedResponse = '';
         // FIX 2025-12-03: Track which provider succeeded for logging
         let successfulProvider: string | null = null;
+        // P0 FIX 2025-12-10: Track successful provider's model for AI usage logging
+        let successfulProviderModel: string | null = null;
 
         // STREAM-01 FIX: Helper to safely enqueue with basic backpressure check
         const safeEnqueue = (data: Uint8Array) => {
@@ -778,6 +780,7 @@ export default async (req: Request, context: any) => {
               }
               textStreamCompleted = true;
               successfulProvider = providerType;
+              successfulProviderModel = currentProvider.model || 'gpt-4o-mini';
               logProviderAttempt('streaming', providerType, oaiSoftFailure ? 'soft_failure' : 'success');
               break; // Success! Exit the loop
             } else if (currentProvider.provider_type === 'anthropic') {
@@ -792,6 +795,7 @@ export default async (req: Request, context: any) => {
               }
               textStreamCompleted = true;
               successfulProvider = providerType;
+              successfulProviderModel = currentProvider.model || 'claude-3-5-sonnet-20241022';
               logProviderAttempt('streaming', providerType, claudeSoftFailure ? 'soft_failure' : 'success');
               break; // Success! Exit the loop
             } else if (currentProvider.provider_type === 'google') {
@@ -861,6 +865,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
                   })}\n\n`));
                   textStreamCompleted = true;
                   successfulProvider = providerType;
+                  successfulProviderModel = currentProvider.model || 'gemini-1.5-pro';
                   accumulatedResponse = responseText;
                   logProviderAttempt('streaming', providerType, 'soft_failure');
                   break; // Exit loop - we've handled this gracefully
@@ -876,6 +881,7 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
               safeEnqueue(encoder.encode(`data: ${JSON.stringify({ content: responseText, provider: providerName })}\n\n`));
               textStreamCompleted = true;
               successfulProvider = providerType;
+              successfulProviderModel = currentProvider.model || 'gemini-1.5-pro';
               accumulatedResponse = responseText;
               logProviderAttempt('streaming', providerType, 'success');
               break; // Success! Exit the loop
@@ -1021,13 +1027,14 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
         }
 
         // REVENUE AGENT 2025-12-10: Log detailed AI usage to ai_usage_logs table
+        // P0 FIX 2025-12-10: Use successfulProvider/successfulProviderModel instead of undefined selectedProvider
         try {
           await logAIUsage({
             organization_id: organizationId,
             user_id: user.id,
             request_type: 'mission_control_query' as AIRequestType,
-            provider: selectedProvider?.provider_type || undefined,
-            model: selectedProvider?.model || undefined,
+            provider: successfulProvider || undefined,
+            model: successfulProviderModel || undefined,
             tokens_in: 0,
             tokens_out: 0,
             success: true,
