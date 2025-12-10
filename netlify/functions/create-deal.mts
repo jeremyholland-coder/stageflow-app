@@ -421,7 +421,8 @@ export default async (req: Request, context: Context) => {
 
     // PHASE E FIX: Return error with CORS headers (createErrorResponse doesn't include CORS)
     // Without CORS headers, browser blocks the response and shows generic error
-    const errorMessage = typeof error.message === 'string'
+    // P0 FIX 2025-12-10: Renamed to finalErrorMessage to avoid duplicate declaration (line 365)
+    const finalErrorMessage = typeof error.message === 'string'
       ? error.message
       : 'An error occurred while creating the deal';
 
@@ -429,7 +430,7 @@ export default async (req: Request, context: Context) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: errorMessage,
+        error: finalErrorMessage,
         code: error.code || "CREATE_DEAL_ERROR",
         // Include hint for common issues (safe to expose)
         hint: error.hint || (error.code === '23505' ? 'Duplicate entry detected' :
