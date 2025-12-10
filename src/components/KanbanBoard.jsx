@@ -781,7 +781,8 @@ export const KanbanColumn = memo(({
   onDisqualify,
   onAssignmentChange,
   // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
-  isDragLocked = false
+  isDragLocked = false,
+  addNotification = () => {}
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
@@ -834,6 +835,7 @@ export const KanbanColumn = memo(({
   // This ensures uniform layout matching Lead Captured + Lead Qualified
 
   const handleDragOver = (e) => {
+    if (isDragLocked) return;
     e.preventDefault();
     setDragOver(true);
   };
@@ -841,7 +843,12 @@ export const KanbanColumn = memo(({
   const handleDragLeave = () => setDragOver(false);
 
   // KANBAN DRAG FIX 2025-12-04: Added logging to trace drop event
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
+    if (isDragLocked) {
+      console.warn('[KANBAN][DROP] Ignored drop while drag lock active');
+      addNotification('Updating deal, please wait a moment...', 'info');
+      return;
+    }
     e.preventDefault();
     setDragOver(false);
     const dealId = e.dataTransfer.getData('dealId');
@@ -860,20 +867,24 @@ export const KanbanColumn = memo(({
       return;
     }
 
-    processDrop(dealId, dealName, currentStatus);
+    await processDrop(dealId, dealName, currentStatus);
   };
 
   // MOBILE FIX: Handle touch drop events
-  const handleTouchDrop = useCallback((e) => {
+  const handleTouchDrop = useCallback(async (e) => {
+    if (isDragLocked) {
+      addNotification('Updating deal, please wait a moment...', 'info');
+      return;
+    }
     const { dealId, dealName, currentStatus } = e.detail;
     if (!dealId) return;
 
-    processDrop(dealId, dealName, currentStatus);
-  }, []);
+    await processDrop(dealId, dealName, currentStatus);
+  }, [addNotification, isDragLocked]);
 
   // Shared drop processing logic for both desktop and touch
   // KANBAN DRAG FIX 2025-12-04: Added comprehensive logging to trace drag-drop flow
-  const processDrop = (dealId, dealName, currentStatus) => {
+  const processDrop = async (dealId, dealName, currentStatus) => {
     console.log('[KANBAN][DROP] Processing drop:', {
       dealId,
       dealName,
@@ -885,26 +896,32 @@ export const KanbanColumn = memo(({
     // Phase 9: Announce drop action to screen readers
     announce(`Moving ${dealName || 'deal'} to ${stage.name} stage`);
 
-    // P0 WAR ROOM FIX 2025-12-09: Use centralized stage-status checks
-    // This ensures all pipelines (healthcare, VC, real estate, etc.) work correctly
-    if (isLostStage(stage.id)) {
-      console.log('[KANBAN][DROP] → Opening lost reason modal for stage:', stage.id);
-      onLostReasonRequired(dealId, dealName, stage.id);
-    } else if (isWonStage(stage.id)) {
-      console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
-      onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
-    } else {
-      // P0 WAR ROOM FIX 2025-12-09: Use centralized functions for active stage detection
-      const isMovingFromWonOrLost = currentStatus === 'won' || currentStatus === 'lost';
-      const isMovingToActiveStage = !isWonStage(stage.id) && !isLostStage(stage.id);
-
-      if (isMovingFromWonOrLost && isMovingToActiveStage) {
-        console.log('[KANBAN][DROP] → Opening status change confirmation modal');
-        onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
+    try {
+      // P0 WAR ROOM FIX 2025-12-09: Use centralized stage-status checks
+      // This ensures all pipelines (healthcare, VC, real estate, etc.) work correctly
+      if (isLostStage(stage.id)) {
+        console.log('[KANBAN][DROP] → Opening lost reason modal for stage:', stage.id);
+        onLostReasonRequired(dealId, dealName, stage.id);
+      } else if (isWonStage(stage.id)) {
+        console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
+        await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
       } else {
-        console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
-        onUpdateDeal(dealId, { stage: stage.id });
+        // P0 WAR ROOM FIX 2025-12-09: Use centralized functions for active stage detection
+        const isMovingFromWonOrLost = currentStatus === 'won' || currentStatus === 'lost';
+        const isMovingToActiveStage = !isWonStage(stage.id) && !isLostStage(stage.id);
+
+        if (isMovingFromWonOrLost && isMovingToActiveStage) {
+          console.log('[KANBAN][DROP] → Opening status change confirmation modal');
+          onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
+        } else {
+          console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
+          await onUpdateDeal(dealId, { stage: stage.id });
+        }
       }
+    } catch (err) {
+      console.error('[KANBAN][DROP] Failed to move deal:', err);
+      addNotification('Unable to move deal right now. Please retry.', 'error');
+      announce('Move failed, please try again');
     }
   };
 
@@ -1263,12 +1280,18 @@ export const KanbanBoard = memo(({
       // Store original state for undo
       const originalData = { dealId, dealName, originalStage: currentStatus === 'won' ? 'retention' : 'lost', originalStatus: currentStatus };
 
-      // Perform instant update
-      await onUpdateDeal(dealId, {
-        stage: targetStage,
-        status: 'active',
-        lost_reason: null
-      });
+      try {
+        // Perform instant update
+        await onUpdateDeal(dealId, {
+          stage: targetStage,
+          status: 'active',
+          lost_reason: null
+        });
+      } catch (err) {
+        console.error('[KANBAN][STATUS_CHANGE] Failed to move back to active:', err);
+        addNotification('Unable to move deal right now. Please retry.', 'error');
+        return;
+      }
 
       // Clear any existing undo timer
       if (undoTimerRef.current) {
@@ -1296,14 +1319,19 @@ export const KanbanBoard = memo(({
 
   const handleLostReasonConfirm = useCallback(async (reason) => {
     if (!pendingLostDeal) return;
-    await onUpdateDeal(pendingLostDeal.dealId, {
-      stage: 'lost',
-      status: 'lost',
-      lost_reason: reason
-    });
-    setPendingLostDeal(null);
-    setShowLostModal(false);
-  }, [pendingLostDeal, onUpdateDeal]); // Depends on pendingLostDeal and onUpdateDeal
+    try {
+      await onUpdateDeal(pendingLostDeal.dealId, {
+        stage: 'lost',
+        status: 'lost',
+        lost_reason: reason
+      });
+      setPendingLostDeal(null);
+      setShowLostModal(false);
+    } catch (err) {
+      console.error('[KANBAN][LOST_REASON] Failed to update lost deal:', err);
+      addNotification('Could not save lost reason. Please try again.', 'error');
+    }
+  }, [pendingLostDeal, onUpdateDeal, addNotification]); // Depends on pendingLostDeal and onUpdateDeal
 
   const handleLostReasonCancel = useCallback(() => {
     setPendingLostDeal(null);
@@ -1319,15 +1347,20 @@ export const KanbanBoard = memo(({
       clearTimeout(undoTimerRef.current);
     }
 
-    // Revert to original state
-    await onUpdateDeal(undoableStatusChange.dealId, {
-      stage: undoableStatusChange.originalStage,
-      status: undoableStatusChange.originalStatus,
-      lost_reason: undoableStatusChange.originalStatus === 'lost' ? 'Restored from undo' : null
-    });
+    try {
+      // Revert to original state
+      await onUpdateDeal(undoableStatusChange.dealId, {
+        stage: undoableStatusChange.originalStage,
+        status: undoableStatusChange.originalStatus,
+        lost_reason: undoableStatusChange.originalStatus === 'lost' ? 'Restored from undo' : null
+      });
 
-    setUndoableStatusChange(null);
-    addNotification(`"${undoableStatusChange.dealName}" restored to ${undoableStatusChange.originalStatus}`, 'success');
+      setUndoableStatusChange(null);
+      addNotification(`"${undoableStatusChange.dealName}" restored to ${undoableStatusChange.originalStatus}`, 'success');
+    } catch (err) {
+      console.error('[KANBAN][UNDO_STATUS] Failed to undo status change:', err);
+      addNotification('Unable to undo the move right now. Please retry.', 'error');
+    }
   }, [undoableStatusChange, onUpdateDeal, addNotification]);
 
   // Handle disqualify deal request
@@ -1341,17 +1374,22 @@ export const KanbanBoard = memo(({
   const handleDisqualifyConfirm = useCallback(async ({ reasonCategory, reasonLabel, notes }) => {
     if (!pendingDisqualifyDeal) return;
 
-    await onUpdateDeal(pendingDisqualifyDeal.id, {
-      status: 'disqualified',
-      disqualified_reason_category: reasonCategory,
-      disqualified_reason_notes: notes || null,
-      stage_at_disqualification: pendingDisqualifyDeal.stage,
-      disqualified_at: new Date().toISOString()
-    });
+    try {
+      await onUpdateDeal(pendingDisqualifyDeal.id, {
+        status: 'disqualified',
+        disqualified_reason_category: reasonCategory,
+        disqualified_reason_notes: notes || null,
+        stage_at_disqualification: pendingDisqualifyDeal.stage,
+        disqualified_at: new Date().toISOString()
+      });
 
-    setPendingDisqualifyDeal(null);
-    setShowDisqualifyModal(false);
-  }, [pendingDisqualifyDeal, onUpdateDeal]);
+      setPendingDisqualifyDeal(null);
+      setShowDisqualifyModal(false);
+    } catch (err) {
+      console.error('[KANBAN][DISQUALIFY] Failed to disqualify deal:', err);
+      addNotification('Unable to disqualify this deal right now. Please retry.', 'error');
+    }
+  }, [pendingDisqualifyDeal, onUpdateDeal, addNotification]);
 
   // Cancel disqualify
   const handleDisqualifyCancel = useCallback(() => {
@@ -1625,6 +1663,7 @@ export const KanbanBoard = memo(({
                 onDisqualify={handleDisqualifyRequest}
                 onAssignmentChange={handleAssignmentChange}
                 isDragLocked={isDragLocked}
+                addNotification={addNotification}
               />
             </div>
           );

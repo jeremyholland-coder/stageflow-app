@@ -335,7 +335,12 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
 
       // Success!
       addNotification('Deal created and added to your pipeline!', 'success');
-      onDealCreated(result.deal);
+      try {
+        onDealCreated(result.deal);
+      } catch (callbackError) {
+        console.error('[NewDealModal] onDealCreated callback failed:', callbackError);
+        addNotification('Deal was created, but the view did not update. Refresh to see it.', 'warning');
+      }
       onClose();
       setFormData({ client: '', email: '', phone: '', value: '', stage: getInitialStage(), notes: '' });
       validation.reset();
