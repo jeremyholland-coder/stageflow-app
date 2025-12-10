@@ -570,14 +570,14 @@ export async function withResponseInvariant<T>(
   } catch (error) {
     // Log to Sentry for monitoring
     if (error instanceof InvariantViolationError) {
-      captureBackendMessage(`Invariant violation in ${context}`, {
-        level: 'error',
-        extra: error.toJSON()
+      captureBackendMessage(`Invariant violation in ${context}`, 'error', {
+        code: error.code,
+        timestamp: error.timestamp
       });
 
       console.error(`[Invariant] VIOLATION in ${context}:`, error.toJSON());
     } else {
-      captureBackendError(error as Error, { context, type: options.type });
+      captureBackendError(error as Error, { endpoint: context, errorCode: options.type });
     }
 
     throw error;
@@ -602,9 +602,9 @@ export function trackInvariantViolation(
   console.error('[Invariant] VIOLATION:', violation);
 
   // Send to Sentry
-  captureBackendMessage(`Invariant violation: ${code}`, {
-    level: 'error',
-    extra: violation
+  captureBackendMessage(`Invariant violation: ${code}`, 'error', {
+    context,
+    errorCode: code
   });
 }
 
