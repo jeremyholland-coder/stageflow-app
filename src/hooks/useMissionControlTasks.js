@@ -61,6 +61,15 @@ function saveTasks(storageKey, data) {
   }
 }
 
+// Safe remove to avoid crashes when storage is unavailable (e.g., Safari private mode)
+function removeTasks(storageKey) {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch (err) {
+    console.debug('[useMissionControlTasks] Error removing tasks:', err);
+  }
+}
+
 /**
  * Generate unique task ID
  */
@@ -202,7 +211,7 @@ export function useMissionControlTasks({ userId, orgId, aiTasks = [] } = {}) {
     setCompletedIds(new Set());
     setManualTasks([]);
     setCarryOverTasks([]);
-    localStorage.removeItem(storageKey);
+    removeTasks(storageKey);
   }, [storageKey]);
 
   // Calculate completion stats

@@ -1,6 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, ensureValidSession } from '../lib/supabase';
 
+// Safe storage helpers to avoid crashes when localStorage is blocked (e.g., Safari Private Mode)
+const getStorage = () => (typeof window !== 'undefined' ? window.localStorage : null);
+const safeGetItem = (key) => {
+  const storage = getStorage();
+  if (!storage) return null;
+  try {
+    return storage.getItem(key);
+  } catch (err) {
+    console.warn('[useRevenueHealth] localStorage getItem unavailable:', err?.message || err);
+    return null;
+  }
+};
+const safeSetItem = (key, value) => {
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(key, value);
+  } catch (err) {
+    console.warn('[useRevenueHealth] localStorage setItem unavailable:', err?.message || err);
+  }
+};
+
 /**
  * REVENUE AGENT: Revenue Health Hook
  *
@@ -47,7 +69,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
     // Check cache first (unless force refresh)
     const cacheKey = `revenue_health_${organization.id}_${user.id}`;
     if (!forceRefresh) {
-      const cached = localStorage.getItem(cacheKey);
+      const cached = safeGetItem(cacheKey);
       if (cached) {
         try {
           const { data, timestamp } = JSON.parse(cached);
@@ -103,7 +125,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
         if (response.status === 401 || response.status === 403) {
           console.warn('[useRevenueHealth] Auth error, using cache if available');
           // Try to use stale cache
-          const cached = localStorage.getItem(cacheKey);
+          const cached = safeGetItem(cacheKey);
           if (cached) {
             try {
               const { data } = JSON.parse(cached);
@@ -133,8 +155,8 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
       setLastUpdated(new Date());
       setError(null);
 
-      // Cache the result
-      localStorage.setItem(cacheKey, JSON.stringify({
+      // Cache the result (best-effort)
+      safeSetItem(cacheKey, JSON.stringify({
         data: {
           projection: result.projection,
           coach: result.coach,
@@ -154,7 +176,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
       console.error('[useRevenueHealth] Fetch error:', err);
 
       // Try to use stale cache on error
-      const cached = localStorage.getItem(cacheKey);
+      const cached = safeGetItem(cacheKey);
       if (cached) {
         try {
           const { data } = JSON.parse(cached);
@@ -190,7 +212,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
 
     // Check cache immediately for instant UI
     const cacheKey = `revenue_health_${organization.id}_${user.id}`;
-    const cached = localStorage.getItem(cacheKey);
+    const cached = safeGetItem(cacheKey);
 
     if (cached) {
       try {
