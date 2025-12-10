@@ -25,13 +25,14 @@ export type { AIReadinessNode, AIReadinessEvent, AIReadinessState };
 
 export interface AIReadinessServices {
   checkSession: () => Promise<{ ok: boolean; code?: string }>;
-  checkProviders: () => Promise<{ hasProviders: boolean; count: number }>;
-  checkConfig: () => Promise<{ ok: boolean; code?: string; message?: string }>;
+  checkProviders: () => Promise<{ hasProviders: boolean; count: number; authError?: boolean; reason?: string }>;
+  checkConfig: () => Promise<{ ok: boolean; code?: string; message?: string; sessionInvalid?: boolean }>;
   healthCheck: () => Promise<{
     ok: boolean;
     degraded?: boolean;
     networkError?: boolean;
     message?: string;
+    sessionInvalid?: boolean;
   }>;
 }
 
@@ -165,12 +166,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
       const providersResult = await currentServices.checkProviders();
       console.info('[AI_DEBUG][runReadinessCheck] Provider check result:', providersResult);
 
-      // P0 FIX 2025-12-10: Handle auth errors separately from "no providers"
       if ((providersResult as any).authError) {
         console.warn('[AI_DEBUG][runReadinessCheck] Provider check got auth error - treating as session invalid');
         dispatch({
           type: 'SESSION_INVALID',
-          reason: 'AUTH_ERROR_DURING_PROVIDER_CHECK',
+          reason: providersResult.reason || 'AUTH_ERROR_DURING_PROVIDER_CHECK',
         });
         return;
       }
@@ -192,6 +192,13 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     try {
       const configResult = await currentServices.checkConfig();
       console.info('[AI_DEBUG][runReadinessCheck] Config check result:', configResult);
+      if (configResult.sessionInvalid || configResult.code === 'SESSION_INVALID') {
+        dispatch({
+          type: 'SESSION_INVALID',
+          reason: configResult.message || 'Session invalid during config check',
+        });
+        return; // STOP - session invalid
+      }
       if (!configResult.ok) {
         dispatch({
           type: 'CONFIG_ERROR',
@@ -216,6 +223,14 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     try {
       const healthResult = await currentServices.healthCheck();
       console.info('[AI_DEBUG][runReadinessCheck] Health check result:', healthResult);
+
+      if (healthResult.sessionInvalid) {
+        dispatch({
+          type: 'SESSION_INVALID',
+          reason: healthResult.message || 'Session invalid during health check',
+        });
+        return;
+      }
 
       if (healthResult.networkError) {
         dispatch({
@@ -405,7 +420,7 @@ export function useWiredAIReadiness(
             console.warn('[AI_DEBUG][checkProviders] Auth error during provider check');
             // P0 FIX 2025-12-10: Return special code instead of throwing
             // This allows the state machine to distinguish auth errors from missing providers
-            return { hasProviders: false, count: 0, authError: true };
+            return { hasProviders: false, count: 0, authError: true, reason: `HTTP ${response.status}` };
           }
           return { hasProviders: false, count: 0 };
         }
@@ -425,7 +440,7 @@ export function useWiredAIReadiness(
         };
       } catch (error) {
         console.error('[useWiredAIReadiness] Provider check error:', error);
-        return { hasProviders: false, count: 0 };
+        return { hasProviders: false, count: 0, authError: true, reason: error instanceof Error ? error.message : 'Provider check failed' };
       }
     },
 
@@ -471,6 +486,14 @@ export function useWiredAIReadiness(
         });
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            return {
+              ok: false,
+              code: 'SESSION_INVALID',
+              message: `Auth ${response.status}`,
+              sessionInvalid: true,
+            };
+          }
           return {
             ok: false,
             code: 'CONFIG_ERROR',
@@ -501,9 +524,10 @@ export function useWiredAIReadiness(
         console.error('[useWiredAIReadiness] Config check error:', error);
         return {
           ok: false,
-          code: 'CONFIG_ERROR',
+          code: 'SESSION_INVALID',
           message:
             error instanceof Error ? error.message : 'Network error during config check',
+          sessionInvalid: true,
         };
       }
     },
@@ -559,6 +583,9 @@ export function useWiredAIReadiness(
           });
 
           if (!response.ok) {
+            if (response.status === 401 || response.status === 403) {
+              return { ok: false, sessionInvalid: true, message: `Auth ${response.status}` };
+            }
             return {
               ok: false,
               networkError: false,
