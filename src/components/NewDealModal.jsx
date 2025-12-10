@@ -285,9 +285,16 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
         });
         result = response?.data;
       } catch (networkError) {
-        // Network/connection failure - no JSON response at all
-        console.error('[NewDealModal] Network error:', networkError);
-        addNotification('Connection issue. Please check your internet and try again.', 'error');
+        console.error('[NewDealModal] Request error:', networkError);
+
+        // FIX 2025-12-10: Distinguish session errors from network errors
+        if (networkError.code === 'SESSION_ERROR' || networkError.status === 401) {
+          addNotification('Your session has expired. Please refresh the page and log in again.', 'error');
+        } else if (networkError.code === 'OFFLINE' || !navigator.onLine) {
+          addNotification('You\'re offline. Please check your connection and try again.', 'error');
+        } else {
+          addNotification('Connection issue. Please check your internet and try again.', 'error');
+        }
         setLoading(false);
         setProgressMessage('');
         return;
