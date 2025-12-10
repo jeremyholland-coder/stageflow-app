@@ -7,7 +7,8 @@ import { PipelineHealthDashboard } from '../components/PipelineHealthDashboard';
 const RevenueTargetsWidget = lazy(() => import('../components/RevenueTargetsWidget').then(m => ({ default: m.RevenueTargetsWidget })));
 const GoalForecastWidget = lazy(() => import('../components/GoalForecastWidget').then(m => ({ default: m.GoalForecastWidget })));
 // PHASE: Mission Control - Replace AIInsightsWidget with unified MissionControlPanel
-const MissionControlPanel = lazy(() => import('../components/MissionControlPanel').then(m => ({ default: m.MissionControlPanel })));
+// P0 FIX 2025-12-10: Use SafeMissionControlPanel which includes internal error boundary
+const MissionControlPanel = lazy(() => import('../components/MissionControlPanel').then(m => ({ default: m.SafeMissionControlPanel })));
 
 /**
  * Dashboard Card Registry

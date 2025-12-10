@@ -944,4 +944,60 @@ export const MissionControlPanel = ({
   );
 };
 
+// P0 FORENSIC 2025-12-10: Internal error boundary to catch hook/render errors
+// This provides a graceful fallback if any hook throws during initialization
+class MissionControlErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    // P0: Log detailed error info for diagnosis
+    console.error('[MissionControlPanel][P0_INTERNAL_CRASH]', {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      errorStack: error?.stack,
+      componentStack: errorInfo?.componentStack,
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Graceful fallback - matches the component's style
+      return (
+        <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.25)] overflow-hidden p-8">
+          <div className="flex items-center gap-4 mb-4">
+            <AlertTriangle className="w-8 h-8 text-amber-400" />
+            <div>
+              <h3 className="text-lg font-semibold text-white">AI Mission Control Unavailable</h3>
+              <p className="text-sm text-white/60">
+                There was an issue loading the AI panel. Try refreshing the page.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-[#0CE3B1]/10 hover:bg-[#0CE3B1]/20 text-[#0CE3B1] rounded-lg text-sm font-medium transition-colors"
+          >
+            Refresh Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// P0: Safe export wrapper that includes internal error boundary
+export const SafeMissionControlPanel = (props) => (
+  <MissionControlErrorBoundary>
+    <MissionControlPanel {...props} />
+  </MissionControlErrorBoundary>
+);
+
 export default MissionControlPanel;

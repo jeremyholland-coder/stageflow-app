@@ -22,18 +22,28 @@ class BaseErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     const { componentName, onError } = this.props;
-    
+
+    // P0 FORENSIC 2025-12-10: Detailed crash logging for Mission Control investigation
+    console.error('[P0_CRASH]', {
+      componentName: componentName || 'Unknown',
+      errorName: error?.name,
+      errorMessage: error?.message,
+      errorStack: error?.stack,
+      componentStack: errorInfo?.componentStack,
+    });
+    console.info('[P0_CRASH_MARKER]', componentName);
+
     ErrorLogger.log(error, {
       component: componentName || 'Unknown',
       componentStack: errorInfo.componentStack
     });
-    
+
     this.setState(prevState => ({
       error,
       errorInfo,
       errorCount: prevState.errorCount + 1
     }));
-    
+
     if (onError) {
       onError(error, errorInfo);
     }
