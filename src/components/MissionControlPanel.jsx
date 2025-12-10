@@ -33,6 +33,39 @@ import { RevenueCoachStrip } from './RevenueCoachStrip';
  * - Tab-based navigation
  * - No DB changes (localStorage only for tasks)
  *
+ * ============================================================================
+ * AI MISSION CONTROL RENDER STATES (P0 FORENSIC 2025-12-10)
+ * ============================================================================
+ *
+ * STATE A: Full AI Dashboard
+ *   Conditions: hasAIProvider=true, aiAuthError=false, user exists, org exists
+ *   Display: Full Mission Control with Coach, Tasks, Revenue strips, AI queries
+ *   AI calls: useRevenueHealth fetches ai-revenue-health, CustomQueryView can call AI
+ *
+ * STATE B: "Connect Provider" CTA
+ *   Conditions: hasAIProvider=false, aiAuthError=false
+ *   Display: CustomQueryView shows provider connection prompt
+ *   AI calls: None - blocked by hasAIProvider check
+ *
+ * STATE C: "Session Expired" Warning
+ *   Conditions: aiAuthError=true (regardless of hasAIProvider)
+ *   Display: CustomQueryView shows session expired message with refresh button
+ *   AI calls: None - blocked by aiAuthError check
+ *
+ * STATE D: "AI Temporarily Unavailable" (Config Error)
+ *   Conditions: providerFetchError contains "server configuration"
+ *   Display: Warning banner about temporary unavailability
+ *   AI calls: May attempt but will fail gracefully
+ *
+ * STATE E: "Unable to load ai mission control" (React Error)
+ *   Conditions: Uncaught exception in render tree
+ *   Display: ChartErrorBoundary fallback
+ *   AI calls: N/A - component crashed
+ *   IMPORTANT: This should ONLY appear for actual programming errors,
+ *              NOT for AI/provider/auth errors (handled in states B-D)
+ *
+ * ============================================================================
+ *
  * @author StageFlow Engineering
  */
 
@@ -399,6 +432,19 @@ export const MissionControlPanel = ({
   const user = userProp || appContext.user;
   const organization = organizationProp || appContext.organization;
   const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
+
+  // P0 DIAGNOSTIC 2025-12-10: Log component state on mount to diagnose "Unable to load ai mission control" errors
+  // This helps identify which combination of props/state causes the error in production
+  useEffect(() => {
+    console.info('[MissionControlPanel] Mounted with props:', {
+      hasAIProviderProp,
+      aiAuthErrorProp,
+      hasUser: !!user?.id,
+      hasOrg: !!organization?.id,
+      dealsCount: deals?.length || 0,
+      healthAlert: !!healthAlert,
+    });
+  }, []); // Only log on mount
   const [newTaskInput, setNewTaskInput] = useState('');
   const [aiTasks, setAiTasks] = useState([]);
 
