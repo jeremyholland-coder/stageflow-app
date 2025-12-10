@@ -91,6 +91,8 @@ import {
   validateAIResponse,
   trackInvariantViolation
 } from './lib/invariant-validator';
+// REVENUE AGENT 2025-12-10: Detailed AI usage logging
+import { logAIUsage, AIRequestType } from './lib/ai-usage-logger';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1876,6 +1878,30 @@ export default async (req: Request, context: any) => {
     } catch (error: any) {
       console.error('[ai-assistant] Error tracking AI usage:', error);
       // Continue - don't fail the request if usage tracking fails
+    }
+
+    // REVENUE AGENT 2025-12-10: Log detailed AI usage to ai_usage_logs table
+    // Determine request type based on taskMode
+    const requestTypeForLog: AIRequestType = taskMode === 'planning' ? 'daily_plan' : 'mission_control_query';
+    try {
+      await logAIUsage({
+        organization_id: organizationId,
+        user_id: user.id,
+        request_type: requestTypeForLog,
+        provider: fallbackResult.providerUsed || undefined,
+        model: undefined, // Could extract from provider if needed
+        tokens_in: 0, // TODO: Extract from provider response
+        tokens_out: 0,
+        success: true,
+        error_code: undefined,
+        metadata: {
+          taskMode,
+          hasConversationHistory: conversationHistory.length > 0,
+          dealCount: deals.length,
+        },
+      });
+    } catch (logError) {
+      console.error('[ai-assistant] Error logging AI usage (non-fatal):', logError);
     }
 
     // ANALYTICS: Detect if user is requesting chart visualization

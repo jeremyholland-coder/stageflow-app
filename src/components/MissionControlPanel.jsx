@@ -14,6 +14,9 @@ import { PlanMyDayChecklist } from './PlanMyDayChecklist';
 import { useMissionControlTasks } from '../hooks/useMissionControlTasks';
 import { buildOfflineSnapshot } from '../lib/offlineSnapshot';
 import { formatCurrency } from '../ai/stageflowConfig';
+// REVENUE AGENT 2025-12-10: Revenue Coach integration
+import { useRevenueHealth } from '../hooks/useRevenueHealth';
+import { RevenueCoachStrip } from './RevenueCoachStrip';
 
 /**
  * MissionControlPanel - Phase 1 Unified AI Panel
@@ -425,6 +428,17 @@ export const MissionControlPanel = ({
     aiTasks
   });
 
+  // REVENUE AGENT 2025-12-10: Revenue Coach hook
+  // Fetches projections and AI coach interpretation (hourly refresh)
+  const {
+    projection: revenueProjection,
+    coach: revenueCoach,
+    loading: revenueLoading,
+    error: revenueError,
+    refresh: refreshRevenueHealth,
+    lastUpdated: revenueLastUpdated,
+  } = useRevenueHealth(user, organization, hasAIProviderProp);
+
   // Performance data
   const performanceData = useMemo(() => {
     const now = new Date();
@@ -649,7 +663,17 @@ export const MissionControlPanel = ({
         {/* COACH TAB - CustomQueryView with AI conversation */}
         {/* APMDOS: Pass activation props for adaptive onboarding */}
         {activeTab === 'coach' && (
-          <CustomQueryView
+          <>
+            {/* REVENUE AGENT 2025-12-10: Revenue Coach Strip - proactive AI insights */}
+            <RevenueCoachStrip
+              projection={revenueProjection}
+              coach={revenueCoach}
+              loading={revenueLoading}
+              error={revenueError}
+              onRefresh={refreshRevenueHealth}
+              lastUpdated={revenueLastUpdated}
+            />
+            <CustomQueryView
             deals={deals}
             healthAlert={healthAlert}
             orphanedDealIds={orphanedDealIds}
@@ -660,6 +684,7 @@ export const MissionControlPanel = ({
             user={user}
             organization={organization}
           />
+          </>
         )}
 
         {/* MISSION CONTROL TAB */}

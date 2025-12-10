@@ -102,6 +102,8 @@ import { buildMissionControlContext, buildBasicMissionControlPlan } from './lib/
 // ENGINE REBUILD Phase 9: Centralized CORS + AI error classification
 import { buildCorsHeaders } from './lib/cors';
 import { classifyAIError } from './lib/ai-spine';
+// REVENUE AGENT 2025-12-10: Detailed AI usage logging
+import { logAIUsage, AIRequestType } from './lib/ai-usage-logger';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -1016,6 +1018,27 @@ Be SPECIFIC, SUPPORTIVE, and CONCISE (max 4-5 sentences). CRITICAL: Output clean
           }
         } catch (usageError) {
           console.error('[ai-stream] Error tracking AI usage:', usageError);
+        }
+
+        // REVENUE AGENT 2025-12-10: Log detailed AI usage to ai_usage_logs table
+        try {
+          await logAIUsage({
+            organization_id: organizationId,
+            user_id: user.id,
+            request_type: 'mission_control_query' as AIRequestType,
+            provider: selectedProvider?.provider_type || undefined,
+            model: selectedProvider?.model || undefined,
+            tokens_in: 0,
+            tokens_out: 0,
+            success: true,
+            error_code: undefined,
+            metadata: {
+              streaming: true,
+              dealCount: deals?.length || 0,
+            },
+          });
+        } catch (logError) {
+          console.error('[ai-stream] Error logging AI usage (non-fatal):', logError);
         }
 
         controller.close();
