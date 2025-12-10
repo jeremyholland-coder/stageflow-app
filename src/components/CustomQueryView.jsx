@@ -363,7 +363,10 @@ export const CustomQueryView = ({
   // When true, session is expired - show session message, not "AI unavailable"
   aiAuthError: aiAuthErrorProp,
   user: userProp,
-  organization: organizationProp
+  organization: organizationProp,
+  // STEP 3: AI readiness variant from state machine - used for pre-flight guards
+  // Values: 'loading' | 'session_invalid' | 'connect_provider' | 'config_error' | 'health_warning' | 'ready' | 'degraded' | 'disabled'
+  aiReadinessVariant
 }) => {
   const appContext = useApp();
   // APMDOS: Use props if provided, otherwise fall back to context
@@ -645,6 +648,41 @@ export const CustomQueryView = ({
       submissionLockRef.current = false; // Release lock
       return;
     }
+
+    // STEP 3: AI readiness pre-flight guard - prevent requests when AI is known to be unavailable
+    // This uses the state machine's determination to fail fast with clear messaging
+    if (aiReadinessVariant && (
+      aiReadinessVariant === 'session_invalid' ||
+      aiReadinessVariant === 'connect_provider' ||
+      aiReadinessVariant === 'config_error' ||
+      aiReadinessVariant === 'disabled'
+    )) {
+      console.warn('[CustomQueryView] Request blocked - AI not available:', aiReadinessVariant);
+      const variantMessages = {
+        session_invalid: 'Your session has expired. Please refresh the page or sign in again.',
+        connect_provider: 'Please connect an AI provider in Settings to use Mission Control.',
+        config_error: 'AI is temporarily unavailable due to a server configuration issue.',
+        disabled: 'AI features are disabled for your current plan.'
+      };
+      setInlineError({
+        code: 'AI_NOT_AVAILABLE',
+        message: variantMessages[aiReadinessVariant] || 'AI is not available right now.',
+        action: null,
+        severity: aiReadinessVariant === 'session_invalid' ? 'error' : 'warning',
+        retryable: false
+      });
+      submissionLockRef.current = false; // Release lock
+      return;
+    }
+
+    // STEP 4: Diagnostic logging - log AI readiness state before each request
+    console.info('[AI REQUEST]', {
+      entrypoint: 'MissionControl.query',
+      aiReadinessVariant,
+      hasAIProvider,
+      aiAuthError,
+      isOnline,
+    });
 
     setQuery('');
     setIsSubmitting(true);
@@ -1482,12 +1520,49 @@ Guidelines:
     // Acquire lock immediately (synchronous - before any state updates)
     submissionLockRef.current = true;
 
-    // FIX 2025-12-08: Log that we're proceeding to call backend (confirms no early-bail on !hasProviders)
-    console.info('[StageFlow][AI][FIX] handleQuickAction proceeding to call backend', {
-      actionType,
-      hasProviders, // Log this so we can verify it's calling even when false
+    // STEP 4: Diagnostic logging - log AI readiness state before each quick action request
+    console.info('[AI REQUEST]', {
+      entrypoint: `MissionControl.${actionType}`,
+      aiReadinessVariant,
+      hasAIProvider: hasProviders,
+      aiAuthError,
       isOnline
     });
+
+    // STEP 3: AI readiness pre-flight guard - prevent requests when AI is known to be unavailable
+    if (aiReadinessVariant && (
+      aiReadinessVariant === 'session_invalid' ||
+      aiReadinessVariant === 'connect_provider' ||
+      aiReadinessVariant === 'config_error' ||
+      aiReadinessVariant === 'disabled'
+    )) {
+      console.warn('[CustomQueryView] Quick action blocked - AI not available:', aiReadinessVariant);
+      // Release locks and cleanup
+      submissionLockRef.current = false;
+      if (actionType === 'plan_my_day') {
+        planMyDayLockRef.current = false;
+        setIsPlanning(false);
+        setShowPlanMyDayLoading(false);
+        if (planMyDayTimeoutRef.current) {
+          clearTimeout(planMyDayTimeoutRef.current);
+          planMyDayTimeoutRef.current = null;
+        }
+      }
+      const variantMessages = {
+        session_invalid: 'Your session has expired. Please refresh the page or sign in again.',
+        connect_provider: 'Please connect an AI provider in Settings to use Mission Control.',
+        config_error: 'AI is temporarily unavailable due to a server configuration issue.',
+        disabled: 'AI features are disabled for your current plan.'
+      };
+      setInlineError({
+        code: 'AI_NOT_AVAILABLE',
+        message: variantMessages[aiReadinessVariant] || 'AI is not available right now.',
+        action: null,
+        severity: aiReadinessVariant === 'session_invalid' ? 'error' : 'warning',
+        retryable: false
+      });
+      return;
+    }
 
     // OFFLINE PHASE 4B: Track the quick action type for caching
     lastQuickActionRef.current = actionType;

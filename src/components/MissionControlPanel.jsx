@@ -6,7 +6,8 @@ import {
   GraduationCap,
   Target,
   RefreshCw,
-  Plus
+  Plus,
+  AlertTriangle
 } from 'lucide-react';
 import { useApp } from './AppShell';
 import { CustomQueryView } from './CustomQueryView';
@@ -17,6 +18,11 @@ import { formatCurrency } from '../ai/stageflowConfig';
 // REVENUE AGENT 2025-12-10: Revenue Coach integration
 import { useRevenueHealth } from '../hooks/useRevenueHealth';
 import { RevenueCoachStrip } from './RevenueCoachStrip';
+// STEP 3: AI Readiness State Machine integration
+import {
+  useWiredAIReadiness,
+  getAIUIVariant,
+} from '../ai/useAIReadiness';
 
 /**
  * MissionControlPanel - Phase 1 Unified AI Panel
@@ -433,6 +439,35 @@ export const MissionControlPanel = ({
   const organization = organizationProp || appContext.organization;
   const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
 
+  // STEP 3: AI Readiness State Machine - single source of truth for AI availability
+  const {
+    node: aiReadinessNode,
+    isReady: aiIsReady,
+    uiVariant: aiUIVariant,
+  } = useWiredAIReadiness({
+    organizationId: organization?.id || null,
+  });
+
+  // Derive friendly booleans for rendering based on AI readiness state
+  const aiVariant = aiUIVariant || getAIUIVariant(aiReadinessNode);
+
+  const isLoadingAI = aiVariant === 'loading';
+
+  // Session invalid: use state machine OR legacy aiAuthError prop as fallback
+  const isSessionInvalid = aiVariant === 'session_invalid' || aiAuthErrorProp === true;
+
+  // Show connect provider CTA only when variant says so AND session is valid
+  const shouldShowConnectProvider = aiVariant === 'connect_provider' && !isSessionInvalid;
+
+  const isConfigError = aiVariant === 'config_error';
+
+  const isHealthWarning = aiVariant === 'health_warning';
+
+  const isAIDisabled = aiVariant === 'disabled';
+
+  // AI is usable when ready or degraded
+  const canRenderAIContent = aiVariant === 'ready' || aiVariant === 'degraded';
+
   // P0 DIAGNOSTIC 2025-12-10: Log component state on mount to diagnose "Unable to load ai mission control" errors
   // This helps identify which combination of props/state causes the error in production
   useEffect(() => {
@@ -443,6 +478,9 @@ export const MissionControlPanel = ({
       hasOrg: !!organization?.id,
       dealsCount: deals?.length || 0,
       healthAlert: !!healthAlert,
+      // STEP 3: Include AI readiness state for better diagnostics
+      aiReadinessState: aiReadinessNode?.state,
+      aiVariant,
     });
   }, []); // Only log on mount
   const [newTaskInput, setNewTaskInput] = useState('');
@@ -710,6 +748,16 @@ export const MissionControlPanel = ({
         {/* APMDOS: Pass activation props for adaptive onboarding */}
         {activeTab === 'coach' && (
           <>
+            {/* STEP 3: Health warning banner - AI is available but had connectivity issues */}
+            {isHealthWarning && (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center gap-3">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-200">
+                  AI is available but we detected some connectivity issues. Results may be slower or less reliable.
+                </p>
+              </div>
+            )}
+
             {/* REVENUE AGENT 2025-12-10: Revenue Coach Strip - proactive AI insights */}
             <RevenueCoachStrip
               projection={revenueProjection}
@@ -720,16 +768,18 @@ export const MissionControlPanel = ({
               lastUpdated={revenueLastUpdated}
             />
             <CustomQueryView
-            deals={deals}
-            healthAlert={healthAlert}
-            orphanedDealIds={orphanedDealIds}
-            onDismissAlert={onDismissAlert}
-            hasAIProviderProp={hasAIProviderProp}
-            // P0 FIX 2025-12-09: Pass auth error state for session-specific messaging
-            aiAuthError={aiAuthErrorProp}
-            user={user}
-            organization={organization}
-          />
+              deals={deals}
+              healthAlert={healthAlert}
+              orphanedDealIds={orphanedDealIds}
+              onDismissAlert={onDismissAlert}
+              hasAIProviderProp={hasAIProviderProp}
+              // P0 FIX 2025-12-09: Pass auth error state for session-specific messaging
+              aiAuthError={aiAuthErrorProp}
+              user={user}
+              organization={organization}
+              // STEP 3: Pass AI readiness variant for pre-flight guards
+              aiReadinessVariant={aiVariant}
+            />
           </>
         )}
 

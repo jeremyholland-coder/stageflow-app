@@ -9,6 +9,8 @@ import { ErrorSurface } from './ErrorSurface';
 import { normalizeAIError, isOffline, shouldBlockAIRequest } from '../lib/ai-error-codes';
 // Phase 9: Accessibility improvements
 import { useFocusTrap, useAnnounce } from '../lib/accessibility';
+// STEP 4: AI Readiness State Machine integration
+import { useWiredAIReadiness } from '../ai/useAIReadiness';
 
 // P0 FIX: Allowed provider types - matches backend filtering
 // Belt-and-suspenders guard against zombie providers (e.g., deprecated xAI/Grok)
@@ -71,6 +73,11 @@ export const AIAssistant = ({ deals = [] }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { user, organization, addNotification, navigateToIntegrations } = useApp();
+
+  // STEP 4: AI Readiness State Machine - single source of truth for AI availability
+  const { uiVariant: aiReadinessVariant } = useWiredAIReadiness({
+    organizationId: organization?.id || null,
+  });
 
   // Phase 9: Accessibility - Focus trap and announcements
   const focusTrapRef = useFocusTrap(isOpen);
@@ -212,6 +219,36 @@ export const AIAssistant = ({ deals = [] }) => {
       setError(blockError);
       return;
     }
+
+    // STEP 4: AI readiness pre-flight guard - prevent requests when AI is known to be unavailable
+    if (aiReadinessVariant && (
+      aiReadinessVariant === 'session_invalid' ||
+      aiReadinessVariant === 'connect_provider' ||
+      aiReadinessVariant === 'config_error' ||
+      aiReadinessVariant === 'disabled'
+    )) {
+      console.warn('[AIAssistant] Request blocked - AI not available:', aiReadinessVariant);
+      const variantMessages = {
+        session_invalid: 'Your session has expired. Please refresh the page or sign in again.',
+        connect_provider: 'Please connect an AI provider in Settings to use AI.',
+        config_error: 'AI is temporarily unavailable due to a server configuration issue.',
+        disabled: 'AI features are disabled for your current plan.'
+      };
+      setError({
+        code: 'AI_NOT_AVAILABLE',
+        message: variantMessages[aiReadinessVariant] || 'AI is not available right now.',
+        retryable: false
+      });
+      return;
+    }
+
+    // STEP 4: Diagnostic logging - log AI readiness state before each request
+    console.info('[AI REQUEST]', {
+      entrypoint: 'AIAssistant.chat',
+      aiReadinessVariant,
+      hasProviders: providers.length > 0,
+      providerFetchError: !!providerFetchError,
+    });
 
     const userMessage = {
       id: Date.now(),
