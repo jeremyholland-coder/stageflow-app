@@ -120,6 +120,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
   const servicesRef = useRef(services);
   const hasStartedRef = useRef(false);
 
+  // P0 DEFENSIVE GUARD 2025-12-10: Ensure node is NEVER null/undefined
+  // This prevents any downstream crash if useReducer somehow returns null
+  // (which should never happen, but we're being defensive)
+  const safeNode: AIReadinessNode = node || initialAIReadinessNode;
+
   // Keep services ref updated
   servicesRef.current = services;
 
@@ -238,10 +243,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     }, 0);
   }, [runReadinessCheck]);
 
+  // P0 DEFENSIVE GUARD: Return safeNode (guaranteed non-null) instead of raw node
   return {
-    node,
-    isReady: isAIReady(node),
-    uiVariant: getAIUIVariant(node),
+    node: safeNode,
+    isReady: isAIReady(safeNode),
+    uiVariant: getAIUIVariant(safeNode),
     dispatch,
     retry,
   };

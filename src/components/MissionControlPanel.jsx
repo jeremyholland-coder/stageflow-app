@@ -448,8 +448,11 @@ export const MissionControlPanel = ({
     organizationId: organization?.id || null,
   });
 
-  // Derive friendly booleans for rendering based on AI readiness state
-  const aiVariant = aiUIVariant || getAIUIVariant(aiReadinessNode);
+  // P0 DEFENSIVE GUARD 2025-12-10: Derive AI variant with multiple fallbacks
+  // Ensure aiVariant is ALWAYS a valid string, never null/undefined
+  // The hook now guarantees node is never null (via safeNode in useAIReadiness.ts)
+  // but we still add belt-and-suspenders safety here
+  const aiVariant = aiUIVariant || (aiReadinessNode?.state ? getAIUIVariant(aiReadinessNode) : 'loading');
 
   const isLoadingAI = aiVariant === 'loading';
 
