@@ -111,30 +111,59 @@ function getSupabaseClient() {
     return null;
   }
 
-  // NOW it's safe to create the client (after all checks pass)
-  console.error('[Supabase] Initializing client (lazy)'); // Using console.error for production diagnostics
+  // P0 FIX 2025-12-10: Wrap client creation in try-catch
+  // If createClient or createRateLimitedClient throws, the error was unhandled
+  // and all subsequent Supabase calls would fail silently (returning undefined)
+  try {
+    // NOW it's safe to create the client (after all checks pass)
+    console.error('[Supabase] Initializing client (lazy)'); // Using console.error for production diagnostics
 
-  // PHASE 3: No localStorage storage - authentication via HttpOnly cookies
-  // Auth handled by backend endpoints (/auth-login, /auth-logout, /auth-refresh)
-  const rawClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      autoRefreshToken: false, // Handled by backend auto-refresh
-      persistSession: false, // Cookies persist session automatically
-      detectSessionInUrl: true, // Still detect OAuth redirects
-      storageKey: 'stageflow-auth' // Kept for compatibility with OAuth flows
-    }
-  });
+    // PHASE 3: No localStorage storage - authentication via HttpOnly cookies
+    // Auth handled by backend endpoints (/auth-login, /auth-logout, /auth-refresh)
+    const rawClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false, // Handled by backend auto-refresh
+        persistSession: false, // Cookies persist session automatically
+        detectSessionInUrl: true, // Still detect OAuth redirects
+        storageKey: 'stageflow-auth' // Kept for compatibility with OAuth flows
+      }
+    });
 
-  // SECURITY FIX: Wrap client with rate limiter to prevent quota exhaustion
-  // Limits: 10 requests/second, burst of 20 requests
-  // This prevents frontend from exhausting Supabase Pro's 200 connection limit
-  _supabaseClient = createRateLimitedClient(rawClient, {
-    tokensPerSecond: 10,  // 10 requests/second (600/minute)
-    burstSize: 20         // Allow burst traffic without queuing
-  });
+    // SECURITY FIX: Wrap client with rate limiter to prevent quota exhaustion
+    // Limits: 10 requests/second, burst of 20 requests
+    // This prevents frontend from exhausting Supabase Pro's 200 connection limit
+    _supabaseClient = createRateLimitedClient(rawClient, {
+      tokensPerSecond: 10,  // 10 requests/second (600/minute)
+      burstSize: 20         // Allow burst traffic without queuing
+    });
 
-  return _supabaseClient;
+    return _supabaseClient;
+  } catch (err) {
+    console.error('[Supabase] Client initialization failed:', err);
+    // P0 FIX: Allow retry on next access by resetting the flag
+    _initializationAttempted = false;
+    return null;
+  }
 }
+
+// P0 FIX 2025-12-10: Safe no-op stub that returns chainable methods
+// This prevents "Cannot read property 'select' of undefined" crashes
+// when Supabase client fails to initialize
+const NOOP_STUB = {
+  select: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  insert: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  update: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  delete: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  eq: () => NOOP_STUB,
+  neq: () => NOOP_STUB,
+  in: () => NOOP_STUB,
+  is: () => NOOP_STUB,
+  order: () => NOOP_STUB,
+  limit: () => NOOP_STUB,
+  single: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  maybeSingle: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
+  then: (resolve) => resolve({ data: null, error: new Error('Supabase client not initialized') }),
+};
 
 // CRITICAL: Export a Proxy that lazily initializes on first property access
 // This prevents createClient() from running at module level
@@ -142,9 +171,23 @@ export const supabase = new Proxy({}, {
   get(target, prop) {
     const client = getSupabaseClient();
 
-    // Return undefined if client failed to initialize
+    // P0 FIX 2025-12-10: Return safe stub instead of undefined
+    // This prevents crashes when hooks call supabase.from().select()
     if (!client) {
       console.error(`[Supabase] Cannot access '${String(prop)}' - client not initialized`);
+      // For 'from' method, return a function that returns the safe stub
+      if (prop === 'from') {
+        return () => NOOP_STUB;
+      }
+      // For 'auth' property, return a safe auth stub
+      if (prop === 'auth') {
+        return {
+          getSession: () => Promise.resolve({ data: { session: null }, error: new Error('Client not initialized') }),
+          setSession: () => Promise.resolve({ data: { session: null }, error: new Error('Client not initialized') }),
+          signOut: () => Promise.resolve({ error: new Error('Client not initialized') }),
+          onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        };
+      }
       return undefined;
     }
 
