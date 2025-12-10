@@ -2,6 +2,35 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, ensureValidSession } from '../lib/supabase';
 
 /**
+ * Safe storage helpers to guard against browsers that block access
+ * (Safari private mode, disabled storage, etc.). These never throw.
+ */
+const isBrowser = typeof window !== 'undefined';
+
+const withStorageAccess = (storageName, callback) => {
+  if (!isBrowser) return null;
+  try {
+    const storage = window[storageName];
+    if (!storage) return null;
+    return callback(storage);
+  } catch (error) {
+    console.warn(`[useAIProviderStatus] ${storageName} unavailable:`, error?.message || error);
+    return null;
+  }
+};
+
+const getFromStorage = (storageName, key) =>
+  withStorageAccess(storageName, (storage) => storage.getItem(key)) || null;
+
+const setInStorage = (storageName, key, value) => {
+  withStorageAccess(storageName, (storage) => storage.setItem(key, value));
+};
+
+const removeFromStorage = (storageName, key) => {
+  withStorageAccess(storageName, (storage) => storage.removeItem(key));
+};
+
+/**
  * NEXT-LEVEL OPTIMIZATION: Shared AI Provider Status Hook
  *
  * Root Cause Fix: Eliminates duplicate AI provider checking logic in:
@@ -65,7 +94,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
     // PERFORMANCE BOOST: Check localStorage cache first
     // CRITICAL FIX: Use localStorage instead of sessionStorage (survives workspace switching)
     const cacheKey = `ai_provider_${organization.id}`;
-    const cached = localStorage.getItem(cacheKey);
+    const cached = getFromStorage('localStorage', cacheKey);
 
     if (cached) {
       try {
@@ -127,7 +156,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
         // FIX 2025-12-03: Also set authError flag so Dashboard can show correct message
         if (response.status === 401 || response.status === 403) {
           console.info('[StageFlow][AI][INFO] Auth error (session issue), preserving cache');
-          const cachedData = localStorage.getItem(cacheKey);
+          const cachedData = getFromStorage('localStorage', cacheKey);
           if (cachedData) {
             try {
               const { hasProvider: cachedValue } = JSON.parse(cachedData);
@@ -209,7 +238,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
       // M6 HARDENING: Fresh data, not stale
       setStatusMayBeStale(false);
       // M6 HARDENING: Store as lastKnownGoodStatus for fallback on future errors
-      localStorage.setItem(cacheKey, JSON.stringify({
+      setInStorage('localStorage', cacheKey, JSON.stringify({
         hasProvider: hasProviderValue,
         timestamp: Date.now(),
         isLastKnownGood: true // M6: Mark this as a known good state
@@ -221,7 +250,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
         console.warn('[StageFlow][AI][WARN] AI provider check failed (non-fatal):', err);
 
         // M6 HARDENING: Try to use lastKnownGoodStatus if recent
-        const cachedData = localStorage.getItem(cacheKey);
+        const cachedData = getFromStorage('localStorage', cacheKey);
         let usedLastKnownGood = false;
 
         if (cachedData) {
@@ -288,7 +317,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
     // IMMEDIATE cache check (no delay) - provides instant UI update
     const cacheKey = `ai_provider_${organization.id}`;
-    const cached = localStorage.getItem(cacheKey);
+    const cached = getFromStorage('localStorage', cacheKey);
 
     // APPLE-GRADE UX: Stale-while-revalidate thresholds
     // FRESH: < 1 min - show cache, skip refresh (data is current)
@@ -361,8 +390,8 @@ export function useAIProviderStatus(user, organization, options = {}) {
       }
 
       // CRITICAL FIX: Clear ALL caches (both localStorage and sessionStorage)
-      localStorage.removeItem(cacheKey);
-      sessionStorage.removeItem(cacheKey);
+      removeFromStorage('localStorage', cacheKey);
+      removeFromStorage('sessionStorage', cacheKey);
 
       // CRITICAL FIX: Set hasProvider=true IMMEDIATELY (optimistic update)
       // This ensures UI updates instantly without waiting for DB query
@@ -371,7 +400,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
       setChecking(false);
 
       // Update cache with optimistic value
-      localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: true, timestamp: Date.now() }));
+      setInStorage('localStorage', cacheKey, JSON.stringify({ hasProvider: true, timestamp: Date.now() }));
 
       console.warn('[useAIProviderStatus] AI provider connected - optimistic update applied');
 
@@ -395,15 +424,15 @@ export function useAIProviderStatus(user, organization, options = {}) {
       }
 
       // CRITICAL FIX: Clear ALL caches
-      localStorage.removeItem(cacheKey);
-      sessionStorage.removeItem(cacheKey);
+      removeFromStorage('localStorage', cacheKey);
+      removeFromStorage('sessionStorage', cacheKey);
 
       // CRITICAL FIX: Set hasProvider=false IMMEDIATELY (optimistic update)
       setHasProvider(false);
       setChecking(false);
 
       // Update cache with optimistic value
-      localStorage.setItem(cacheKey, JSON.stringify({ hasProvider: false, timestamp: Date.now() }));
+      setInStorage('localStorage', cacheKey, JSON.stringify({ hasProvider: false, timestamp: Date.now() }));
 
       console.warn('[useAIProviderStatus] AI provider removed - optimistic update applied');
 
@@ -440,7 +469,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         // Re-read from localStorage when tab becomes visible
-        const cached = localStorage.getItem(cacheKey);
+        const cached = getFromStorage('localStorage', cacheKey);
         if (cached) {
           try {
             const { hasProvider: cachedValue, timestamp } = JSON.parse(cached);

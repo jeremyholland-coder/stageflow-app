@@ -132,21 +132,27 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
   const runReadinessCheck = useCallback(async () => {
     const currentServices = servicesRef.current;
 
+    // [AI_DEBUG] Log readiness check start
+    console.info('[AI_DEBUG][runReadinessCheck] Starting AI readiness check sequence');
+
     // Step 1: APP_BOOT -> SESSION_CHECKING
     dispatch({ type: 'APP_BOOT' });
 
     // Step 2: Check session
     try {
       const sessionResult = await currentServices.checkSession();
+      console.info('[AI_DEBUG][runReadinessCheck] Session check result:', sessionResult);
       if (!sessionResult.ok) {
         dispatch({
           type: 'SESSION_INVALID',
           reason: sessionResult.code || 'Session validation failed',
         });
+        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at session check - invalid');
         return; // STOP - session is invalid
       }
       dispatch({ type: 'SESSION_OK' });
     } catch (error) {
+      console.error('[AI_DEBUG][runReadinessCheck] Session check threw:', error);
       dispatch({
         type: 'SESSION_INVALID',
         reason: error instanceof Error ? error.message : 'Session check failed',
@@ -157,13 +163,27 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 3: Check providers
     try {
       const providersResult = await currentServices.checkProviders();
+      console.info('[AI_DEBUG][runReadinessCheck] Provider check result:', providersResult);
+
+      // P0 FIX 2025-12-10: Handle auth errors separately from "no providers"
+      if ((providersResult as any).authError) {
+        console.warn('[AI_DEBUG][runReadinessCheck] Provider check got auth error - treating as session invalid');
+        dispatch({
+          type: 'SESSION_INVALID',
+          reason: 'AUTH_ERROR_DURING_PROVIDER_CHECK',
+        });
+        return;
+      }
+
       if (providersResult.hasProviders && providersResult.count > 0) {
         dispatch({ type: 'PROVIDERS_FOUND', count: providersResult.count });
       } else {
         dispatch({ type: 'NO_PROVIDERS' });
+        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at provider check - no providers');
         return; // STOP - no providers configured
       }
     } catch (error) {
+      console.error('[AI_DEBUG][runReadinessCheck] Provider check threw:', error);
       dispatch({ type: 'NO_PROVIDERS' });
       return; // STOP - provider check threw
     }
@@ -171,16 +191,19 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 4: Check config
     try {
       const configResult = await currentServices.checkConfig();
+      console.info('[AI_DEBUG][runReadinessCheck] Config check result:', configResult);
       if (!configResult.ok) {
         dispatch({
           type: 'CONFIG_ERROR',
           code: configResult.code || 'CONFIG_ERROR',
           message: configResult.message || 'Configuration check failed',
         });
+        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at config check - error');
         return; // STOP - config error
       }
       dispatch({ type: 'CONFIG_OK' });
     } catch (error) {
+      console.error('[AI_DEBUG][runReadinessCheck] Config check threw:', error);
       dispatch({
         type: 'CONFIG_ERROR',
         code: 'CONFIG_ERROR',
@@ -192,6 +215,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 5: Health check
     try {
       const healthResult = await currentServices.healthCheck();
+      console.info('[AI_DEBUG][runReadinessCheck] Health check result:', healthResult);
 
       if (healthResult.networkError) {
         dispatch({
@@ -199,6 +223,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           networkError: true,
           message: healthResult.message || 'Network error during health check',
         });
+        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at health check - network error');
         return;
       }
 
@@ -208,6 +233,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           networkError: false,
           message: healthResult.message || 'Health check failed',
         });
+        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at health check - failed');
         return;
       }
 
@@ -216,7 +242,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
         type: 'HEALTH_CHECK_OK',
         degraded: healthResult.degraded ?? false,
       });
+      console.info('[AI_DEBUG][runReadinessCheck] SUCCESS - AI is ready', {
+        degraded: healthResult.degraded ?? false,
+      });
     } catch (error) {
+      console.error('[AI_DEBUG][runReadinessCheck] Health check threw:', error);
       // Network/thrown errors are treated as network failures
       dispatch({
         type: 'HEALTH_CHECK_FAILED',
@@ -283,8 +313,34 @@ export function useWiredAIReadiness(
         const { ensureValidSession } = await import('../lib/supabase');
         const result = await ensureValidSession();
 
+        // [AI_DEBUG] Log session check result
+        console.info('[AI_DEBUG][checkSession]', {
+          valid: result?.valid,
+          code: result?.code,
+        });
+
         if (result?.valid) {
           return { ok: true };
+        }
+
+        // P0 FIX 2025-12-10: THROTTLED is NOT a failure - the user still has a valid cached session
+        // This matches the fix in api-client.js (line 206-211) where THROTTLED is handled gracefully.
+        // When refresh is throttled, we should check if there's a cached session token
+        // and proceed if so, rather than treating it as session_invalid.
+        if (result?.code === 'THROTTLED') {
+          // Try to get cached session - if it exists, the user is authenticated
+          try {
+            const supabaseModule = await import('../lib/supabase');
+            // Type assertion needed because supabase.js is not typed
+            const supabaseClient = (supabaseModule as any).supabase;
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session?.access_token) {
+              console.info('[AI_DEBUG][checkSession] THROTTLED but cached session exists - treating as valid');
+              return { ok: true };
+            }
+          } catch (e) {
+            // Ignore - fall through to failure
+          }
         }
 
         return {
@@ -305,15 +361,17 @@ export function useWiredAIReadiness(
     // -------------------------------------------------------------------------
     checkProviders: async () => {
       if (!organizationId) {
+        console.info('[AI_DEBUG][checkProviders] No organizationId provided');
         return { hasProviders: false, count: 0 };
       }
 
       try {
         // Get session for auth header
-        const { supabase } = await import('../lib/supabase');
+        const supabaseModule = await import('../lib/supabase');
+        const supabaseClient = (supabaseModule as any).supabase;
         const {
           data: { session },
-        } = await supabase.auth.getSession();
+        } = await supabaseClient.auth.getSession();
 
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -322,6 +380,12 @@ export function useWiredAIReadiness(
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
 
+        // [AI_DEBUG] Log provider check request
+        console.info('[AI_DEBUG][checkProviders] Fetching providers', {
+          organizationId,
+          hasAuthHeader: !!session?.access_token,
+        });
+
         const response = await fetch('/.netlify/functions/get-ai-providers', {
           method: 'POST',
           headers,
@@ -329,16 +393,31 @@ export function useWiredAIReadiness(
           body: JSON.stringify({ organization_id: organizationId }),
         });
 
+        // [AI_DEBUG] Log response status
+        console.info('[AI_DEBUG][checkProviders] Response', {
+          status: response.status,
+          ok: response.ok,
+        });
+
         if (!response.ok) {
-          // Auth errors (401/403) should not be treated as "no providers"
+          // Auth errors (401/403) should bubble up as auth issues, not "no providers"
           if (response.status === 401 || response.status === 403) {
-            throw new Error('Auth error during provider check');
+            console.warn('[AI_DEBUG][checkProviders] Auth error during provider check');
+            // P0 FIX 2025-12-10: Return special code instead of throwing
+            // This allows the state machine to distinguish auth errors from missing providers
+            return { hasProviders: false, count: 0, authError: true };
           }
           return { hasProviders: false, count: 0 };
         }
 
         const data = await response.json();
         const providers = data.providers || [];
+
+        // [AI_DEBUG] Log provider count
+        console.info('[AI_DEBUG][checkProviders] Found providers', {
+          count: providers.length,
+          types: providers.map((p: any) => p.provider_type),
+        });
 
         return {
           hasProviders: providers.length > 0,
@@ -356,10 +435,11 @@ export function useWiredAIReadiness(
     checkConfig: async () => {
       try {
         // Get session for auth header
-        const { supabase } = await import('../lib/supabase');
+        const supabaseModule = await import('../lib/supabase');
+        const supabaseClient = (supabaseModule as any).supabase;
         const {
           data: { session },
-        } = await supabase.auth.getSession();
+        } = await supabaseClient.auth.getSession();
 
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -367,6 +447,11 @@ export function useWiredAIReadiness(
         if (session?.access_token) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
+
+        // [AI_DEBUG] Log config check request
+        console.info('[AI_DEBUG][checkConfig] Sending healthCheckOnly request', {
+          hasAuthHeader: !!session?.access_token,
+        });
 
         const response = await fetch('/.netlify/functions/ai-assistant', {
           method: 'POST',
@@ -379,6 +464,12 @@ export function useWiredAIReadiness(
           }),
         });
 
+        // [AI_DEBUG] Log response
+        console.info('[AI_DEBUG][checkConfig] Response', {
+          status: response.status,
+          ok: response.ok,
+        });
+
         if (!response.ok) {
           return {
             ok: false,
@@ -388,6 +479,13 @@ export function useWiredAIReadiness(
         }
 
         const data = await response.json();
+
+        // [AI_DEBUG] Log response data
+        console.info('[AI_DEBUG][checkConfig] Data', {
+          configHealthy: data.configHealthy,
+          code: data.code,
+          healthCheck: data.healthCheck,
+        });
 
         // Check for config errors in response
         if (data.code === 'CONFIG_ERROR' || data.configHealthy === false) {
@@ -416,10 +514,11 @@ export function useWiredAIReadiness(
     healthCheck: async () => {
       try {
         // Get session for auth header
-        const { supabase } = await import('../lib/supabase');
+        const supabaseModule = await import('../lib/supabase');
+        const supabaseClient = (supabaseModule as any).supabase;
         const {
           data: { session },
-        } = await supabase.auth.getSession();
+        } = await supabaseClient.auth.getSession();
 
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -427,6 +526,11 @@ export function useWiredAIReadiness(
         if (session?.access_token) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
+
+        // [AI_DEBUG] Log health check request
+        console.info('[AI_DEBUG][healthCheck] Sending health check request', {
+          hasAuthHeader: !!session?.access_token,
+        });
 
         // Use the same health check endpoint as config check
         // but interpret the response differently
@@ -448,6 +552,12 @@ export function useWiredAIReadiness(
 
           clearTimeout(timeoutId);
 
+          // [AI_DEBUG] Log response
+          console.info('[AI_DEBUG][healthCheck] Response', {
+            status: response.status,
+            ok: response.ok,
+          });
+
           if (!response.ok) {
             return {
               ok: false,
@@ -457,6 +567,13 @@ export function useWiredAIReadiness(
           }
 
           const data = await response.json();
+
+          // [AI_DEBUG] Log response data
+          console.info('[AI_DEBUG][healthCheck] Data', {
+            configHealthy: data.configHealthy,
+            degraded: data.degraded,
+            slow: data.slow,
+          });
 
           // Check for degraded mode indicators
           const isDegraded = data.degraded === true || data.slow === true;
@@ -470,6 +587,7 @@ export function useWiredAIReadiness(
 
           // AbortError means timeout - treat as network error
           if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            console.warn('[AI_DEBUG][healthCheck] Request timed out');
             return {
               ok: false,
               networkError: true,

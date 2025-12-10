@@ -657,7 +657,11 @@ export const CustomQueryView = ({
       aiReadinessVariant === 'config_error' ||
       aiReadinessVariant === 'disabled'
     )) {
-      console.warn('[CustomQueryView] Request blocked - AI not available:', aiReadinessVariant);
+      console.warn('[AI_DEBUG][request] Request BLOCKED by pre-flight guard', {
+        aiReadinessVariant,
+        hasAIProvider,
+        aiAuthError,
+      });
       const variantMessages = {
         session_invalid: 'Your session has expired. Please refresh the page or sign in again.',
         connect_provider: 'Please connect an AI provider in Settings to use Mission Control.',
@@ -676,12 +680,13 @@ export const CustomQueryView = ({
     }
 
     // STEP 4: Diagnostic logging - log AI readiness state before each request
-    console.info('[AI REQUEST]', {
+    console.info('[AI_DEBUG][request] Sending AI query', {
       entrypoint: 'MissionControl.query',
       aiReadinessVariant,
       hasAIProvider,
       aiAuthError,
       isOnline,
+      queryLength: currentQuery.length,
     });
 
     setQuery('');
