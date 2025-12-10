@@ -512,7 +512,7 @@ export function useAIProviderStatus(user, organization, options = {}) {
 
     // Clear cache and re-check
     const cacheKey = `ai_provider_${organization.id}`;
-    localStorage.removeItem(cacheKey);
+    removeFromStorage('localStorage', cacheKey);
 
     return checkAIProviders();
   }, [user?.id, organization?.id, checkAIProviders]);
