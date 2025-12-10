@@ -57,13 +57,22 @@ export type AIUIVariant =
  * Check if AI is ready to use (either fully ready or in degraded mode)
  */
 export function isAIReady(node: AIReadinessNode): boolean {
+  // P0 FIX 2025-12-10: Guard against null/undefined node
+  if (!node || !node.state) {
+    return false;
+  }
   return node.state === 'AI_READY' || node.state === 'AI_DEGRADED';
 }
 
 /**
  * Map AI readiness state to a UI variant for rendering
+ * P0 FIX 2025-12-10: Added null guard to prevent crash if node is undefined
  */
 export function getAIUIVariant(node: AIReadinessNode): AIUIVariant {
+  // Guard against null/undefined node
+  if (!node || !node.state) {
+    return 'loading';
+  }
   switch (node.state) {
     case 'UNINITIALIZED':
     case 'SESSION_CHECKING':

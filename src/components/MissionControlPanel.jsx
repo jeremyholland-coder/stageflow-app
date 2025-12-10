@@ -547,7 +547,9 @@ export const MissionControlPanel = ({
     const dayOfYear = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
 
     // Calculate revenue from won deals
-    const wonDeals = deals.filter(d => d.status === 'won' || d.stage === 'closed_won');
+    // P0 FIX 2025-12-10: Guard against null deals (default = [] only handles undefined)
+    const safeDeals = deals || [];
+    const wonDeals = safeDeals.filter(d => d.status === 'won' || d.stage === 'closed_won');
 
     const revenueThisMonth = wonDeals
       .filter(d => {
