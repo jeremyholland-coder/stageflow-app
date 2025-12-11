@@ -381,7 +381,6 @@ export default async (req: Request, context: Context) => {
       });
     }
 
-    // Fetch deals (with column fallback for expected_close_date)
     // Deals fetch with robust fallbacks to survive schema drift
     let deals;
     let dealsError;
