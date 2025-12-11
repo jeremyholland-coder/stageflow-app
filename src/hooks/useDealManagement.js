@@ -966,6 +966,10 @@ export const useDealManagement = (user, organization, addNotification) => {
       } else if (error.userMessage) {
         // P0 FIX 2025-12-08: Use userMessage if api-client provided one
         userMessage = error.userMessage;
+      } else if (error.data?.error) {
+        // Show backend error detail (e.g., 400 validation from functions)
+        const hint = error.data?.hint;
+        userMessage = hint ? `${error.data.error} (${hint})` : error.data.error;
       } else {
         // Fallback to parsing error for network issues
         const appError = parseSupabaseError(error);

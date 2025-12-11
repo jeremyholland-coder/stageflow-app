@@ -287,11 +287,17 @@ export const NewDealModal = memo(({ isOpen, onClose, initialStage, onDealCreated
       } catch (networkError) {
         console.error('[NewDealModal] Request error:', networkError);
 
+        // Prefer server-provided message/hint so users see the real failure instead of a generic network error
+        const serverMessage = networkError?.data?.error || networkError?.data?.message || networkError?.userMessage;
+        const serverHint = networkError?.data?.hint;
+
         // FIX 2025-12-10: Distinguish session errors from network errors
         if (networkError.code === 'SESSION_ERROR' || networkError.status === 401) {
           addNotification('Your session has expired. Please refresh the page and log in again.', 'error');
         } else if (networkError.code === 'OFFLINE' || !navigator.onLine) {
           addNotification('You\'re offline. Please check your connection and try again.', 'error');
+        } else if (serverMessage) {
+          addNotification(serverHint ? `${serverMessage} (${serverHint})` : serverMessage, 'error');
         } else {
           addNotification('Connection issue. Please check your internet and try again.', 'error');
         }

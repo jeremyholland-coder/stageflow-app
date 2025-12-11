@@ -1078,6 +1078,11 @@ class MissionControlErrorBoundary extends React.Component {
               <p className="text-sm text-white/60">
                 There was an issue loading the AI panel. Try refreshing the page.
               </p>
+              {this.state.error?.message && (
+                <p className="mt-2 text-xs text-amber-200/80">
+                  Details: {this.state.error.message}
+                </p>
+              )}
             </div>
           </div>
           <button
