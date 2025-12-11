@@ -158,13 +158,27 @@ export async function getConnectedProviders(
  * Used when useCache: false is specified
  */
 async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIProvider[]> {
-  // Support both legacy is_active and current active column names.
-  // Selecting both avoids schema mismatches across environments.
-  const { data, error } = await supabase
+  // Support environments that may or may not have the legacy is_active column.
+  // Try the superset select first; if the column is missing, fall back without it.
+  const selectColumns = 'id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at, updated_at';
+
+  let data;
+  let error;
+
+  ({ data, error } = await supabase
     .from('ai_providers')
-    .select('id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at, updated_at')
+    .select(selectColumns)
     .eq('organization_id', orgId)
-    .order('created_at', { ascending: true }); // First connected = first in fallback chain
+    .order('created_at', { ascending: true }));
+
+  if (error && error.message?.includes('column ai_providers.is_active does not exist')) {
+    // Fallback for schemas without the legacy column
+    ({ data, error } = await supabase
+      .from('ai_providers')
+      .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at, updated_at')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: true }));
+  }
 
   if (error) {
     throw new ProviderFetchError(`Database error: ${error.message}`, 'DB_ERROR');
