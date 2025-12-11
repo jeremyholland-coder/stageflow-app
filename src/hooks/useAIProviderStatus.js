@@ -102,13 +102,19 @@ export function useAIProviderStatus(user, organization, options = {}) {
         const age = Date.now() - timestamp;
 
         if (age < cacheTTL) {
-          // Cache hit! Skip DB query entirely
-          setHasProvider(cachedValue);
-          setChecking(false);
-          // M1 HARDENING: Mark as loaded from cache (no fetch error)
-          setProvidersLoaded(true);
-          setProviderFetchError(null);
-          return;
+          // FIX 2025-12-11: Only trust cache if hasProvider is TRUE
+          // If cached value is FALSE, always re-check (provider may have been added)
+          // This prevents stale "no provider" state from blocking users
+          if (cachedValue === true) {
+            // Cache hit with positive value - trust it
+            setHasProvider(true);
+            setChecking(false);
+            setProvidersLoaded(true);
+            setProviderFetchError(null);
+            return;
+          }
+          // cachedValue is false - fall through to re-check backend
+          console.debug('[useAIProviderStatus] Cached hasProvider=false, re-checking backend');
         }
       } catch (err) {
         // Corrupted cache - ignore and fetch fresh
