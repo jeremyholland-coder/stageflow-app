@@ -1094,6 +1094,18 @@ export const useDealManagement = (user, organization, addNotification) => {
   const queueDealUpdate = useCallback((dealId, updates) => {
     if (!dealId || !updates) return;
 
+    // Optimistic local update for immediate UI feedback (drag/drop, assign, etc.)
+    setDeals(prevDeals =>
+      prevDeals.filter(d => d != null).map(d => {
+        if (d.id !== dealId) return d;
+        return {
+          ...d,
+          ...updates,
+          last_activity: new Date().toISOString()
+        };
+      })
+    );
+
     // Add to FIFO queue with timestamp for ordering
     updateQueueRef.current.push({
       dealId,

@@ -960,8 +960,14 @@ export const KanbanColumn = memo(({
           console.log('[KANBAN][DROP] → Opening status change confirmation modal');
           onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
         } else {
-          console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
-          const ok = await onUpdateDeal(dealId, { stage: stage.id });
+          // Use queue for higher resilience; fall back to direct update
+          console.log('[KANBAN][DROP] → Calling deal update with stage:', stage.id);
+          let ok = true;
+          if (onQueueDealUpdate) {
+            onQueueDealUpdate(dealId, { stage: stage.id });
+          } else if (onUpdateDeal) {
+            ok = await onUpdateDeal(dealId, { stage: stage.id });
+          }
           if (!ok) {
             setFailedMoves(prev => {
               const next = new Set(prev);
@@ -1003,7 +1009,12 @@ export const KanbanColumn = memo(({
 
   // Inline retry handler for failed moves
   const retryMove = useCallback(async (dealId, targetStageId) => {
-    const ok = await onUpdateDeal(dealId, { stage: targetStageId });
+    let ok = true;
+    if (onQueueDealUpdate) {
+      onQueueDealUpdate(dealId, { stage: targetStageId });
+    } else if (onUpdateDeal) {
+      ok = await onUpdateDeal(dealId, { stage: targetStageId });
+    }
     if (ok) {
       setFailedMoves(prev => {
         if (!prev.has(dealId)) return prev;
@@ -1015,7 +1026,7 @@ export const KanbanColumn = memo(({
     } else {
       addNotification('Retry failed. Please refresh and try again.', 'error');
     }
-  }, [onUpdateDeal, addNotification]);
+  }, [onQueueDealUpdate, onUpdateDeal, addNotification]);
 
   // MOBILE FIX: Add touch drop event listener
   useEffect(() => {
@@ -1202,6 +1213,7 @@ export const KanbanBoard = memo(({
   deals = [], // FIX 2025-12-07: Default to empty array to prevent crash if undefined
   filterStatus,
   onUpdateDeal,
+  onQueueDealUpdate = null,
   onDealCreated,
   onDealSelected,
   pipelineStages = [],

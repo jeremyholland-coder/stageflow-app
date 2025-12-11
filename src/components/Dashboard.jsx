@@ -229,6 +229,7 @@ export const Dashboard = () => {
     isDragLocked,
     fetchDeals,
     updateDeal,
+    queueDealUpdate,
     handleDealCreated,
     handleDealUpdated,
     handleDealDeleted
@@ -919,6 +920,7 @@ export const Dashboard = () => {
                   deals={filteredDeals}
                   filterStatus={filterStatus}
                   onUpdateDeal={updateDeal}
+                  onQueueDealUpdate={queueDealUpdate}
                   onDealCreated={handleDealCreated}
                   onDealSelected={setSelectedDeal}
                   pipelineStages={pipelineStages}

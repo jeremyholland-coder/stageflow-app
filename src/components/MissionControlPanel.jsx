@@ -558,6 +558,27 @@ export const MissionControlPanel = ({
     lastUpdated: revenueLastUpdated,
   } = useRevenueHealth(user, organization, hasAIProviderProp);
 
+  // Defensive normalization to prevent null projection shape crashes
+  const safeRevenueProjection = useMemo(() => {
+    if (!revenueProjection || typeof revenueProjection !== 'object') {
+      return {
+        month_pct_to_goal: null,
+        quarter_pct_to_goal: null,
+        year_pct_to_goal: null,
+        pace_month: null,
+        risk_flags: []
+      };
+    }
+    return {
+      ...revenueProjection,
+      month_pct_to_goal: revenueProjection.month_pct_to_goal ?? null,
+      quarter_pct_to_goal: revenueProjection.quarter_pct_to_goal ?? null,
+      year_pct_to_goal: revenueProjection.year_pct_to_goal ?? null,
+      pace_month: revenueProjection.pace_month ?? null,
+      risk_flags: Array.isArray(revenueProjection.risk_flags) ? revenueProjection.risk_flags : []
+    };
+  }, [revenueProjection]);
+
   // Performance data
   const performanceData = useMemo(() => {
     const now = new Date();
@@ -859,7 +880,7 @@ export const MissionControlPanel = ({
 
               {/* REVENUE AGENT 2025-12-10: Revenue Coach Strip - proactive AI insights */}
               <RevenueCoachStrip
-                projection={revenueProjection}
+                projection={safeRevenueProjection}
                 coach={revenueCoach}
                 loading={revenueLoading}
                 error={revenueError}
