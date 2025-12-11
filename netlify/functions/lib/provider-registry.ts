@@ -158,24 +158,24 @@ export async function getConnectedProviders(
  * Used when useCache: false is specified
  */
 async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIProvider[]> {
-  // Support environments that may or may not have the legacy is_active column.
-  // Try the superset select first; if the column is missing, fall back without it.
-  const selectColumns = 'id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at, updated_at';
+  // Support environments that may or may not have legacy columns (is_active, updated_at).
+  // We keep the select minimal to avoid schema drift errors.
+  const baseSelect = 'id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at';
 
   let data;
   let error;
 
   ({ data, error } = await supabase
     .from('ai_providers')
-    .select(selectColumns)
+    .select(baseSelect)
     .eq('organization_id', orgId)
     .order('created_at', { ascending: true }));
 
-  if (error && error.message?.includes('column ai_providers.is_active does not exist')) {
+  if (error && (error.message?.includes('is_active') || error.message?.includes('updated_at'))) {
     // Fallback for schemas without the legacy column
     ({ data, error } = await supabase
       .from('ai_providers')
-      .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at, updated_at')
+      .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: true }));
   }
