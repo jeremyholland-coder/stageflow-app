@@ -381,12 +381,24 @@ export default async (req: Request, context: Context) => {
       });
     }
 
-    // Fetch deals
-    const { data: deals, error: dealsError } = await supabase
+    // Fetch deals (with column fallback for expected_close_date)
+    let deals;
+    let dealsError;
+    ({ data: deals, error: dealsError } = await supabase
       .from('deals')
-      .select('id, value, stage, status, expected_close, created_at, updated_at, last_activity, confidence, assigned_to')
+      .select('id, value, stage, status, expected_close, expected_close_date, created_at, updated_at, last_activity, confidence, assigned_to')
       .eq('organization_id', organization_id)
-      .is('deleted_at', null);
+      .is('deleted_at', null));
+
+    // Fallback if legacy column name causes error
+    if (dealsError) {
+      console.warn('[ai-revenue-health] Deals fetch error (primary select) - retrying without expected_close:', dealsError.message);
+      ({ data: deals, error: dealsError } = await supabase
+        .from('deals')
+        .select('id, value, stage, status, expected_close_date, created_at, updated_at, last_activity, confidence, assigned_to')
+        .eq('organization_id', organization_id)
+        .is('deleted_at', null));
+    }
 
     if (dealsError) {
       console.error('[ai-revenue-health] Deals fetch error:', dealsError);
@@ -433,7 +445,8 @@ export default async (req: Request, context: Context) => {
       value: d.value,
       stage: d.stage,
       status: d.status,
-      expected_close_date: d.expected_close,
+      // Normalize legacy/modern close date columns
+      expected_close_date: d.expected_close_date || d.expected_close || null,
       created_at: d.created_at,
       updated_at: d.updated_at,
       last_activity: d.last_activity,
