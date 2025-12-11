@@ -241,7 +241,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
         const age = Date.now() - timestamp;
 
         // Show cached data immediately
-        setProjection(data.projection);
+        setProjection(normalizeProjection(data.projection));
         setCoach(data.coach);
         setLastUpdated(new Date(timestamp));
         setLoading(false);
@@ -304,6 +304,10 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
     quarterPctToGoal: projection?.quarter_pct_to_goal ?? null,
     yearPctToGoal: projection?.year_pct_to_goal ?? null,
     riskFlags: projection?.risk_flags ?? [],
-    isOnTrack: projection?.pace_month !== null ? projection.pace_month >= 0.9 : null,
+    // Guard pace_month access to avoid crashes when projection is undefined
+    isOnTrack: (() => {
+      const pace = projection?.pace_month ?? null;
+      return pace === null ? null : pace >= 0.9;
+    })(),
   };
 }
