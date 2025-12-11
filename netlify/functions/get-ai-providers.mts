@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
 // ENGINE REBUILD Phase 5: Centralized CORS config
 import { buildCorsHeaders } from './lib/cors';
+import { getConnectedProviders } from './lib/provider-registry';
 
 /**
  * GET AI PROVIDERS ENDPOINT
@@ -111,32 +112,16 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // Fetch AI providers for the organization
-    const { data: providers, error: fetchError } = await supabase
-      .from('ai_providers')
-      .select('id, provider_type, display_name, model, active, created_at, api_key_encrypted')
-      .eq('organization_id', organizationId)
-      .eq('active', true)
-      .order('created_at', { ascending: false });
+    // Fetch AI providers via centralized registry (filters unsupported types + missing keys)
+    const { providers: filteredProviders, fetchError, errorMessage } = await getConnectedProviders(supabase, organizationId, { useCache: true });
 
     if (fetchError) {
-      console.error('[get-ai-providers] Failed to fetch providers:', fetchError);
+      console.error('[get-ai-providers] Failed to fetch providers:', errorMessage);
       return new Response(
-        JSON.stringify({ error: 'Failed to fetch AI providers', details: fetchError.message }),
-        { status: 500, headers }
+        JSON.stringify({ error: 'Failed to fetch AI providers', details: errorMessage }),
+        { status: 503, headers }
       );
     }
-
-    // SAFETY GUARD: Only allow known providers (prevents zombie entries from DB) and require a stored key
-    const allowedProviders = ['openai', 'anthropic', 'google'];
-    const filteredProviders = (providers || []).filter(
-      (p: any) => allowedProviders.includes(p.provider_type) && !!p.api_key_encrypted
-    );
-
-    console.log('[get-ai-providers] Found providers:', {
-      count: filteredProviders.length,
-      types: filteredProviders.map((p: any) => p.provider_type)
-    });
 
     return new Response(
       JSON.stringify({

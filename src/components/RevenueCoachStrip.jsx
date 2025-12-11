@@ -41,7 +41,7 @@ export const RevenueCoachStrip = ({
       };
     }
 
-    const { pace_month, risk_flags = [] } = projection;
+    const { pace_month = null, risk_flags = [] } = projection || {};
     const coachRiskLevel = coach?.risk_level;
 
     // Determine overall status
@@ -120,7 +120,7 @@ export const RevenueCoachStrip = ({
     // Fallback: Generate summary from projection
     if (!projection) return null;
 
-    const { month_pct_to_goal, pace_month, risk_flags = [] } = projection;
+    const { month_pct_to_goal = null, pace_month = null, risk_flags = [] } = projection || {};
 
     if (month_pct_to_goal === null) {
       return 'Set revenue goals to unlock AI-powered coaching insights.';
