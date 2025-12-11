@@ -20,21 +20,22 @@ import { getProvidersWithCache, ProviderFetchError } from './provider-cache';
 // [StageFlow][AI][DIAGNOSTICS] COLD-START ENVIRONMENT CHECK
 // This runs ONCE when the module loads to verify environment config
 // ============================================================================
-if (process.env.NODE_ENV !== 'production' || process.env.AI_PROVIDER_DIAGNOSTICS === 'true') {
-  console.log("[StageFlow][AI][DIAGNOSTICS][provider-registry]", {
-    // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
-    // These checks confirm they're NOT being read from env (which is correct)
-    OPENAI_KEY_PRESENT: !!process.env.OPENAI_API_KEY,       // Should be FALSE
-    ANTHROPIC_KEY_PRESENT: !!process.env.ANTHROPIC_API_KEY, // Should be FALSE
-    GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
-    // These are the ACTUAL required env vars for AI functionality:
-    ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
-    SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
-    SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    NODE_ENV: process.env.NODE_ENV,
-    BUILD_TIMESTAMP: new Date().toISOString()
-  });
-}
+  if (process.env.NODE_ENV !== 'production' || process.env.AI_PROVIDER_DIAGNOSTICS === 'true') {
+    console.log("[StageFlow][AI][DIAGNOSTICS][provider-registry]", {
+      // NOTE: AI provider keys are NOT env vars - they're stored encrypted in DB
+      // These checks confirm they're NOT being read from env (which is correct)
+      OPENAI_KEY_PRESENT: !!process.env.OPENAI_API_KEY,       // Should be FALSE
+      ANTHROPIC_KEY_PRESENT: !!process.env.ANTHROPIC_API_KEY, // Should be FALSE
+      GEMINI_KEY_PRESENT: !!process.env.GEMINI_API_KEY,       // Should be FALSE
+      // These are the ACTUAL required env vars for AI functionality:
+      ENCRYPTION_KEY_PRESENT: !!process.env.ENCRYPTION_KEY,   // CRITICAL - must be TRUE
+      SUPABASE_URL_PRESENT: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
+      SUPABASE_SERVICE_KEY_PRESENT: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SUPABASE_ANON_PRESENT: !!(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY),
+      NODE_ENV: process.env.NODE_ENV,
+      BUILD_TIMESTAMP: new Date().toISOString()
+    });
+  }
 
 /**
  * ALLOWED_PROVIDERS: The only supported AI provider types
