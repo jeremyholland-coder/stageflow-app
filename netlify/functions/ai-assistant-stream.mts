@@ -133,7 +133,6 @@ function getModelTier(modelName: string | null): number {
 }
 
 // PHASE 3: Task-specific model preferences (mirrors ai-assistant.mts)
-// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
   'chart_insight': { 'openai': 3, 'anthropic': 3, 'google': 2 },
   'coaching': { 'anthropic': 3, 'openai': 2, 'google': 2 },
@@ -697,9 +696,8 @@ export default async (req: Request, context: any) => {
     // PHASE 3: Determine task type for smart provider selection
     const taskType = determineTaskType(message);
 
-    // FIX 2025-12-03: Sort providers for fallback - best provider first, then others
-    // FIX 2025-12-04: Pass taskType for task-aware fallback ordering (ChatGPT → Claude → Gemini for planning)
-    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
+    // Sort providers for fallback - best provider first, then others
+    // Pass taskType for task-aware fallback ordering (ChatGPT → Claude → Gemini for planning)
     const bestProvider = selectBestProvider(runtimeProviders, taskType);
     const sortedProviders = sortProvidersForFallback(runtimeProviders, bestProvider?.provider_type, taskType);
 

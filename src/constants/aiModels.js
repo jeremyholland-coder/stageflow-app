@@ -1,7 +1,5 @@
-// FIX v1.7.62 (#5): AI Model Constants - REAL models as of November 2025
-// Removed speculative future models (GPT-5, Gemini 2.5) that don't exist yet
+// AI Model Constants - REAL models as of November 2025
 // Updated to ACTUAL available models to prevent API errors
-// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 
 export const AI_MODELS = {
   openai: [
@@ -47,7 +45,6 @@ export const AI_MODELS = {
 };
 
 // Recommended default models (PREMIUM tier - best quality)
-// FIX 2025-12-04: Only 3 providers supported
 export const DEFAULT_MODELS = {
   openai: 'gpt-4o',                         // Latest flagship
   anthropic: 'claude-sonnet-4-20250514',    // Best coding & analysis
@@ -62,7 +59,6 @@ export const ECONOMY_MODELS = {
 };
 
 // Model pricing tiers
-// FIX 2025-12-04: Removed grok-beta - xAI/Grok deprecated
 export const MODEL_TIERS = {
   premium: ['gpt-4o', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'],
   standard: ['gpt-4-turbo', 'claude-sonnet-3-7-20250219', 'gemini-1.5-flash'],

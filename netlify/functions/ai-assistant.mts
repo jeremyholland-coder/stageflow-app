@@ -1142,7 +1142,6 @@ ${context.adaptationSnippet || ''}
 
 
 // Model tier definitions (premium = 3, standard = 2, economy = 1)
-// FIX 2025-12-04: Removed xAI/Grok models - deprecated provider
 const MODEL_TIERS: { [key: string]: number } = {
   // OpenAI Premium
   'gpt-5': 3,
@@ -1169,7 +1168,6 @@ const MODEL_TIERS: { [key: string]: number } = {
 // PHASE 18: Task-specific model preferences (ENHANCED)
 // Higher score = better fit for the task type
 // Priority: ChatGPT for RevOps, Claude for coaching, Gemini for visuals
-// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 const TASK_MODEL_AFFINITY: { [taskType: string]: { [providerType: string]: number } } = {
   // Chart insights - ChatGPT excels at structured data, Gemini for visualization
   'chart_insight': {
@@ -1801,7 +1799,6 @@ export default async (req: Request, context: any) => {
     const taskType = determineTaskType(message);
 
     // Select provider: prefer specified, fallback to best available (highest tier + task affinity)
-    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
     let selectedProvider;
     if (preferredProvider) {
       const preferred = runtimeProviders.find((p: any) => p.provider_type === preferredProvider);
@@ -1837,8 +1834,7 @@ export default async (req: Request, context: any) => {
 
     // AI FALLBACK: Use standardized fallback chain (openai → anthropic → google)
     // This ensures consistent failover behavior across all AI operations
-    // FIX 2025-12-04: Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini for planning)
-    // FIX 2025-12-04: Use runtimeProviders (xAI/Grok filtered out)
+    // Pass taskType for task-aware ordering (ChatGPT → Claude → Gemini for planning)
     const fallbackResult = await runWithFallback(
       'mission-control',
       runtimeProviders,

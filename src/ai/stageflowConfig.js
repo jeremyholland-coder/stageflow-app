@@ -188,7 +188,6 @@ export function formatPercentage(value) {
  *
  * PHASE 18: Updated to prioritize ChatGPT (best all-arounder for RevOps)
  * followed by Claude (best coaching), Gemini (strong fallback)
- * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini'];
 
@@ -199,7 +198,6 @@ export const PROVIDER_FALLBACK_ORDER = ['gpt4o', 'claude', 'gemini'];
  * - ChatGPT (GPT-4o): Best for RevOps analysis, planning, structured tasks
  * - Claude: Best for coaching, insights, long-context understanding
  * - Gemini: Strong fallback, good analytics
- * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const TASK_PROVIDER_CHAINS = {
   // Image/chart/visual generation - Gemini excels
@@ -223,7 +221,6 @@ export const TASK_PROVIDER_CHAINS = {
 /**
  * Provider ID mapping to display names
  * Used for user-friendly messages when showing which provider was used
- * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const PROVIDER_DISPLAY_NAMES = {
   'anthropic': 'Claude',
@@ -251,7 +248,6 @@ export const PROVIDER_ERROR_PATTERNS = [
 /**
  * Map provider_type values to internal fallback IDs
  * The ai_providers table uses 'openai' for ChatGPT, etc.
- * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const PROVIDER_TYPE_TO_FALLBACK_ID = {
   'openai': 'gpt4o',
@@ -261,7 +257,6 @@ export const PROVIDER_TYPE_TO_FALLBACK_ID = {
 
 /**
  * Map fallback IDs back to provider_type for API calls
- * FIX 2025-12-04: Removed Grok/xAI - deprecated provider
  */
 export const FALLBACK_ID_TO_PROVIDER_TYPE = {
   'gpt4o': 'openai',

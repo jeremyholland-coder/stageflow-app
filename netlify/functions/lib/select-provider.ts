@@ -45,8 +45,6 @@ export type TaskType =
  * This means:
  * - Task affinity is the PRIMARY factor (not tie-breaker)
  * - Earlier connections (lower connection_order) win ties
- *
- * FIX 2025-12-04: Removed xAI/Grok - only 3 providers supported
  */
 const TASK_MODEL_AFFINITY: Record<TaskType, Record<ProviderType, number>> = {
   // Coaching: Claude excels at nuanced, empathetic responses
@@ -96,7 +94,6 @@ const TASK_MODEL_AFFINITY: Record<TaskType, Record<ProviderType, number>> = {
 /**
  * Model tier definitions for secondary scoring
  * Premium = 3, Standard = 2, Economy = 1, Unknown = 0
- * FIX 2025-12-04: Removed xAI/Grok models - deprecated provider
  */
 const MODEL_TIERS: Record<string, number> = {
   // OpenAI

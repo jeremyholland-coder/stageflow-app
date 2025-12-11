@@ -127,10 +127,10 @@ export default async (req: Request, context: Context) => {
       );
     }
 
-    // SAFETY GUARD: Only allow known providers (prevents zombie entries from DB)
+    // SAFETY GUARD: Only allow known providers (prevents zombie entries from DB) and require a stored key
     const allowedProviders = ['openai', 'anthropic', 'google'];
     const filteredProviders = (providers || []).filter(
-      (p: any) => allowedProviders.includes(p.provider_type)
+      (p: any) => allowedProviders.includes(p.provider_type) && !!p.api_key_encrypted
     );
 
     console.log('[get-ai-providers] Found providers:', {

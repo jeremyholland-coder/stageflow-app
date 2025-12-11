@@ -51,7 +51,6 @@ export const LLMQuerySchema = z.object({
 
 // AI Provider schema
 export const AIProviderSchema = z.object({
-  // FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
   provider_type: z.enum(['openai', 'anthropic', 'google']),
   api_key: z.string().min(1, 'API key required'),
   display_name: z.string().max(255, 'Display name too long').optional()

@@ -27,7 +27,6 @@ const GeminiLogo = () => (
 );
 
 // AI Provider configurations
-// FIX 2025-12-04: Removed Grok/xAI - deprecated provider
 const AI_PROVIDERS = [
   {
     id: 'openai',
@@ -490,8 +489,6 @@ const AddProviderModal = ({ provider, onClose, onSuccess }) => {
         // Google AI Studio keys: AIza prefix + base62 chars
         // Length can vary, but typically 39-40 chars total
         return trimmed.startsWith('AIza') && trimmed.length >= 35;
-
-      // FIX 2025-12-04: Removed xAI/Grok validation - deprecated provider
 
       default:
         // Generic fallback: any non-empty string with reasonable length

@@ -90,7 +90,6 @@ const getProviderConfig = (providerName: string, encryptedKey: string, modelName
         tokensUsed: data?.usageMetadata?.totalTokenCount || 0
       })
     }
-    // FIX 2025-12-04: Removed xAI/Grok - deprecated provider
   };
 
   return providers[providerName] || null;
@@ -352,7 +351,6 @@ export default async (req: Request, context: Context) => {
     if (!responseText || responseText === 'No response') {
       console.error('All LLM providers failed:', lastError);
       const providerNames = providers.map(p => {
-        // FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
         const configs: Record<string, string> = { openai: 'ChatGPT', anthropic: 'Claude', google: 'Gemini' };
         return configs[p.provider_type] || p.provider_type;
       }).join(', ');

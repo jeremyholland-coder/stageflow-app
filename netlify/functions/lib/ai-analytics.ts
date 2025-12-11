@@ -732,7 +732,7 @@ export function determineTaskType(message: string, quickActionId?: string): Task
 
   // Message-based classification (fallback heuristics)
 
-  // Image/visual request detection → image_suitable (Grok/Gemini primary)
+  // Image/visual request detection → image_suitable (Gemini primary)
   const imageKeywords = [
     'image', 'graphic', 'slide', 'deck', 'presentation',
     'visual summary', 'infographic', 'diagram', 'picture'

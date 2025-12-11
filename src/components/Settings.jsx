@@ -46,7 +46,6 @@ const GeminiLogo = () => (
 );
 
 // AI Provider configuration mapping
-// FIX 2025-12-04: Removed Grok/xAI - deprecated provider
 const PROVIDER_CONFIGS = {
   'openai': { Logo: OpenAILogo, color: '#10A37F', displayName: 'ChatGPT' },
   'anthropic': { Logo: ClaudeLogo, color: '#D97757', displayName: 'Claude' },

@@ -22,7 +22,6 @@ import { trackAIFallback, trackTelemetryEvent, TelemetryEvents } from './telemet
 
 // DEPRECATED: This constant is kept for backwards compatibility only.
 // New code should use buildFallbackChain from lib/select-provider.ts
-// FIX 2025-12-04: Only 3 providers (removed xAI/Grok)
 export const PROVIDER_FALLBACK_ORDER = ['openai', 'anthropic', 'google'] as const;
 export type ProviderType = typeof PROVIDER_FALLBACK_ORDER[number];
 
@@ -96,10 +95,9 @@ export const SOFT_FAILURE_PATTERNS = [
   "i'm having trouble"
 ] as const;
 
-// FIX 2025-12-04: Task-aware fallback order affinity scores
+// Task-aware fallback order affinity scores
 // For planning tasks: ChatGPT(5) → Claude(4) → Gemini(2)
 // Higher score = tried earlier in fallback chain
-// FIX 2025-12-04: Removed xAI/Grok - only 3 providers supported
 export const TASK_FALLBACK_AFFINITY: Record<string, Record<ProviderType, number>> = {
   planning: { openai: 5, anthropic: 4, google: 2 },
   coaching: { anthropic: 5, openai: 3, google: 2 },

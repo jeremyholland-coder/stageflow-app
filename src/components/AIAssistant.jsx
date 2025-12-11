@@ -13,7 +13,6 @@ import { useFocusTrap, useAnnounce } from '../lib/accessibility';
 import { useWiredAIReadiness } from '../ai/useAIReadiness';
 
 // P0 FIX: Allowed provider types - matches backend filtering
-// Belt-and-suspenders guard against zombie providers (e.g., deprecated xAI/Grok)
 const ALLOWED_PROVIDER_TYPES = ['openai', 'anthropic', 'google'];
 
 // 4-Star AI Icon Component
@@ -114,7 +113,6 @@ export const AIAssistant = ({ deals = [] }) => {
       }
 
       // P0 FIX: Filter to allowed provider types (belt-and-suspenders)
-      // Prevents showing zombie providers (e.g., deprecated xAI/Grok)
       const rawProviders = result.providers || [];
       const filteredProviders = rawProviders.filter(p =>
         ALLOWED_PROVIDER_TYPES.includes(p.provider_type)
@@ -378,7 +376,6 @@ export const AIAssistant = ({ deals = [] }) => {
   };
 
   const getProviderDisplayName = (providerType) => {
-    // FIX 2025-12-04: Removed Grok/xAI - deprecated provider
     const names = {
       'openai': 'ChatGPT',
       'anthropic': 'Claude',

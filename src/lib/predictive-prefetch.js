@@ -107,7 +107,11 @@ const PREFETCH_STRATEGIES = {
     logger.log('[Prefetch] Loading settings data...');
 
     const [aiProviders, membership] = await Promise.all([
-      supabase.from('ai_providers').select('*').eq('organization_id', organizationId),
+      supabase
+        .from('ai_providers')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .in('provider_type', ['openai', 'anthropic', 'google']),
       supabase.from('team_members').select('*').eq('user_id', userId),
     ]);
 
@@ -120,7 +124,8 @@ const PREFETCH_STRATEGIES = {
     const aiProviders = await supabase
       .from('ai_providers')
       .select('*')
-      .eq('organization_id', organizationId);
+      .eq('organization_id', organizationId)
+      .in('provider_type', ['openai', 'anthropic', 'google']);
 
     return { aiProviders: aiProviders.data };
   },

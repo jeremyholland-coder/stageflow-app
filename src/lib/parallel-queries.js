@@ -121,7 +121,8 @@ export async function fetchSettingsData(organizationId, userId) {
         .from('ai_providers')
         .select('*')
         .eq('organization_id', organizationId)
-        .eq('active', true),
+        .eq('active', true)
+        .in('provider_type', ['openai', 'anthropic', 'google']),
 
       // Usage statistics
       supabase

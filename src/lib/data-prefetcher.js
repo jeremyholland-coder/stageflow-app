@@ -95,7 +95,8 @@ class DataPrefetcher {
         .from('ai_providers')
         .select('*')
         .eq('organization_id', orgId)
-        .eq('active', true); // Fixed: ai_providers doesn't have user_id column, filter by active instead
+        .eq('active', true)
+        .in('provider_type', ['openai', 'anthropic', 'google']);
 
       if (!error) {
         this.markPrefetched(cacheKey, 'aiProviders');

@@ -59,8 +59,6 @@ async function verifyAIKey(providerType: string, apiKey: string): Promise<{ veri
         testHeaders = { 'Content-Type': 'application/json' };
         break;
 
-      // FIX 2025-12-04: Removed xAI/Grok case - deprecated provider
-
       default:
         // Unknown provider - skip verification
         return { verified: true };
@@ -260,8 +258,6 @@ export default async (req: Request, context: Context) => {
           // Google AI Studio keys: AIza prefix + base62 chars
           // Length can vary, but typically 39-40 chars total
           return trimmed.startsWith('AIza') && trimmed.length >= 35;
-
-        // FIX 2025-12-04: Removed xAI/Grok validation - deprecated provider
 
         default:
           // Generic fallback: any non-empty string with reasonable length

@@ -1,6 +1,5 @@
 // LLM Provider Configuration - Production Ready
 // Last Updated: December 4, 2025
-// FIX 2025-12-04: Removed xAI/Grok - deprecated provider
 
 export const LLM_PROVIDERS = {
   openai: {

@@ -135,10 +135,7 @@ async function callGemini(apiKey: string, prompt: string, model?: string): Promi
   return data.candidates[0].content.parts[0].text;
 }
 
-// FIX 2025-12-04: Removed callGrok - xAI/Grok deprecated
-
 // Route to appropriate provider
-// FIX 2025-12-04: Only 3 providers supported (removed xAI/Grok)
 async function callProvider(provider: ConnectedProvider, apiKey: string, prompt: string): Promise<string> {
   switch (provider.provider_type) {
     case 'openai':
