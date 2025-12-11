@@ -673,7 +673,7 @@ const WebhooksTab = () => {
             <label className="block text-sm font-medium text-white mb-2">
               Events *
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {API_EVENTS.map(event => (
                 <label key={event} className="flex items-center gap-2 p-2 border border-gray-700 bg-gray-800/30 rounded cursor-pointer hover:bg-gray-800 text-white transition-all duration-200">
                   <input

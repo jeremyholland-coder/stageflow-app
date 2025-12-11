@@ -195,7 +195,7 @@ export const DealAnalyticsChart = ({ data, type, title }) => {
         return (
           <div className="space-y-4">
             {/* Summary Stats - Enhanced with gradients and shadows */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-gradient-to-br from-green-500/10 to-green-600/5 rounded-lg p-3 border border-green-500/30 shadow-lg shadow-green-500/10">
                 <p className="text-xs text-gray-400 mb-1">Added</p>
                 <p className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">{summaryStats.totalAdded}</p>
@@ -464,7 +464,7 @@ export const DealAnalyticsChart = ({ data, type, title }) => {
         return (
           <div className="space-y-4">
             {/* Deal Size Breakdown */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {data.map((item, index) => (
                 <div
                   key={item.segment}

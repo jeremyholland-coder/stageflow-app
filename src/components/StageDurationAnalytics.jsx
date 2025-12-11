@@ -163,7 +163,7 @@ export const StageDurationAnalytics = () => {
         </div>
         <div className="animate-pulse space-y-4">
           <div className="h-32 bg-gray-800/50 rounded-xl"></div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="h-24 bg-gray-800/50 rounded-xl"></div>
             <div className="h-24 bg-gray-800/50 rounded-xl"></div>
             <div className="h-24 bg-gray-800/50 rounded-xl"></div>
@@ -233,7 +233,7 @@ export const StageDurationAnalytics = () => {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-800/50 border border-gray-700 rounded-xl">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 p-4 bg-gray-800/50 border border-gray-700 rounded-xl">
         <div>
           <p className="text-xs text-gray-400 mb-1">
             Overall Average

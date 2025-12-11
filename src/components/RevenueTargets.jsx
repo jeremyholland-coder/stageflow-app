@@ -283,7 +283,7 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
       <div className="space-y-6">
         <div className="p-6 bg-gradient-to-br from-[#1ABC9C]/10 to-[#16A085]/10 rounded-xl border border-[#1ABC9C]/20">
           <h3 className="text-lg font-semibold text-[#1A1A1A] dark:text-[#E0E0E0] mb-4">Your Revenue Targets</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {myTarget.annual_target && (
               <div>
                 <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mb-1">Annual</p>
@@ -344,7 +344,7 @@ export const RevenueTargets = ({ organization, userRole, addNotification }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="block text-sm font-medium text-[#6B7280] dark:text-[#9CA3AF] mb-2">
               <Calendar className="w-4 h-4 inline mr-1" />

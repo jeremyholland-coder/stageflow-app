@@ -865,7 +865,7 @@ export const TeamDashboard = () => {
   const canDistribute = (parseFloat(editedOrgAnnual) || 0) > 0 && (analyticsData?.members?.length || 0) > 0;
 
   return (
-    <div className="p-6 space-y-6 min-h-screen">
+    <div className="p-4 sm:p-6 space-y-6 min-h-screen">
       {/* Header */}
       <div>
         <h1 className="text-title-1 text-white tracking-tight mb-2">
@@ -893,7 +893,7 @@ export const TeamDashboard = () => {
           {/* TASK 2A: Removed explicit Edit button - targets are always editable for admins with auto-save */}
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="p-4 bg-white/[0.02] rounded-xl text-center">
             <p className="text-xs text-white/50 mb-1">Monthly</p>
             <p className="text-xl font-bold text-white">
@@ -1282,7 +1282,7 @@ export const TeamDashboard = () => {
 
                     {/* TASK 2A: Always show editable inputs for admins with auto-save */}
                     {isAdmin ? (
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         <div>
                           <label className="text-xs text-white/40 mb-1 block">Monthly</label>
                           <input
@@ -1315,7 +1315,7 @@ export const TeamDashboard = () => {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="p-2 bg-white/[0.02] rounded-lg text-center">
                           <p className="text-xs text-white/40 mb-0.5">Monthly</p>
                           <p className="text-sm font-medium text-white">

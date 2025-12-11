@@ -23,19 +23,19 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
     disabled={disabled}
     onClick={() => !disabled && onChange(!checked)}
     className={`
-      relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200
+      relative inline-flex h-7 w-12 items-center rounded-full px-1 transition-all duration-200
       focus:outline-none focus:ring-2 focus:ring-[#1ABC9C]/50 focus:ring-offset-2 focus:ring-offset-transparent
       ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
       ${checked
-        ? 'bg-[#1ABC9C] shadow-lg shadow-[#1ABC9C]/30'
-        : 'bg-white/10 border border-white/10'
+        ? 'bg-[#1ABC9C] shadow-lg shadow-[#1ABC9C]/25'
+        : 'bg-white/10 border border-white/15'
       }
     `}
   >
     <span
       className={`
-        inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm
-        ${checked ? 'translate-x-6' : 'translate-x-1'}
+        inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform
+        ${checked ? 'translate-x-5' : 'translate-x-0'}
       `}
     />
   </button>

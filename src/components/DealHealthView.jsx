@@ -115,7 +115,7 @@ export const DealHealthView = ({ healthAlert = null, orphanedDealIds = new Set()
   return (
     <div className="space-y-3">
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <div className="p-3 bg-[#27AE60]/10 rounded-lg">
           <div className="flex items-center gap-2 mb-1">
             <CheckCircle className="w-4 h-4 text-[#27AE60]" />

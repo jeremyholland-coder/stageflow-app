@@ -104,7 +104,7 @@ export function ChartInsightSkeleton() {
       </div>
 
       {/* Key metrics */}
-      <div className="mt-4 grid grid-cols-3 gap-4">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[1, 2, 3].map((i) => (
           <div key={i} className="space-y-1 text-center">
             <SkeletonBox className="mx-auto h-8 w-16" />

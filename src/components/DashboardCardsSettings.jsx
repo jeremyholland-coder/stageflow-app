@@ -97,13 +97,15 @@ const SortableCardItem = ({ cardId, isVisible, onToggle, disabled, isOrgDefault 
         <button
           onClick={() => onToggle(cardId)}
           disabled={disabled}
-          className={`relative w-12 h-6 rounded-full transition-all ${
-            isVisible ? 'bg-[#1ABC9C]' : 'bg-gray-300 dark:bg-gray-600'
+          role="switch"
+          aria-checked={isVisible}
+          className={`relative w-12 h-7 rounded-full px-1 transition-all ${
+            isVisible ? 'bg-[#1ABC9C] shadow-[0_2px_10px_rgba(26,188,156,0.25)]' : 'bg-gray-300 dark:bg-gray-600'
           } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
           title={isVisible ? 'Hide card' : 'Show card'}
         >
-          <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-            isVisible ? 'translate-x-6' : 'translate-x-0'
+          <div className={`absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+            isVisible ? 'translate-x-5' : 'translate-x-0'
           }`} />
         </button>
       )}

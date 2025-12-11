@@ -251,7 +251,7 @@ const TeamPerformanceDashboard = ({ organization }) => {
                   </div>
 
                   {/* Additional Stats */}
-                  <div className="mt-4 pt-4 border-t border-[#E5E7EB] dark:border-[#374151] grid grid-cols-3 gap-4 text-center text-sm">
+                  <div className="mt-4 pt-4 border-t border-[#E5E7EB] dark:border-[#374151] grid grid-cols-1 sm:grid-cols-3 gap-4 text-center text-sm">
                     <div>
                       <div className="font-semibold text-green-600 dark:text-green-400">
                         {member.won_deals}

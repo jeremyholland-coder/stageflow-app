@@ -121,17 +121,25 @@ const SectionTitle = ({ children, icon: Icon }) => (
 );
 
 const Toggle = ({ checked, onChange, disabled = false, saving = false }) => (
-  <label className={`relative inline-block w-10 h-6 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-    <input
-      type="checkbox"
-      className="sr-only peer"
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-      disabled={disabled || saving}
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    disabled={disabled || saving}
+    onClick={() => !disabled && !saving && onChange(!checked)}
+    className={`
+      relative inline-flex h-7 w-12 items-center rounded-full px-1 transition-all duration-200
+      ${checked ? 'bg-teal-500 shadow-[0_2px_10px_rgba(26,188,156,0.25)]' : 'bg-gray-700'}
+      ${disabled || saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-600'}
+    `}
+  >
+    <span
+      className={`
+        h-5 w-5 rounded-full bg-white shadow-sm transition-transform
+        ${checked ? 'translate-x-5' : 'translate-x-0'}
+      `}
     />
-    <div className="w-full h-full bg-gray-700 rounded-full peer-checked:bg-teal-500 transition"></div>
-    <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition peer-checked:translate-x-4"></div>
-  </label>
+  </button>
 );
 
 export const Settings = () => {
@@ -907,7 +915,7 @@ export const Settings = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 pt-4 border-t border-teal-500/20">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-teal-500/20">
                     <div>
                       <p className="text-2xl font-bold text-teal-400">{pipelineHealth.validDeals}</p>
                       <p className="text-xs text-gray-300">Valid Deals</p>

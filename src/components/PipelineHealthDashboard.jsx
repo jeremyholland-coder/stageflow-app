@@ -241,7 +241,7 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
       </div>
       
       {/* Summary - Horizontal */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-white/10 rounded-lg p-4">
           <p className="text-white/80 text-xs mb-1">Overall Average</p>
           <p className="text-3xl font-bold">{summary.avgDuration}d</p>
@@ -257,7 +257,7 @@ export const PipelineHealthDashboard = ({ deals = [], pipelineStages = [], onUpd
       </div>
       
       {/* Stage Grid - Compact */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {stageMetrics.map((stage) => (
           <div
             key={stage.stage}
