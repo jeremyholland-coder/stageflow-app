@@ -445,17 +445,23 @@ export const CustomQueryView = ({
   const aiAuthError = aiAuthErrorProp !== undefined ? aiAuthErrorProp : _hookAuthError;
 
   // FIX 2025-12-08: Log provider status for debugging (helps identify early-bail issues)
-  // This log only fires on initial render and when status changes
+  // P0 DIAGNOSTIC 2025-12-11: Enhanced logging to diagnose blank UI issues
   useEffect(() => {
-    console.info('[StageFlow][AI][FIX] CustomQueryView provider status', {
+    console.info('[StageFlow][AI][P0_DEBUG] CustomQueryView render state', {
       hasProviders,
       hasAIProvider,
       providersLoaded,
       providerFetchError,
       aiAuthError,
-      isOnline
+      isOnline,
+      activationState: activationState?.state,
+      planMyDayRunToday,
+      conversationHistoryLength: conversationHistory?.length ?? 0,
+      loading,
+      showPlanMyDayLoading,
+      dealsCount: deals?.length ?? 0,
     });
-  }, [hasProviders, hasAIProvider, providersLoaded, providerFetchError, aiAuthError, isOnline]);
+  }, [hasProviders, hasAIProvider, providersLoaded, providerFetchError, aiAuthError, isOnline, activationState?.state, planMyDayRunToday, conversationHistory?.length, loading, showPlanMyDayLoading, deals?.length]);
 
   // APMDOS: Get activation state for adaptive onboarding
   const activationState = useActivationState({
@@ -2035,13 +2041,20 @@ Guidelines:
                       </div>
                     </div>
                     {/* ISSUE 4 FIX: Still show Plan My Day for users with some deals, but respect daily limit */}
-                    {/* FIX 2025-12-08: Always show button when online - backend returns authoritative errors */}
-                    {isOnline && !planMyDayRunToday && (
-                      <PlanMyDayButton
-                        onClick={() => handleQuickAction('plan_my_day')}
-                        disabled={loading || isSubmitting}
-                        loading={loading && lastQuickActionRef.current === 'plan_my_day'}
-                      />
+                    {/* FIX 2025-12-11: Always show button (disabled when offline) - removes isOnline gate */}
+                    {!planMyDayRunToday && (
+                      <>
+                        <PlanMyDayButton
+                          onClick={() => handleQuickAction('plan_my_day')}
+                          disabled={loading || isSubmitting || !isOnline}
+                          loading={loading && lastQuickActionRef.current === 'plan_my_day'}
+                        />
+                        {!isOnline && (
+                          <p className="text-xs text-amber-400/70 mt-2">
+                            You're offline. Plan My Day will be available when you reconnect.
+                          </p>
+                        )}
+                      </>
                     )}
                     {planMyDayRunToday && (
                       <p className="text-xs text-[#0CE3B1]/70">
@@ -2076,21 +2089,18 @@ Guidelines:
                           Start your day with a quick plan.
                         </p>
                         {/* PLAN MY DAY REFACTOR: Clean button with automatic fallback on failure */}
-                        {/* FIX 2025-12-08: Always show button when online - backend returns authoritative errors */}
-                        {isOnline && (
-                          <PlanMyDayButton
-                            onClick={() => handleQuickAction('plan_my_day')}
-                            disabled={loading || isSubmitting || isPlanning}
-                            loading={isPlanning || (loading && lastQuickActionRef.current === 'plan_my_day')}
-                          />
-                        )}
-                        {/* Show fallback ONLY when offline - backend handles provider errors */}
+                        {/* FIX 2025-12-11: Always show Plan My Day button - removes isOnline gate */}
+                        {/* Backend handles offline/error cases gracefully with fallback plan */}
+                        <PlanMyDayButton
+                          onClick={() => handleQuickAction('plan_my_day')}
+                          disabled={loading || isSubmitting || isPlanning || !isOnline}
+                          loading={isPlanning || (loading && lastQuickActionRef.current === 'plan_my_day')}
+                        />
+                        {/* Show offline hint when offline - but button is still visible (just disabled) */}
                         {!isOnline && (
-                          <PlanMyDayFallback
-                            deals={deals}
-                            onRetry={() => handleQuickAction('plan_my_day')}
-                            onSettings={() => setActiveView && setActiveView(VIEWS?.SETTINGS)}
-                          />
+                          <p className="text-xs text-amber-400/70 mt-2">
+                            You're offline. Plan My Day will be available when you reconnect.
+                          </p>
                         )}
                       </>
                     )}
