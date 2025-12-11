@@ -125,10 +125,12 @@ export async function getConnectedProviders(
       ? await getProvidersWithCache(supabase, orgId)
       : await fetchProvidersDirect(supabase, orgId);
 
-    // M4 HARDENING: Filter to allowed providers only
-    const filteredProviders = (allProviders || []).filter(
-      (p: AIProvider) => ALLOWED_PROVIDERS.includes(p.provider_type as AllowedProviderType)
-    );
+    // M4 HARDENING: Filter to allowed providers only AND require an encrypted key
+    const filteredProviders = (allProviders || []).filter((p: AIProvider) => {
+      const allowed = ALLOWED_PROVIDERS.includes(p.provider_type as AllowedProviderType);
+      const hasKey = !!p.api_key_encrypted;
+      return allowed && hasKey;
+    });
 
     return {
       providers: filteredProviders,

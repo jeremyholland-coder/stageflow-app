@@ -210,7 +210,12 @@ export async function getProvidersWithCache(
     );
   }
 
-  const providers = data || [];
+  // Filter to active providers with valid encrypted keys (defensive)
+  const providers = (data || []).filter((p: any) => {
+    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active;
+    const hasKey = !!p.api_key_encrypted;
+    return isActive === true && hasKey;
+  });
 
   // Update cache
   setCachedProviders(orgId, providers);
