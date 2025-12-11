@@ -23,6 +23,27 @@ const safeSetItem = (key, value) => {
   }
 };
 
+const normalizeProjection = (projection) => {
+  if (!projection || typeof projection !== 'object') {
+    return {
+      month_pct_to_goal: null,
+      quarter_pct_to_goal: null,
+      year_pct_to_goal: null,
+      pace_month: null,
+      risk_flags: [],
+    };
+  }
+
+  return {
+    ...projection,
+    month_pct_to_goal: projection.month_pct_to_goal ?? null,
+    quarter_pct_to_goal: projection.quarter_pct_to_goal ?? null,
+    year_pct_to_goal: projection.year_pct_to_goal ?? null,
+    pace_month: projection.pace_month ?? null,
+    risk_flags: Array.isArray(projection.risk_flags) ? projection.risk_flags : [],
+  };
+};
+
 /**
  * REVENUE AGENT: Revenue Health Hook
  *
@@ -77,7 +98,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
 
           if (age < cacheTTL) {
             // Cache hit - use cached data
-            setProjection(data.projection);
+            setProjection(normalizeProjection(data.projection));
             setCoach(data.coach);
             setLastUpdated(new Date(timestamp));
             setLoading(false);
@@ -129,7 +150,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
           if (cached) {
             try {
               const { data } = JSON.parse(cached);
-              setProjection(data.projection);
+              setProjection(normalizeProjection(data.projection));
               setCoach(data.coach);
               setError('Session expired - showing cached data');
             } catch (e) {
@@ -150,7 +171,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
       }
 
       // Update state with fresh data
-      setProjection(result.projection);
+      setProjection(normalizeProjection(result.projection));
       setCoach(result.coach);
       setLastUpdated(new Date());
       setError(null);
@@ -158,7 +179,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
       // Cache the result (best-effort)
       safeSetItem(cacheKey, JSON.stringify({
         data: {
-          projection: result.projection,
+          projection: normalizeProjection(result.projection),
           coach: result.coach,
         },
         timestamp: Date.now(),
@@ -180,7 +201,7 @@ export function useRevenueHealth(user, organization, hasAIProvider = false, opti
       if (cached) {
         try {
           const { data } = JSON.parse(cached);
-          setProjection(data.projection);
+          setProjection(normalizeProjection(data.projection));
           setCoach(data.coach);
           setError('Could not refresh - showing cached data');
         } catch (e) {
