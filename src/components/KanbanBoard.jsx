@@ -232,7 +232,7 @@ const STAGE_COLORS = {
 
 // Apple-like KanbanCard with modern, polished aesthetic
 // H6-C HARDENING 2025-12-04: Added isDragLocked to disable dragging during updates
-export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3, organizationId, onDisqualify, onAssignmentChange, isDragLocked = false }) => {
+export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isOrphaned = false, userPerformance = new Map(), globalWinRate = 0.3, organizationId, onDisqualify, onAssignmentChange, isDragLocked = false, isFailedMove = false, onRetryMove = () => {} }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -527,6 +527,20 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
           <span className="text-[10px] font-medium text-amber-300">Pending</span>
         </div>
       )}
+      {isFailedMove && (
+        <div className="absolute top-3 right-3 flex items-center gap-2 px-2 py-1 rounded-full bg-rose-500/15 border border-rose-500/40">
+          <span className="text-[10px] font-semibold text-rose-200">Move failed</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetryMove?.();
+            }}
+            className="text-[10px] font-semibold text-rose-100 underline underline-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Top Section: Company Info + Value */}
       <div className="flex items-start justify-between mb-4">
@@ -782,7 +796,9 @@ export const KanbanColumn = memo(({
   onAssignmentChange,
   // H6-C HARDENING 2025-12-04: Drag lock prevents concurrent drag-drop operations
   isDragLocked = false,
-  addNotification = () => {}
+  addNotification = () => {},
+  failedMoves = new Set(),
+  onRetryMove = () => {}
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
@@ -906,14 +922,33 @@ export const KanbanColumn = memo(({
         console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
         const ok = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
         if (!ok) {
+          setFailedMoves(prev => {
+            const next = new Set(prev);
+            next.add(dealId);
+            return next;
+          });
           addNotification('Move to Won did not save. Please retry.', 'error', {
             label: 'Retry',
             onClick: async () => {
               const retryOk = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
               if (!retryOk) {
                 addNotification('Retry failed. Please refresh and try again.', 'error');
+              } else {
+                setFailedMoves(prev => {
+                  if (!prev.has(dealId)) return prev;
+                  const next = new Set(prev);
+                  next.delete(dealId);
+                  return next;
+                });
               }
             }
+          });
+        } else {
+          setFailedMoves(prev => {
+            if (!prev.has(dealId)) return prev;
+            const next = new Set(prev);
+            next.delete(dealId);
+            return next;
           });
         }
       } else {
@@ -928,14 +963,33 @@ export const KanbanColumn = memo(({
           console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
           const ok = await onUpdateDeal(dealId, { stage: stage.id });
           if (!ok) {
+            setFailedMoves(prev => {
+              const next = new Set(prev);
+              next.add(dealId);
+              return next;
+            });
             addNotification('Move not saved. Please retry.', 'error', {
               label: 'Retry',
               onClick: async () => {
                 const retryOk = await onUpdateDeal(dealId, { stage: stage.id });
                 if (!retryOk) {
                   addNotification('Retry failed. Please refresh and try again.', 'error');
+                } else {
+                  setFailedMoves(prev => {
+                    if (!prev.has(dealId)) return prev;
+                    const next = new Set(prev);
+                    next.delete(dealId);
+                    return next;
+                  });
                 }
               }
+            });
+          } else {
+            setFailedMoves(prev => {
+              if (!prev.has(dealId)) return prev;
+              const next = new Set(prev);
+              next.delete(dealId);
+              return next;
             });
           }
         }
@@ -946,6 +1000,22 @@ export const KanbanColumn = memo(({
       announce('Move failed, please try again');
     }
   };
+
+  // Inline retry handler for failed moves
+  const retryMove = useCallback(async (dealId, targetStageId) => {
+    const ok = await onUpdateDeal(dealId, { stage: targetStageId });
+    if (ok) {
+      setFailedMoves(prev => {
+        if (!prev.has(dealId)) return prev;
+        const next = new Set(prev);
+        next.delete(dealId);
+        return next;
+      });
+      addNotification('Move saved on retry', 'success');
+    } else {
+      addNotification('Retry failed. Please refresh and try again.', 'error');
+    }
+  }, [onUpdateDeal, addNotification]);
 
   // MOBILE FIX: Add touch drop event listener
   useEffect(() => {
@@ -1097,12 +1167,12 @@ export const KanbanColumn = memo(({
           ) : (
             // OPTION A: Pure Natural Stacking for ALL columns
             // Identical to Lead Captured + Lead Qualified - no virtual scroll
-            // Cards take natural height, space-y-3 provides uniform 12px gaps
-            <div className="space-y-3">
-              {stageDeals.map((deal, idx) => (
-                <KanbanCard
-                  key={deal.id}
-                  deal={deal}
+          // Cards take natural height, space-y-3 provides uniform 12px gaps
+          <div className="space-y-3">
+            {stageDeals.map((deal, idx) => (
+              <KanbanCard
+                key={deal.id}
+                deal={deal}
                   onSelect={onDealSelected}
                   index={idx}
                   isDarkMode={isDarkMode}
@@ -1110,13 +1180,15 @@ export const KanbanColumn = memo(({
                   userPerformance={userPerformance}
                   globalWinRate={globalWinRate}
                   organizationId={organizationId}
-                  onDisqualify={onDisqualify}
-                  onAssignmentChange={onAssignmentChange}
-                  isDragLocked={isDragLocked}
-                />
-              ))}
-            </div>
-          )}
+                onDisqualify={onDisqualify}
+                onAssignmentChange={onAssignmentChange}
+                isDragLocked={isDragLocked}
+                isFailedMove={failedMoves?.has?.(deal.id)}
+                onRetryMove={() => onRetryMove(deal.id, stage.id)}
+              />
+            ))}
+          </div>
+        )}
         </div>
       </div>
     </>
@@ -1269,6 +1341,8 @@ export const KanbanBoard = memo(({
   // UX FRICTION FIX: Removed status change modal - now uses instant move with undo
   const [undoableStatusChange, setUndoableStatusChange] = useState(null);
   const undoTimerRef = useRef(null);
+  // Track failed moves for inline retry
+  const [failedMoves, setFailedMoves] = useState(new Set());
 
   // State for disqualify modal
   const [showDisqualifyModal, setShowDisqualifyModal] = useState(false);
@@ -1686,6 +1760,8 @@ export const KanbanBoard = memo(({
                 onAssignmentChange={handleAssignmentChange}
                 isDragLocked={isDragLocked}
                 addNotification={addNotification}
+                failedMoves={failedMoves}
+                onRetryMove={(dealId, targetStageId) => retryMove(dealId, targetStageId)}
               />
             </div>
           );
