@@ -171,6 +171,7 @@ export const useDealManagement = (user, organization, addNotification) => {
   // PHASE B FIX: Start with loading=true if no cached deals, so skeleton shows until data loads
   const [loading, setLoading] = useState(() => getInitialDealsFromCache(organization?.id).length === 0);
   const [error, setError] = useState(null); // MEDIUM FIX: Track fetch errors for retry UI
+  const [emptyReason, setEmptyReason] = useState(null); // UX: explain empty board when fetch fails
   // OFFLINE: Track network status for "works on a plane" support
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
@@ -562,6 +563,8 @@ export const useDealManagement = (user, organization, addNotification) => {
 
     if (!user || !organization) {
       console.warn('[DEALS DEBUG] Missing user or organization - skipping fetch');
+      setLoading(false);
+      setEmptyReason('Missing user or organization context');
       return;
     }
 
@@ -599,6 +602,7 @@ export const useDealManagement = (user, organization, addNotification) => {
         const normalizedCachedDeals = cachedDeals.map(d => normalizeDeal(d)).filter(Boolean);
         setDeals(normalizedCachedDeals);
         setLoading(false); // PHASE B FIX: Ensure loading=false when we have cached data
+        setEmptyReason(null);
         // Fresh data will load silently in background
       }
       initialLoadDoneRef.current = true;
@@ -617,7 +621,10 @@ export const useDealManagement = (user, organization, addNotification) => {
     fetchInProgressRef.current = true;
 
     // MEDIUM FIX: Clear any previous errors when starting new fetch
-    if (isMountedRef.current) setError(null);
+    if (isMountedRef.current) {
+      setError(null);
+      setEmptyReason(null);
+    }
 
     // Create the fetch promise for deduplication
     const fetchPromise = (async () => {
@@ -740,6 +747,7 @@ export const useDealManagement = (user, organization, addNotification) => {
           addNotification(message, 'error');
           // MEDIUM FIX: Set error state for retry UI
           setError({ message, originalError: error });
+          setEmptyReason('Deals failed to load. Check your connection and try again.');
         }
       } finally {
         // CRITICAL FIX: Clear global fetch state
@@ -1162,6 +1170,7 @@ export const useDealManagement = (user, organization, addNotification) => {
     deals,
     loading,
     error, // MEDIUM FIX: Expose error state for retry UI
+    emptyReason,
     // OFFLINE: Expose network status for "works on a plane" support
     isOnline,
     pendingSyncCount,

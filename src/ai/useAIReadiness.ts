@@ -412,12 +412,13 @@ export function useWiredAIReadiness(
 
         const data = await response.json();
         const ready = !!data.ready;
-
+        const filteredOut = Array.isArray(data.filteredProviders) ? data.filteredProviders : [];
         return {
           hasProviders: ready,
           count: data.providerCount || 0,
           variant: data.variant || (ready ? 'ready' : 'connect_provider'),
-          activeProvider: data.activeProvider || null
+          activeProvider: data.activeProvider || null,
+          filteredOut
         };
       } catch (error) {
         return { hasProviders: false, count: 0, authError: true, reason: error instanceof Error ? error.message : 'Provider check failed' };

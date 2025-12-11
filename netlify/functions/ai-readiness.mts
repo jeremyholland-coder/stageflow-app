@@ -100,6 +100,8 @@ export default async (req: Request, context: Context) => {
     const ready = providers.length > 0;
     const activeProvider = ready ? providers[0] : null;
     const variant = ready ? 'ready' : 'connect_provider';
+    // Pass through provider types so frontend can show a hint when providers are filtered out
+    const filteredProviders = providers.map(p => p.provider_type);
 
     return new Response(
       JSON.stringify({
@@ -115,6 +117,7 @@ export default async (req: Request, context: Context) => {
               model: activeProvider.model
             }
           : null,
+        filteredProviders,
         organizationId: orgId
       }),
       { status: 200, headers }
