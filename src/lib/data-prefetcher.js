@@ -91,18 +91,30 @@ class DataPrefetcher {
     try {
       logger.log('[Prefetch] ⚡ Prefetching AI providers...');
 
-      const { data, error } = await supabase
-        .from('ai_providers')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('active', true)
-        .in('provider_type', ['openai', 'anthropic', 'google']);
-
-      if (!error) {
-        this.markPrefetched(cacheKey, 'aiProviders');
-        logger.log('[Prefetch] ✓ AI providers prefetched');
-        return data;
+      // Use backend function (service role) to avoid RLS and to filter unsupported providers
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
       }
+
+      const response = await fetch('/.netlify/functions/get-ai-providers', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ organization_id: orgId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to prefetch AI providers: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const providers = result.providers || [];
+
+      this.markPrefetched(cacheKey, 'aiProviders');
+      logger.log('[Prefetch] ✓ AI providers prefetched');
+      return providers;
     } catch (err) {
       console.warn('[Prefetch] Failed to prefetch AI providers:', err);
     }

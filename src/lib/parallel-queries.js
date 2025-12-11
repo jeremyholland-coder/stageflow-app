@@ -89,10 +89,27 @@ export async function fetchSettingsData(organizationId, userId) {
   const startTime = performance.now();
 
   try {
+    // Fetch AI providers via service function (service role, filtered to supported types)
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers = { 'Content-Type': 'application/json' };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    const providersResponse = await fetch('/.netlify/functions/get-ai-providers', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ organization_id: organizationId })
+    });
+    if (!providersResponse.ok) {
+      throw new Error(`Providers fetch failed: ${providersResponse.status}`);
+    }
+    const providersData = await providersResponse.json();
+    const integrationsData = providersData.providers || [];
+
     const [
       orgResult,
       teamResult,
-      integrationsResult,
       usageResult
     ] = await Promise.all([
       // Organization details
@@ -116,14 +133,6 @@ export async function fetchSettingsData(organizationId, userId) {
         `)
         .eq('organization_id', organizationId),
 
-      // Active integrations
-      supabase
-        .from('ai_providers')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('active', true)
-        .in('provider_type', ['openai', 'anthropic', 'google']),
-
       // Usage statistics
       supabase
         .from('organizations')
@@ -141,7 +150,7 @@ export async function fetchSettingsData(organizationId, userId) {
     return {
       organization: orgResult.data,
       team: teamResult.data || [],
-      integrations: integrationsResult.data || [],
+      integrations: integrationsData,
       usage: usageResult.data,
       elapsed
     };

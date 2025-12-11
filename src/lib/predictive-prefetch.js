@@ -106,28 +106,46 @@ const PREFETCH_STRATEGIES = {
   settings: async (organizationId, userId) => {
     logger.log('[Prefetch] Loading settings data...');
 
-    const [aiProviders, membership] = await Promise.all([
-      supabase
-        .from('ai_providers')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .in('provider_type', ['openai', 'anthropic', 'google']),
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers = { 'Content-Type': 'application/json' };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
+    const [providersResp, membership] = await Promise.all([
+      fetch('/.netlify/functions/get-ai-providers', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ organization_id: organizationId })
+      }),
       supabase.from('team_members').select('*').eq('user_id', userId),
     ]);
 
-    return { aiProviders: aiProviders.data, membership: membership.data };
+    const providersJson = providersResp.ok ? await providersResp.json() : { providers: [] };
+
+    return { aiProviders: providersJson.providers || [], membership: membership.data };
   },
 
   integrations: async (organizationId) => {
     logger.log('[Prefetch] Loading integrations data...');
 
-    const aiProviders = await supabase
-      .from('ai_providers')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .in('provider_type', ['openai', 'anthropic', 'google']);
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers = { 'Content-Type': 'application/json' };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
 
-    return { aiProviders: aiProviders.data };
+    const resp = await fetch('/.netlify/functions/get-ai-providers', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ organization_id: organizationId })
+    });
+
+    const providersJson = resp.ok ? await resp.json() : { providers: [] };
+
+    return { aiProviders: providersJson.providers || [] };
   },
 
   analytics: async (organizationId) => {
