@@ -906,7 +906,15 @@ export const KanbanColumn = memo(({
         console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
         const ok = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
         if (!ok) {
-          addNotification('Move to Won did not save. Please retry.', 'error');
+          addNotification('Move to Won did not save. Please retry.', 'error', {
+            label: 'Retry',
+            onClick: async () => {
+              const retryOk = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
+              if (!retryOk) {
+                addNotification('Retry failed. Please refresh and try again.', 'error');
+              }
+            }
+          });
         }
       } else {
         // P0 WAR ROOM FIX 2025-12-09: Use centralized functions for active stage detection
@@ -920,7 +928,15 @@ export const KanbanColumn = memo(({
           console.log('[KANBAN][DROP] → Calling onUpdateDeal with stage:', stage.id);
           const ok = await onUpdateDeal(dealId, { stage: stage.id });
           if (!ok) {
-            addNotification('Move not saved. Please refresh and try again.', 'error');
+            addNotification('Move not saved. Please retry.', 'error', {
+              label: 'Retry',
+              onClick: async () => {
+                const retryOk = await onUpdateDeal(dealId, { stage: stage.id });
+                if (!retryOk) {
+                  addNotification('Retry failed. Please refresh and try again.', 'error');
+                }
+              }
+            });
           }
         }
       }

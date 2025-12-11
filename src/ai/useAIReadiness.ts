@@ -134,7 +134,9 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     const currentServices = servicesRef.current;
 
     // [AI_DEBUG] Log readiness check start
-    console.info('[AI_DEBUG][runReadinessCheck] Starting AI readiness check sequence');
+    if (import.meta.env.DEV) {
+      console.info('[AI_DEBUG][runReadinessCheck] Starting AI readiness check sequence');
+    }
 
     // Step 1: APP_BOOT -> SESSION_CHECKING
     dispatch({ type: 'APP_BOOT' });
@@ -142,7 +144,6 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 2: Check session
     try {
       const sessionResult = await currentServices.checkSession();
-      console.info('[AI_DEBUG][runReadinessCheck] Session check result:', sessionResult);
       if (!sessionResult.ok) {
         dispatch({
           type: 'SESSION_INVALID',
@@ -164,7 +165,6 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 3: Check providers
     try {
       const providersResult = await currentServices.checkProviders();
-      console.info('[AI_DEBUG][runReadinessCheck] Provider check result:', providersResult);
 
       if ((providersResult as any).authError) {
         console.warn('[AI_DEBUG][runReadinessCheck] Provider check got auth error - treating as session invalid');
@@ -328,12 +328,6 @@ export function useWiredAIReadiness(
         const { ensureValidSession } = await import('../lib/supabase');
         const result = await ensureValidSession();
 
-        // [AI_DEBUG] Log session check result
-        console.info('[AI_DEBUG][checkSession]', {
-          valid: result?.valid,
-          code: result?.code,
-        });
-
         if (result?.valid) {
           return { ok: true };
         }
@@ -350,7 +344,6 @@ export function useWiredAIReadiness(
             const supabaseClient = (supabaseModule as any).supabase;
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (session?.access_token) {
-              console.info('[AI_DEBUG][checkSession] THROTTLED but cached session exists - treating as valid');
               return { ok: true };
             }
           } catch (e) {
@@ -372,74 +365,49 @@ export function useWiredAIReadiness(
     },
 
     // -------------------------------------------------------------------------
-    // checkProviders: Checks if AI providers are configured
+    // checkProviders: Single readiness payload (providers + variant)
     // -------------------------------------------------------------------------
     checkProviders: async () => {
       if (!organizationId) {
-        console.info('[AI_DEBUG][checkProviders] No organizationId provided');
         return { hasProviders: false, count: 0 };
       }
 
       try {
-        // Get session for auth header
         const supabaseModule = await import('../lib/supabase');
         const supabaseClient = (supabaseModule as any).supabase;
         const {
           data: { session },
         } = await supabaseClient.auth.getSession();
 
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (session?.access_token) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
 
-        // [AI_DEBUG] Log provider check request
-        console.info('[AI_DEBUG][checkProviders] Fetching providers', {
-          organizationId,
-          hasAuthHeader: !!session?.access_token,
-        });
-
-        const response = await fetch('/.netlify/functions/get-ai-providers', {
+        const response = await fetch('/.netlify/functions/ai-readiness', {
           method: 'POST',
           headers,
           credentials: 'include',
           body: JSON.stringify({ organization_id: organizationId }),
         });
 
-        // [AI_DEBUG] Log response status
-        console.info('[AI_DEBUG][checkProviders] Response', {
-          status: response.status,
-          ok: response.ok,
-        });
-
         if (!response.ok) {
-          // Auth errors (401/403) should bubble up as auth issues, not "no providers"
           if (response.status === 401 || response.status === 403) {
-            console.warn('[AI_DEBUG][checkProviders] Auth error during provider check');
-            // P0 FIX 2025-12-10: Return special code instead of throwing
-            // This allows the state machine to distinguish auth errors from missing providers
             return { hasProviders: false, count: 0, authError: true, reason: `HTTP ${response.status}` };
           }
           return { hasProviders: false, count: 0 };
         }
 
         const data = await response.json();
-        const providers = data.providers || [];
-
-        // [AI_DEBUG] Log provider count
-        console.info('[AI_DEBUG][checkProviders] Found providers', {
-          count: providers.length,
-          types: providers.map((p: any) => p.provider_type),
-        });
+        const ready = !!data.ready;
 
         return {
-          hasProviders: providers.length > 0,
-          count: providers.length,
+          hasProviders: ready,
+          count: data.providerCount || 0,
+          variant: data.variant || (ready ? 'ready' : 'connect_provider'),
+          activeProvider: data.activeProvider || null
         };
       } catch (error) {
-        console.error('[useWiredAIReadiness] Provider check error:', error);
         return { hasProviders: false, count: 0, authError: true, reason: error instanceof Error ? error.message : 'Provider check failed' };
       }
     },
