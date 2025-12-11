@@ -85,6 +85,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     const cookies = parseCookies(cookieHeader);
     let accessToken = cookies[COOKIE_NAMES.ACCESS_TOKEN];
     let refreshToken = cookies[COOKIE_NAMES.REFRESH_TOKEN];
+    // Track new cookies if we mint fresh tokens before the main flow completes
+    let newCookies: string[] | null = null;
+    // Track session/user in case we recover via refresh token path
+    let finalSession: any = null;
+    let finalUser: any = null;
 
     // FIX 2025-12-03: ALWAYS log token sources for production debugging
     // This helps diagnose 401s without needing DEBUG_AUTH=true
@@ -109,12 +114,41 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       }
     }
 
+    // If access token is missing but refresh token exists, attempt refresh BEFORE failing
+    if (!accessToken && refreshToken) {
+      try {
+        console.warn('[auth-session] Access token missing, attempting refresh with refresh token (cookie only path)');
+        const refreshClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const { data: refreshData, error: refreshError } = await refreshClient.auth.refreshSession({
+          refresh_token: refreshToken
+        });
+
+        if (!refreshError && refreshData?.session?.access_token) {
+          accessToken = refreshData.session.access_token;
+          refreshToken = refreshData.session.refresh_token || refreshToken;
+          finalSession = refreshData.session;
+          finalUser = refreshData.user;
+          newCookies = setSessionCookies(
+            refreshData.session.access_token,
+            refreshData.session.refresh_token || refreshToken,
+            { origin }
+          );
+          console.warn('[auth-session] ✓ Session restored from refresh token (no access token cookie)');
+        } else {
+          console.error('[auth-session] Refresh attempt failed without access token:', refreshError?.message);
+        }
+      } catch (refreshAttemptError) {
+        console.error('[auth-session] Refresh attempt threw (no access token):', refreshAttemptError);
+      }
+    }
+
     if (!accessToken) {
       // P0 FIX 2025-12-08: Add explicit P0 logging tag for Netlify log search
       console.error('[StageFlow][P0][AUTH_SESSION_FAILED]', {
         reason: 'NO_TOKEN',
         hasCookieToken,
         hasAuthHeader,
+        hadRefreshToken: !!refreshToken,
         cookieHeaderLength: cookieHeader.length,
         origin,
         timestamp: new Date().toISOString()
@@ -150,11 +184,6 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         detectSessionInUrl: false
       }
     });
-
-    // Track final session data for response
-    let finalSession: any = null;
-    let finalUser: any = null;
-    let newCookies: string[] | null = null;
 
     // STRATEGY: Try multiple approaches to validate the session
     // This handles the token rotation race condition gracefully

@@ -635,5 +635,23 @@ export function useWiredAIReadiness(
     },
   };
 
-  return useAIReadiness(services);
+  const result = useAIReadiness(services);
+
+  // Ensure readiness re-runs once org becomes available (avoids "no providers" stale state on first render)
+  useEffect(() => {
+    if (!organizationId) return;
+    const state = result.node?.state;
+    if (
+      state === 'UNINITIALIZED' ||
+      state === 'PROVIDER_NOT_CONFIGURED' ||
+      state === 'SESSION_INVALID' ||
+      state === 'CONFIG_ERROR' ||
+      state === 'HEALTH_CHECK_FAILED' ||
+      state === 'AI_DISABLED'
+    ) {
+      result.retry();
+    }
+  }, [organizationId, result.node?.state, result.retry]);
+
+  return result;
 }

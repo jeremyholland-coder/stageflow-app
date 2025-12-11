@@ -772,7 +772,7 @@ export const useDealManagement = (user, organization, addNotification) => {
         hasOrg: !!organization,
         dealId
       });
-      return;
+      return false;
     }
 
     // H6-C HARDENING 2025-12-04: Check if drag is already locked (prevents concurrent drag-drops)
@@ -797,6 +797,7 @@ export const useDealManagement = (user, organization, addNotification) => {
     // This prevents "ReferenceError: Can't find variable: originalDeal" when error is thrown
     // before the const declaration inside try block would execute (Temporal Dead Zone issue)
     let originalDeal = null;
+    let success = false;
 
     return requestDeduplicator.deduplicate(dedupeKey, async () => {
       try {
@@ -810,7 +811,7 @@ export const useDealManagement = (user, organization, addNotification) => {
 
         if (!deal) {
           console.error('Deal not found:', dealId);
-          return;
+          return false;
         }
 
         // Store original deal for surgical rollback (now safe - variable is in scope)
@@ -867,7 +868,8 @@ export const useDealManagement = (user, organization, addNotification) => {
         });
         setPendingSyncCount(prev => prev + 1);
         addNotification('Saved offline - will sync when connected', 'info');
-        return; // Don't attempt network call
+        success = true;
+        return true; // Don't attempt network call
       }
 
       // P0 FIX 2025-12-08: Use api.deal for invariant-validated responses
@@ -907,6 +909,7 @@ export const useDealManagement = (user, organization, addNotification) => {
       }
 
       addNotification('Deal updated successfully');
+      success = true;
     } catch (error) {
       console.error('[KANBAN][UPDATE_DEAL] ❌ Error caught:', {
         message: error.message,
@@ -1010,6 +1013,7 @@ export const useDealManagement = (user, organization, addNotification) => {
         console.warn('[KANBAN][UPDATE_DEAL] Component unmounted - drag lock not released via setState');
       }
     }
+    return success;
     }); // End deduplication wrapper
   }, [user, organization, addNotification, isDragLocked]); // H6-C: Added isDragLocked to deps
 

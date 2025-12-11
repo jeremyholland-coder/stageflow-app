@@ -438,12 +438,31 @@ export const MissionControlPanel = ({
   const user = userProp || appContext.user;
   const organization = organizationProp || appContext.organization;
   const [activeTab, setActiveTab] = useState('coach'); // Default to Coach; Tasks appears after Plan My Day
+  // User-controlled toggle to temporarily disable AI dashboard when unstable
+  const [aiDashboardEnabled, setAIDashboardEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = localStorage.getItem('stageflow_ai_dashboard_enabled');
+      return stored !== 'false';
+    } catch (e) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('stageflow_ai_dashboard_enabled', aiDashboardEnabled ? 'true' : 'false');
+    } catch (e) {
+      // best-effort persistence only
+    }
+  }, [aiDashboardEnabled]);
 
   // STEP 3: AI Readiness State Machine - single source of truth for AI availability
   const {
     node: aiReadinessNode,
-    isReady: aiIsReady,
     uiVariant: aiUIVariant,
+    retry: retryAIReadiness,
   } = useWiredAIReadiness({
     organizationId: organization?.id || null,
   });
@@ -468,8 +487,21 @@ export const MissionControlPanel = ({
 
   const isAIDisabled = aiVariant === 'disabled';
 
-  // AI is usable when ready or degraded
-  const canRenderAIContent = aiVariant === 'ready' || aiVariant === 'degraded';
+  // Unified offline guard: show non-AI experience when session/provider/config issues or user toggles AI off
+  const shouldRenderOffline = !aiDashboardEnabled
+    || isSessionInvalid
+    || shouldShowConnectProvider
+    || isConfigError
+    || isAIDisabled;
+
+  const offlineReason = (() => {
+    if (!aiDashboardEnabled) return 'AI dashboard has been turned off. Toggle it back on when you are ready.';
+    if (isSessionInvalid) return 'Your session expired. Refresh or sign in again to restore AI features.';
+    if (shouldShowConnectProvider) return 'Connect an AI provider in Integrations to unlock Mission Control.';
+    if (isConfigError) return 'AI configuration issue detected. Please retry or contact support.';
+    if (isAIDisabled) return 'AI features are disabled for your current plan.';
+    return 'AI is temporarily unavailable. Showing the non-AI dashboard instead.';
+  })();
 
   // P0 DIAGNOSTIC 2025-12-10: Log component state on mount to diagnose "Unable to load ai mission control" errors
   // This helps identify which combination of props/state causes the error in production
@@ -668,6 +700,20 @@ export const MissionControlPanel = ({
                 />
               ))}
             </div>
+
+            {/* AI Dashboard On/Off toggle */}
+            <button
+              onClick={() => setAIDashboardEnabled(prev => !prev)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-300 border ${
+                aiDashboardEnabled
+                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/25'
+                  : 'bg-white/[0.03] border-white/15 text-white/50 hover:bg-white/[0.06]'
+              }`}
+              title={aiDashboardEnabled ? 'Turn off AI dashboard' : 'Turn on AI dashboard'}
+            >
+              <span className={`w-2 h-2 rounded-full ${aiDashboardEnabled ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'bg-white/40'}`} />
+              <span>{aiDashboardEnabled ? 'AI On' : 'AI Off'}</span>
+            </button>
           </div>
         </div>
 
@@ -752,40 +798,89 @@ export const MissionControlPanel = ({
         {/* COACH TAB - CustomQueryView with AI conversation */}
         {/* APMDOS: Pass activation props for adaptive onboarding */}
         {activeTab === 'coach' && (
-          <>
-            {/* STEP 3: Health warning banner - AI is available but had connectivity issues */}
-            {isHealthWarning && (
-              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center gap-3">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                <p className="text-xs text-amber-200">
-                  AI is available but we detected some connectivity issues. Results may be slower or less reliable.
-                </p>
+          shouldRenderOffline ? (
+            <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-white">AI Mission Control (Offline Mode)</h3>
+                  <p className="text-sm text-white/60">{offlineReason}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (isSessionInvalid) {
+                      window.location.reload();
+                    } else {
+                      retryAIReadiness?.();
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-white/[0.08] hover:bg-white/[0.12] text-xs text-white rounded-lg border border-white/10 transition-colors"
+                >
+                  Retry AI
+                </button>
               </div>
-            )}
 
-            {/* REVENUE AGENT 2025-12-10: Revenue Coach Strip - proactive AI insights */}
-            <RevenueCoachStrip
-              projection={revenueProjection}
-              coach={revenueCoach}
-              loading={revenueLoading}
-              error={revenueError}
-              onRefresh={refreshRevenueHealth}
-              lastUpdated={revenueLastUpdated}
-            />
-            <CustomQueryView
-              deals={deals}
-              healthAlert={healthAlert}
-              orphanedDealIds={orphanedDealIds}
-              onDismissAlert={onDismissAlert}
-              hasAIProviderProp={hasAIProviderProp}
-              // P0 FIX 2025-12-09: Pass auth error state for session-specific messaging
-              aiAuthError={aiAuthErrorProp}
-              user={user}
-              organization={organization}
-              // STEP 3: Pass AI readiness variant for pre-flight guards
-              aiReadinessVariant={aiVariant}
-            />
-          </>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                  <p className="text-xs text-white/40">Win Rate</p>
+                  <p className="text-xl font-semibold text-white">
+                    {metrics.orgWinRate != null ? `${metrics.orgWinRate}%` : '—'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                  <p className="text-xs text-white/40">Avg Days to Close</p>
+                  <p className="text-xl font-semibold text-white">
+                    {metrics.avgDaysToClose != null ? `${metrics.avgDaysToClose}d` : '—'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                  <p className="text-xs text-white/40">High Value At Risk</p>
+                  <p className="text-xl font-semibold text-white">
+                    {metrics.highValueAtRisk != null ? metrics.highValueAtRisk : '—'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 text-sm text-white/60">
+                Mission Control stays visible even when AI is down. Manage tasks above, then re-enable AI once connectivity is restored.
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* STEP 3: Health warning banner - AI is available but had connectivity issues */}
+              {isHealthWarning && (
+                <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center gap-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-xs text-amber-200">
+                    AI is available but we detected some connectivity issues. Results may be slower or less reliable.
+                  </p>
+                </div>
+              )}
+
+              {/* REVENUE AGENT 2025-12-10: Revenue Coach Strip - proactive AI insights */}
+              <RevenueCoachStrip
+                projection={revenueProjection}
+                coach={revenueCoach}
+                loading={revenueLoading}
+                error={revenueError}
+                onRefresh={refreshRevenueHealth}
+                lastUpdated={revenueLastUpdated}
+              />
+              <CustomQueryView
+                deals={deals}
+                healthAlert={healthAlert}
+                orphanedDealIds={orphanedDealIds}
+                onDismissAlert={onDismissAlert}
+                hasAIProviderProp={hasAIProviderProp}
+                // P0 FIX 2025-12-09: Pass auth error state for session-specific messaging
+                aiAuthError={aiAuthErrorProp}
+                user={user}
+                organization={organization}
+                // STEP 3: Pass AI readiness variant for pre-flight guards
+                aiReadinessVariant={aiVariant}
+              />
+            </>
+          )
         )}
 
         {/* MISSION CONTROL TAB */}
