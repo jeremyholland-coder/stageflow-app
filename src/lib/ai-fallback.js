@@ -284,6 +284,37 @@ export async function runAIQueryWithFallback(options) {
         aiSignals
       });
 
+      // FIX 2025-12-11: Check for explicit backend failure (ok: false)
+      // Backend returns HTTP 200 with ok: false for AllProvidersFailedError
+      // We must check this BEFORE checking response content
+      if (result.ok === false) {
+        console.warn(`[ai-fallback] Backend returned ok: false for ${providerType}`);
+
+        // If there's a fallback plan, return it immediately (don't try other providers)
+        // The backend already tried all providers and failed
+        const fallbackPlan = result.fallbackPlan || result.error?.fallbackPlan;
+        if (fallbackPlan && fallbackPlan.tasks && fallbackPlan.tasks.length > 0) {
+          console.log('[ai-fallback] Backend failed but fallbackPlan available, returning it');
+          return {
+            response: null,
+            fallbackPlan: fallbackPlan,
+            provider: 'StageFlow (Fallback)',
+            isFallback: true,
+            isAllProvidersFailed: true,
+            error: result.error,
+            // Don't set response so CustomQueryView knows to use fallbackPlan
+          };
+        }
+
+        // No fallback plan - throw error with user-friendly message
+        const errorMessage = result.error?.message || result.message || 'AI providers temporarily unavailable';
+        const error = new Error(errorMessage);
+        error.isAllProvidersFailed = true;
+        error.result = result;
+        error.providersAttempted = result.providersAttempted || [providerType];
+        throw error;
+      }
+
       // Check for soft failures (200 response but error message content)
       if (result.response && isProviderErrorResponse(result.response)) {
         const isLastProvider = providerType === fallbackChain[fallbackChain.length - 1];
