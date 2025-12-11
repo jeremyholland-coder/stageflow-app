@@ -1,103 +1,105 @@
 /**
- * Intelligent Data Prefetching Utility
+ * Unified Data Prefetcher
  *
- * NEXT-LEVEL FIX: Preloads data for likely navigation targets during idle time
- * Dramatically improves perceived performance by making navigation feel instant
- *
- * Performance Impact:
- * - Reduces perceived navigation latency from 500-2000ms to <50ms (instant feel)
- * - Uses requestIdleCallback to avoid blocking main thread
- * - Smart cache invalidation (5 min TTL for most data, 30s for real-time data)
- * - Respects user's network conditions (reduces prefetching on slow connections)
- *
- * Features:
- * - Prefetches data for navigation targets based on user behavior
- * - Prioritizes most likely destinations (AI settings if no provider, billing if trial ending)
- * - Cache-aware (won't prefetch if data is fresh)
- * - Network-aware (reduces prefetching on 3G)
- * - Cancelable requests (abort if user navigates away)
- *
- * Usage:
- * ```javascript
- * import { dataPrefetcher } from './lib/data-prefetcher';
- *
- * // In Dashboard component
- * useEffect(() => {
- *   dataPrefetcher.prefetchNavigation(user, organization);
- * }, [user, organization]);
- *
- * // Before navigation (optional - makes it even faster)
- * dataPrefetcher.prefetchView('integrations', { userId: user.id });
- * ```
+ * Centralized prefetch manager for navigation targets. All AI provider reads
+ * flow through backend service functions (no direct Supabase table reads),
+ * and logging is trimmed to warn/error in production.
  */
 
 import { supabase } from './supabase';
 import { getCurrentNetworkQuality } from './network-quality';
 import { logger } from './logger';
 
+const CACHE_TTLS = {
+  aiProviders: 10 * 60 * 1000, // 10 minutes
+  readiness: 30 * 1000,        // 30 seconds
+  billing: 30 * 1000,          // 30 seconds
+  teamMembers: 5 * 60 * 1000,  // 5 minutes
+  settings: 10 * 60 * 1000     // 10 minutes
+};
+
+const isBrowser = typeof window !== 'undefined';
+
+const isTabVisible = () => {
+  if (!isBrowser) return false;
+  return document.visibilityState === 'visible';
+};
+
+const hasStrongConnection = () => {
+  if (!isBrowser) return false;
+
+  const networkQuality = getCurrentNetworkQuality();
+  if (networkQuality === 'poor' || networkQuality === 'offline') {
+    return false;
+  }
+
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (connection?.effectiveType && !['4g', '5g'].includes(connection.effectiveType)) {
+    return false;
+  }
+
+  return true;
+};
+
+const scheduleIdle = (task) => {
+  if (!isBrowser) return;
+
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(
+      () => task().catch((err) => console.warn('[Prefetch] idle task failed', err)),
+      { timeout: 1500 }
+    );
+  } else {
+    setTimeout(() => {
+      task().catch((err) => console.warn('[Prefetch] deferred task failed', err));
+    }, 100);
+  }
+};
+
+async function buildAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+  } catch (error) {
+    // Warn in dev only; callers will still attempt without auth header
+    logger.warn('[Prefetch] Unable to read session for headers', error);
+  }
+
+  return headers;
+}
+
 class DataPrefetcher {
   constructor() {
-    // Track prefetch requests to avoid duplicates
     this.prefetchCache = new Map();
-
-    // Track active prefetch requests for cancellation
-    this.activeRequests = new Map();
-
-    // Cache TTLs for different data types
-    this.cacheTTLs = {
-      deals: 5 * 60 * 1000,        // 5 minutes (fairly stable)
-      aiProviders: 10 * 60 * 1000,  // 10 minutes (rarely changes)
-      billing: 30 * 1000,           // 30 seconds (may change quickly)
-      teamMembers: 5 * 60 * 1000,   // 5 minutes (stable)
-      settings: 10 * 60 * 1000,     // 10 minutes (rarely changes)
-    };
   }
 
-  /**
-   * Check if prefetch is needed based on cache freshness
-   */
-  shouldPrefetch(cacheKey) {
+  shouldPrefetch(cacheKey, type) {
     const cached = this.prefetchCache.get(cacheKey);
-
     if (!cached) return true;
 
-    const age = Date.now() - cached.timestamp;
-    const ttl = this.cacheTTLs[cached.type] || 5 * 60 * 1000;
-
-    return age > ttl;
+    const ttl = CACHE_TTLS[type] || 5 * 60 * 1000;
+    return Date.now() - cached.timestamp > ttl;
   }
 
-  /**
-   * Mark data as prefetched
-   */
-  markPrefetched(cacheKey, dataType) {
+  markPrefetched(cacheKey, type) {
     this.prefetchCache.set(cacheKey, {
       timestamp: Date.now(),
-      type: dataType
+      type
     });
   }
 
-  /**
-   * Prefetch AI provider settings (likely if user has no providers)
-   */
-  async prefetchAIProviders(userId, orgId) {
-    const cacheKey = `ai-providers-${orgId}`;
+  async prefetchAIProviders(orgId) {
+    if (!orgId) return;
 
-    if (!this.shouldPrefetch(cacheKey)) {
-      logger.log('[Prefetch] AI providers already cached');
-      return;
-    }
+    const cacheKey = `ai-providers:${orgId}`;
+    if (!this.shouldPrefetch(cacheKey, 'aiProviders')) return;
 
     try {
-      logger.log('[Prefetch] ⚡ Prefetching AI providers...');
-
-      // Use backend function (service role) to avoid RLS and to filter unsupported providers
-      const { data: { session } } = await supabase.auth.getSession();
-      const headers = { 'Content-Type': 'application/json' };
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-      }
-
+      const headers = await buildAuthHeaders();
       const response = await fetch('/.netlify/functions/get-ai-providers', {
         method: 'POST',
         headers,
@@ -106,203 +108,179 @@ class DataPrefetcher {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to prefetch AI providers: ${response.status}`);
+        console.warn(`[Prefetch] AI providers request failed: ${response.status}`);
+        return;
       }
 
-      const result = await response.json();
-      const providers = result.providers || [];
-
+      await response.json();
       this.markPrefetched(cacheKey, 'aiProviders');
-      logger.log('[Prefetch] ✓ AI providers prefetched');
-      return providers;
-    } catch (err) {
-      console.warn('[Prefetch] Failed to prefetch AI providers:', err);
+      if (import.meta.env.DEV) {
+        logger.log('[Prefetch] Cached AI providers');
+      }
+    } catch (error) {
+      console.warn('[Prefetch] AI providers prefetch failed:', error);
     }
   }
 
-  /**
-   * Prefetch billing information (likely if trial ending soon)
-   */
-  async prefetchBilling(orgId) {
-    const cacheKey = `billing-${orgId}`;
+  async prefetchAIReadiness(orgId) {
+    if (!orgId) return;
 
-    if (!this.shouldPrefetch(cacheKey)) {
-      logger.log('[Prefetch] Billing already cached');
-      return;
-    }
+    const cacheKey = `ai-readiness:${orgId}`;
+    if (!this.shouldPrefetch(cacheKey, 'readiness')) return;
 
     try {
-      logger.log('[Prefetch] ⚡ Prefetching billing info...');
+      const headers = await buildAuthHeaders();
+      const response = await fetch('/.netlify/functions/ai-readiness', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ organization_id: orgId })
+      });
 
+      if (!response.ok) {
+        console.warn(`[Prefetch] AI readiness request failed: ${response.status}`);
+        return;
+      }
+
+      await response.json();
+      this.markPrefetched(cacheKey, 'readiness');
+      if (import.meta.env.DEV) {
+        logger.log('[Prefetch] Cached AI readiness');
+      }
+    } catch (error) {
+      console.warn('[Prefetch] AI readiness prefetch failed:', error);
+    }
+  }
+
+  async prefetchBilling(orgId) {
+    if (!orgId) return;
+
+    const cacheKey = `billing:${orgId}`;
+    if (!this.shouldPrefetch(cacheKey, 'billing')) return;
+
+    try {
       const { data, error } = await supabase
         .from('organizations')
         .select('subscription_tier, trial_ends_at, stripe_customer_id')
         .eq('id', orgId)
-        .single();
+        .maybeSingle();
 
-      if (!error) {
-        this.markPrefetched(cacheKey, 'billing');
-        logger.log('[Prefetch] ✓ Billing info prefetched');
-        return data;
+      if (error) {
+        console.warn('[Prefetch] Billing prefetch failed:', error.message);
+        return;
       }
-    } catch (err) {
-      console.warn('[Prefetch] Failed to prefetch billing:', err);
+
+      if (data) {
+        this.markPrefetched(cacheKey, 'billing');
+        if (import.meta.env.DEV) {
+          logger.log('[Prefetch] Cached billing');
+        }
+      }
+    } catch (error) {
+      console.warn('[Prefetch] Billing prefetch failed:', error);
     }
   }
 
-  /**
-   * Prefetch team members (likely if user is admin)
-   */
   async prefetchTeamMembers(orgId) {
-    const cacheKey = `team-${orgId}`;
+    if (!orgId) return;
 
-    if (!this.shouldPrefetch(cacheKey)) {
-      logger.log('[Prefetch] Team members already cached');
-      return;
-    }
+    const cacheKey = `team:${orgId}`;
+    if (!this.shouldPrefetch(cacheKey, 'teamMembers')) return;
 
     try {
-      logger.log('[Prefetch] ⚡ Prefetching team members...');
-
       const { data, error } = await supabase
         .from('team_members')
         .select('*, users(id, email, display_name)')
         .eq('organization_id', orgId);
 
-      if (!error) {
+      if (error) {
+        console.warn('[Prefetch] Team prefetch failed:', error.message);
+        return;
+      }
+
+      if (data) {
         this.markPrefetched(cacheKey, 'teamMembers');
-        logger.log('[Prefetch] ✓ Team members prefetched');
-        return data;
+        if (import.meta.env.DEV) {
+          logger.log('[Prefetch] Cached team members');
+        }
       }
-    } catch (err) {
-      console.warn('[Prefetch] Failed to prefetch team members:', err);
+    } catch (error) {
+      console.warn('[Prefetch] Team prefetch failed:', error);
     }
   }
 
-  /**
-   * Smart prefetch based on user context and likely navigation
-   * PHASE 20: Enhanced with tab visibility and network quality checks
-   */
-  async prefetchNavigation(user, organization) {
-    if (!user || !organization) return;
-
-    // PHASE 20: Only prefetch when tab is visible
-    if (document.visibilityState !== 'visible') {
-      logger.log('[Prefetch] Skipping - tab not visible');
-      return;
-    }
-
-    // NEXT-LEVEL: Check network quality - reduce prefetching on slow connections
-    const networkQuality = getCurrentNetworkQuality();
-
-    if (networkQuality === 'poor' || networkQuality === 'offline') {
-      logger.log('[Prefetch] Skipping on poor network');
-      return;
-    }
-
-    // PHASE 20: Check navigator.connection for effective connection type
-    // Only prefetch on strong connections (4g or better)
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (connection?.effectiveType && !['4g', '5g'].includes(connection.effectiveType)) {
-      logger.log('[Prefetch] Skipping on slow connection:', connection.effectiveType);
-      return;
-    }
-
-    // Use requestIdleCallback to avoid blocking main thread
-    // PHASE 20: Enhanced to check CPU idle state
-    const scheduleIdlePrefetch = (prefetchFn) => {
-      if ('requestIdleCallback' in window) {
-        requestIdleCallback((deadline) => {
-          // PHASE 20: Only prefetch if we have enough idle time (>30ms)
-          if (deadline.timeRemaining() > 30) {
-            prefetchFn();
-          } else {
-            // Reschedule if not enough idle time
-            requestIdleCallback(() => prefetchFn(), { timeout: 3000 });
-          }
-        }, { timeout: 2000 });
-      } else {
-        // Fallback for Safari
-        setTimeout(() => prefetchFn(), 100);
-      }
-    };
-
-    // Prefetch likely destinations based on user context
-
-    // 1. Always prefetch AI providers (likely to check/configure)
-    scheduleIdlePrefetch(() => this.prefetchAIProviders(user.id, organization.id));
-
-    // 2. Prefetch billing if trial ending soon or on free plan
-    if (organization.subscription_tier === 'free' || organization.trial_ends_at) {
-      scheduleIdlePrefetch(() => this.prefetchBilling(organization.id));
-    }
-
-    // 3. Prefetch team members if user is admin
-    if (user.role === 'admin' || user.role === 'owner') {
-      scheduleIdlePrefetch(() => this.prefetchTeamMembers(organization.id));
-    }
-  }
-
-  /**
-   * Prefetch specific view data
-   */
   async prefetchView(viewName, context = {}) {
-    const networkQuality = getCurrentNetworkQuality();
-
-    if (networkQuality === 'poor' || networkQuality === 'offline') {
-      logger.log('[Prefetch] Skipping on poor network');
+    const { orgId, userRole } = context;
+    if (!hasStrongConnection()) {
+      if (import.meta.env.DEV) {
+        logger.debug('[Prefetch] Skipping view prefetch on weak connection');
+      }
       return;
     }
 
     switch (viewName) {
+      case 'dashboard':
+        await Promise.all([
+          this.prefetchAIProviders(orgId),
+          this.prefetchAIReadiness(orgId)
+        ]);
+        break;
       case 'integrations':
       case 'ai-settings':
-        return this.prefetchAIProviders(context.userId, context.orgId);
-
+        await this.prefetchAIProviders(orgId);
+        break;
       case 'billing':
-        return this.prefetchBilling(context.orgId);
-
+        await this.prefetchBilling(orgId);
+        break;
       case 'team':
-        return this.prefetchTeamMembers(context.orgId);
-
+        if (userRole === 'admin' || userRole === 'owner') {
+          await this.prefetchTeamMembers(orgId);
+        }
+        break;
       default:
-        console.warn('[Prefetch] Unknown view:', viewName);
+        if (import.meta.env.DEV) {
+          logger.debug('[Prefetch] Unknown view prefetch requested:', viewName);
+        }
+        break;
     }
   }
 
-  /**
-   * Cancel all active prefetch requests
-   */
-  cancelAll() {
-    this.activeRequests.forEach((controller) => controller.abort());
-    this.activeRequests.clear();
-    logger.log('[Prefetch] Cancelled all active requests');
+  async prefetchNavigation(user, organization) {
+    if (!user || !organization) return;
+    if (!isTabVisible() || !hasStrongConnection()) {
+      if (import.meta.env.DEV) {
+        logger.debug('[Prefetch] Skipping navigation prefetch (invisible tab or weak network)');
+      }
+      return;
+    }
+
+    // Run lightweight tasks during idle time to avoid jank
+    scheduleIdle(() => this.prefetchAIProviders(organization.id));
+    scheduleIdle(() => this.prefetchAIReadiness(organization.id));
+
+    if (organization.subscription_tier === 'free' || organization.trial_ends_at) {
+      scheduleIdle(() => this.prefetchBilling(organization.id));
+    }
+
+    if (user.role === 'admin' || user.role === 'owner') {
+      scheduleIdle(() => this.prefetchTeamMembers(organization.id));
+    }
   }
 
-  /**
-   * Clear all cached prefetch data
-   */
   clearCache() {
     this.prefetchCache.clear();
-    logger.log('[Prefetch] Cleared prefetch cache');
   }
 
-  /**
-   * Get prefetch statistics
-   */
   getStats() {
     return {
       cachedEntries: this.prefetchCache.size,
-      activeRequests: this.activeRequests.size,
       cacheKeys: Array.from(this.prefetchCache.keys())
     };
   }
 }
 
-// Singleton instance
 export const dataPrefetcher = new DataPrefetcher();
 
-// Convenience exports
 export const prefetchNavigation = (user, org) => dataPrefetcher.prefetchNavigation(user, org);
 export const prefetchView = (view, context) => dataPrefetcher.prefetchView(view, context);
 

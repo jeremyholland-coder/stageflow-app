@@ -19,6 +19,20 @@ import {
 // Re-export types for convenience
 export type { AIReadinessNode, AIReadinessEvent, AIReadinessState };
 
+const debugLog = (...args: any[]) => {
+  if (import.meta.env.DEV) {
+    console.debug(...args);
+  }
+};
+
+const warnLog = (...args: any[]) => {
+  console.warn(...args);
+};
+
+const errorLog = (...args: any[]) => {
+  console.error(...args);
+};
+
 // ============================================================================
 // Service Types
 // ============================================================================
@@ -134,9 +148,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     const currentServices = servicesRef.current;
 
     // [AI_DEBUG] Log readiness check start
-    if (import.meta.env.DEV) {
-      console.info('[AI_DEBUG][runReadinessCheck] Starting AI readiness check sequence');
-    }
+    debugLog('[AI_DEBUG][runReadinessCheck] Starting AI readiness check sequence');
 
     // Step 1: APP_BOOT -> SESSION_CHECKING
     dispatch({ type: 'APP_BOOT' });
@@ -149,12 +161,12 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           type: 'SESSION_INVALID',
           reason: sessionResult.code || 'Session validation failed',
         });
-        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at session check - invalid');
+        warnLog('[AI_DEBUG][runReadinessCheck] STOPPED at session check - invalid');
         return; // STOP - session is invalid
       }
       dispatch({ type: 'SESSION_OK' });
     } catch (error) {
-      console.error('[AI_DEBUG][runReadinessCheck] Session check threw:', error);
+      errorLog('[AI_DEBUG][runReadinessCheck] Session check threw:', error);
       dispatch({
         type: 'SESSION_INVALID',
         reason: error instanceof Error ? error.message : 'Session check failed',
@@ -167,7 +179,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
       const providersResult = await currentServices.checkProviders();
 
       if ((providersResult as any).authError) {
-        console.warn('[AI_DEBUG][runReadinessCheck] Provider check got auth error - treating as session invalid');
+        warnLog('[AI_DEBUG][runReadinessCheck] Provider check got auth error - treating as session invalid');
         dispatch({
           type: 'SESSION_INVALID',
           reason: providersResult.reason || 'AUTH_ERROR_DURING_PROVIDER_CHECK',
@@ -179,11 +191,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
         dispatch({ type: 'PROVIDERS_FOUND', count: providersResult.count });
       } else {
         dispatch({ type: 'NO_PROVIDERS' });
-        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at provider check - no providers');
+        debugLog('[AI_DEBUG][runReadinessCheck] STOPPED at provider check - no providers');
         return; // STOP - no providers configured
       }
     } catch (error) {
-      console.error('[AI_DEBUG][runReadinessCheck] Provider check threw:', error);
+      errorLog('[AI_DEBUG][runReadinessCheck] Provider check threw:', error);
       dispatch({ type: 'NO_PROVIDERS' });
       return; // STOP - provider check threw
     }
@@ -191,7 +203,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 4: Check config
     try {
       const configResult = await currentServices.checkConfig();
-      console.info('[AI_DEBUG][runReadinessCheck] Config check result:', configResult);
+      debugLog('[AI_DEBUG][runReadinessCheck] Config check result:', configResult);
       if (configResult.sessionInvalid || configResult.code === 'SESSION_INVALID') {
         dispatch({
           type: 'SESSION_INVALID',
@@ -205,12 +217,12 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           code: configResult.code || 'CONFIG_ERROR',
           message: configResult.message || 'Configuration check failed',
         });
-        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at config check - error');
+        warnLog('[AI_DEBUG][runReadinessCheck] STOPPED at config check - error');
         return; // STOP - config error
       }
       dispatch({ type: 'CONFIG_OK' });
     } catch (error) {
-      console.error('[AI_DEBUG][runReadinessCheck] Config check threw:', error);
+      errorLog('[AI_DEBUG][runReadinessCheck] Config check threw:', error);
       dispatch({
         type: 'CONFIG_ERROR',
         code: 'CONFIG_ERROR',
@@ -222,7 +234,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
     // Step 5: Health check
     try {
       const healthResult = await currentServices.healthCheck();
-      console.info('[AI_DEBUG][runReadinessCheck] Health check result:', healthResult);
+      debugLog('[AI_DEBUG][runReadinessCheck] Health check result:', healthResult);
 
       if (healthResult.sessionInvalid) {
         dispatch({
@@ -238,7 +250,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           networkError: true,
           message: healthResult.message || 'Network error during health check',
         });
-        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at health check - network error');
+        warnLog('[AI_DEBUG][runReadinessCheck] STOPPED at health check - network error');
         return;
       }
 
@@ -248,7 +260,7 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
           networkError: false,
           message: healthResult.message || 'Health check failed',
         });
-        console.warn('[AI_DEBUG][runReadinessCheck] STOPPED at health check - failed');
+        warnLog('[AI_DEBUG][runReadinessCheck] STOPPED at health check - failed');
         return;
       }
 
@@ -257,11 +269,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
         type: 'HEALTH_CHECK_OK',
         degraded: healthResult.degraded ?? false,
       });
-      console.info('[AI_DEBUG][runReadinessCheck] SUCCESS - AI is ready', {
+      debugLog('[AI_DEBUG][runReadinessCheck] SUCCESS - AI is ready', {
         degraded: healthResult.degraded ?? false,
       });
     } catch (error) {
-      console.error('[AI_DEBUG][runReadinessCheck] Health check threw:', error);
+      errorLog('[AI_DEBUG][runReadinessCheck] Health check threw:', error);
       // Network/thrown errors are treated as network failures
       dispatch({
         type: 'HEALTH_CHECK_FAILED',
@@ -356,7 +368,7 @@ export function useWiredAIReadiness(
           code: result?.code || 'SESSION_INVALID',
         };
       } catch (error) {
-        console.error('[useWiredAIReadiness] Session check error:', error);
+        errorLog('[useWiredAIReadiness] Session check error:', error);
         return {
           ok: false,
           code: 'SESSION_CHECK_FAILED',
