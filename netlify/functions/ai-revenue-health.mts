@@ -382,30 +382,43 @@ export default async (req: Request, context: Context) => {
     }
 
     // Fetch deals (with column fallback for expected_close_date)
+    // Deals fetch with robust fallbacks to survive schema drift
     let deals;
     let dealsError;
+    // Attempt 1: minimal specific columns (expected_close_date + legacy expected_close)
     ({ data: deals, error: dealsError } = await supabase
       .from('deals')
-      .select('id, value, stage, status, expected_close, expected_close_date, created_at, updated_at, last_activity, confidence, assigned_to')
+      .select('id, organization_id, value, stage, status, expected_close, expected_close_date, created_at, created, updated_at, last_activity, confidence, assigned_to')
       .eq('organization_id', organization_id)
       .is('deleted_at', null));
 
-    // Fallback if legacy column name causes error
+    // Attempt 2: drop legacy expected_close if that caused an error
     if (dealsError) {
       console.warn('[ai-revenue-health] Deals fetch error (primary select) - retrying without expected_close:', dealsError.message);
       ({ data: deals, error: dealsError } = await supabase
         .from('deals')
-        .select('id, value, stage, status, expected_close_date, created_at, updated_at, last_activity, confidence, assigned_to')
+        .select('id, organization_id, value, stage, status, expected_close_date, created_at, created, updated_at, last_activity, confidence, assigned_to')
+        .eq('organization_id', organization_id)
+        .is('deleted_at', null));
+    }
+
+    // Attempt 3: final fallback - select all columns to survive unforeseen schema drift
+    if (dealsError) {
+      console.warn('[ai-revenue-health] Deals fetch still failing - falling back to select(\"*\"):', dealsError.message);
+      ({ data: deals, error: dealsError } = await supabase
+        .from('deals')
+        .select('*')
         .eq('organization_id', organization_id)
         .is('deleted_at', null));
     }
 
     if (dealsError) {
-      console.error('[ai-revenue-health] Deals fetch error:', dealsError);
+      console.error('[ai-revenue-health] Deals fetch error (all attempts failed):', dealsError);
       return createErrorResponse(origin, {
         message: 'Failed to fetch deals',
         code: 'DB_ERROR',
         status: 500,
+        details: dealsError.message
       });
     }
 
@@ -447,7 +460,7 @@ export default async (req: Request, context: Context) => {
       status: d.status,
       // Normalize legacy/modern close date columns
       expected_close_date: d.expected_close_date || d.expected_close || null,
-      created_at: d.created_at,
+      created_at: d.created_at || d.created || null,
       updated_at: d.updated_at,
       last_activity: d.last_activity,
       confidence: d.confidence,
