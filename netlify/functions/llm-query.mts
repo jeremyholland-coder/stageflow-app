@@ -184,7 +184,7 @@ export default async (req: Request, context: Context) => {
         // DATE-FIELD-01 FIX: Include 'created' field for deals table compatibility
         const { data: deals, error: dealsError } = await supabase
           .from('deals')
-          .select('id, client, value, stage, status, confidence, notes, created, created_at, updated_at')
+          .select('id, client, value, stage, status, confidence, notes, created, created_at, updated')
           .eq('organization_id', organization_id)
           .order('created', { ascending: false });
 
@@ -199,7 +199,7 @@ export default async (req: Request, context: Context) => {
             status: d.status,
             confidence: d.confidence,
             has_notes: !!d.notes, // Don't include actual notes (may contain PII)
-            days_in_stage: Math.floor((new Date().getTime() - new Date(d.updated_at).getTime()) / (1000 * 60 * 60 * 24)),
+            days_in_stage: Math.floor((new Date().getTime() - new Date(d.updated || d.created || d.created_at).getTime()) / (1000 * 60 * 60 * 24)),
             age_days: Math.floor((new Date().getTime() - new Date(d.created || d.created_at).getTime()) / (1000 * 60 * 60 * 24))
           }));
 

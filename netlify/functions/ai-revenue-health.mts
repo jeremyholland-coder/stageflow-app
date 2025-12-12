@@ -387,7 +387,7 @@ export default async (req: Request, context: Context) => {
     // Attempt 1: minimal specific columns (expected_close_date + legacy expected_close)
     ({ data: deals, error: dealsError } = await supabase
       .from('deals')
-      .select('id, organization_id, value, stage, status, expected_close, expected_close_date, created_at, created, updated_at, last_activity, confidence, assigned_to')
+      .select('id, organization_id, value, stage, status, expected_close, expected_close_date, created_at, created, last_activity, confidence, assigned_to, updated')
       .eq('organization_id', organization_id)
       .is('deleted_at', null));
 
@@ -396,7 +396,7 @@ export default async (req: Request, context: Context) => {
       console.warn('[ai-revenue-health] Deals fetch error (primary select) - retrying without expected_close:', dealsError.message);
       ({ data: deals, error: dealsError } = await supabase
         .from('deals')
-        .select('id, organization_id, value, stage, status, expected_close_date, created_at, created, updated_at, last_activity, confidence, assigned_to')
+        .select('id, organization_id, value, stage, status, expected_close_date, created_at, created, last_activity, confidence, assigned_to, updated')
         .eq('organization_id', organization_id)
         .is('deleted_at', null));
     }
@@ -460,7 +460,7 @@ export default async (req: Request, context: Context) => {
       // Normalize legacy/modern close date columns
       expected_close_date: d.expected_close_date || d.expected_close || null,
       created_at: d.created_at || d.created || null,
-      updated_at: d.updated_at,
+      updated_at: d.updated, // map DB "updated" to response field if needed by callers
       last_activity: d.last_activity,
       confidence: d.confidence,
       assigned_to: d.assigned_to,

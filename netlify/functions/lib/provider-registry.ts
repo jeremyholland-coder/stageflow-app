@@ -55,7 +55,6 @@ export interface AIProvider {
   // Legacy support: some environments still use is_active
   is_active?: boolean;
   created_at: string;
-  updated_at?: string;
 }
 
 /**
@@ -121,9 +120,22 @@ export async function getConnectedProviders(
 
   try {
     // Fetch providers (cached by default for 60s)
-    const allProviders = useCache
-      ? await getProvidersWithCache(supabase, orgId)
-      : await fetchProvidersDirect(supabase, orgId);
+    let allProviders: AIProvider[];
+    try {
+      allProviders = useCache
+        ? await getProvidersWithCache(supabase, orgId)
+        : await fetchProvidersDirect(supabase, orgId);
+    } catch (fetchErr: any) {
+      // SCHEMA DRIFT FALLBACK: if active/is_active columns are missing, retry with minimal select and default active=true
+      const message = fetchErr?.message || '';
+      const isActiveColumnMissing = message.includes('is_active') || (message.includes('column') && message.includes('active'));
+      if (isActiveColumnMissing) {
+        console.warn('[StageFlow][AI][WARN] provider fetch failed due to active/is_active column. Retrying with minimal select.');
+        allProviders = await fetchProvidersDirectNoActive(supabase, orgId);
+      } else {
+        throw fetchErr;
+      }
+    }
 
     // M4 HARDENING: Filter to allowed providers only AND require an encrypted key
     const filteredProviders = (allProviders || []).filter((p: AIProvider) => {
@@ -158,7 +170,7 @@ export async function getConnectedProviders(
 async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIProvider[]> {
   // Support environments that may or may not have legacy columns (is_active, updated_at).
   // We keep the select minimal to avoid schema drift errors.
-  const baseSelect = 'id, organization_id, provider_type, api_key_encrypted, model, active, created_at';
+  const baseSelect = 'id, organization_id, provider_type, api_key_encrypted, model, display_name, active, is_active, created_at';
 
   let data;
   let error;
@@ -173,7 +185,7 @@ async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIPro
     // Fallback for schemas without the legacy column
     ({ data, error } = await supabase
       .from('ai_providers')
-      .select('id, organization_id, provider_type, api_key_encrypted, model, created_at')
+      .select('id, organization_id, provider_type, api_key_encrypted, model, display_name, created_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: true }));
   }
@@ -191,6 +203,27 @@ async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIPro
   });
 
   return normalized as AIProvider[];
+}
+
+/**
+ * Fallback when active/is_active columns are missing.
+ * Selects minimal columns and assumes active=true.
+ */
+async function fetchProvidersDirectNoActive(supabase: any, orgId: string): Promise<AIProvider[]> {
+  const { data, error } = await supabase
+    .from('ai_providers')
+    .select('id, organization_id, provider_type, api_key_encrypted, model, display_name, created_at')
+    .eq('organization_id', orgId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw new ProviderFetchError(`Database error (no-active fallback): ${error.message}`, 'DB_ERROR');
+  }
+
+  return (data || []).map((p: any) => ({
+    ...p,
+    active: true // assume active when column absent
+  })) as AIProvider[];
 }
 
 /**

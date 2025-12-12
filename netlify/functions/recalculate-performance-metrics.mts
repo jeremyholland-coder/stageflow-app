@@ -67,13 +67,13 @@ async function calculateMetricsForPeriod(
   // Filter deals by status change within period
   const wonDealsInPeriod = deals.filter(d => {
     if (d.status !== 'won') return false;
-    const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+    const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
     return wonDate >= cutoffDate;
   });
 
   const lostDealsInPeriod = deals.filter(d => {
     if (d.status !== 'lost') return false;
-    const lostDate = new Date(d.last_activity || d.updated_at || d.created);
+    const lostDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
     return lostDate >= cutoffDate;
   });
 
@@ -92,7 +92,7 @@ async function calculateMetricsForPeriod(
   const avgDaysToClose = wonDealsInPeriod.length > 0
     ? wonDealsInPeriod.reduce((sum, d) => {
         const created = new Date(d.created || d.created_at);
-        const closed = new Date(d.last_activity || d.updated_at);
+        const closed = new Date(d.last_activity || d.updated || d.created_at || d.created);
         return sum + Math.floor((closed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
       }, 0) / wonDealsInPeriod.length
     : null;
@@ -134,7 +134,7 @@ async function calculateMetricsForPeriod(
     const userAvgDaysToClose = userWonDeals.length > 0
       ? userWonDeals.reduce((sum, d) => {
           const created = new Date(d.created || d.created_at);
-          const closed = new Date(d.last_activity || d.updated_at);
+          const closed = new Date(d.last_activity || d.updated || d.created_at || d.created);
           return sum + Math.floor((closed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
         }, 0) / userWonDeals.length
       : null;

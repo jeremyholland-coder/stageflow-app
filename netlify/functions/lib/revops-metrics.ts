@@ -187,7 +187,7 @@ function getStageRules(stage: string | null | undefined): { maxGapDays: number; 
  * Get follow-up status for a single deal
  */
 export function getDealFollowupStatus(deal: any, now: Date = new Date()): DealFollowupStatus {
-  const lastActivity = deal.last_activity || deal.updated_at || deal.created_at || deal.created;
+  const lastActivity = deal.last_activity || deal.updated || deal.created_at || deal.created;
   const daysSinceActivity = daysSince(lastActivity, now);
   const rules = getStageRules(deal.stage);
   const warningGap = Math.round(rules.maxGapDays * rules.warningMultiplier);

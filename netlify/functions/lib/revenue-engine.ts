@@ -24,7 +24,7 @@ export interface RevenueDealInput {
   status: 'active' | 'won' | 'lost' | 'disqualified' | string;
   expected_close_date?: string | null;
   created_at?: string | null;
-  updated_at?: string | null;
+  updated?: string | null; // DB uses "updated"
   last_activity?: string | null;
   confidence?: number | null;
   assigned_to?: string | null;
@@ -306,7 +306,7 @@ function analyzeRisks(
   // 3. Stagnant pipeline (many deals without activity > 21 days)
   const stagnantThreshold = 21; // days
   const stagnantDeals = activeDeals.filter(d => {
-    const lastActivity = d.last_activity || d.updated_at || d.created_at;
+    const lastActivity = d.last_activity || d.updated || d.created_at || d.created;
     if (!lastActivity) return false;
     const activityDate = new Date(lastActivity);
     if (isNaN(activityDate.getTime())) return false;
@@ -404,7 +404,7 @@ export function computeRevenueProjections(
 
     if (deal.status === 'won') {
       // Won deals: check when they were closed
-      const closedDate = deal.last_activity || deal.updated_at || deal.created_at;
+      const closedDate = deal.last_activity || deal.updated || deal.created_at || deal.created;
 
       if (isDateInPeriod(closedDate, monthPeriod)) {
         monthClosed += value;

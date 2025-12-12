@@ -180,18 +180,9 @@ export async function getProvidersWithCache(
 
   ({ data, error } = await supabase
     .from('ai_providers')
-    .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at')
+    .select('id, organization_id, provider_type, api_key_encrypted, model, display_name, active, is_active, created_at')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: true })); // First connected = first in array
-
-  // Fallback for schema drift (active column missing)
-  if (error && (error.message?.includes('active') || error.message?.includes('is_active'))) {
-    ({ data, error } = await supabase
-      .from('ai_providers')
-      .select('id, organization_id, provider_type, api_key_encrypted, model, created_at')
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: true }));
-  }
 
   // ============================================================================
   // [StageFlow][AI][PROVIDERS][DB_FETCH] Deep diagnostic log

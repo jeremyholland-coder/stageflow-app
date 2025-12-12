@@ -130,13 +130,13 @@ export function calculateWeeklyTrends(deals: any[]): any[] {
 
     const closed = deals.filter(d => {
       if (d.status !== 'won') return false;
-      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      const lastActivity = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return lastActivity >= weekStart && lastActivity < weekEnd;
     }).length;
 
     const lost = deals.filter(d => {
       if (d.status !== 'lost') return false;
-      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      const lastActivity = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return lastActivity >= weekStart && lastActivity < weekEnd;
     }).length;
 
@@ -236,7 +236,7 @@ export function calculateRevenueForecast(deals: any[]): any[] {
   const currentRevenue = deals
     .filter(d => {
       if (d.status !== 'won') return false;
-      const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+      const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return wonDate >= monthStart && wonDate <= now;
     })
     .reduce((sum, d) => sum + Number(d.value || 0), 0);
@@ -349,7 +349,7 @@ export async function calculateGoalProgress(
     const monthRevenue = deals
       .filter(d => {
         if (d.status !== 'won') return false;
-        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
         return wonDate >= monthStart;
       })
       .reduce((sum, d) => sum + Number(d.value || 0), 0);

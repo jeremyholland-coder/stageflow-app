@@ -37,7 +37,7 @@ export function hashDeals(deals: any[]): string {
 
   // Create signature from critical deal fields
   const signature = deals
-    .map(d => `${d.id}:${d.value || 0}:${d.stage}:${d.status}:${d.last_activity || d.updated_at}`)
+    .map(d => `${d.id}:${d.value || 0}:${d.stage}:${d.status}:${d.last_activity || d.updated || d.created_at || d.created || ''}`)
     .sort() // Sort for consistent hashing
     .join('|');
 

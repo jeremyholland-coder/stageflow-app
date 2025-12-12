@@ -26,7 +26,7 @@ export interface Deal {
   value: number | null;
   created: string | null;
   created_at?: string | null;
-  updated_at?: string | null;
+  updated?: string | null; // DB uses "updated" (timestamp)
   last_activity?: string | null;
   assigned_to?: string | null;
   assigned_by?: string | null;
@@ -316,7 +316,7 @@ export function normalizeDeal(raw: unknown): Deal | null {
     value: safeNumber(obj.value),
     created: typeof obj.created === 'string' ? obj.created : null,
     created_at: typeof obj.created_at === 'string' ? obj.created_at : undefined,
-    updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : undefined,
+    updated: typeof obj.updated === 'string' ? obj.updated : undefined,
     last_activity: typeof obj.last_activity === 'string' ? obj.last_activity : undefined,
     assigned_to: typeof obj.assigned_to === 'string' ? obj.assigned_to : undefined,
     confidence: (() => {

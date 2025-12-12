@@ -200,7 +200,7 @@ async function getPerformanceContext(organizationId: string, userId: string): Pr
 function hashDeals(deals: any[]): string {
   // Create signature from deal IDs, stages, values, and last_activity timestamps
   const dealSignature = deals
-    .map(d => `${d.id}:${d.stage}:${d.value || 0}:${d.last_activity || d.updated_at || ''}`)
+    .map(d => `${d.id}:${d.stage}:${d.value || 0}:${d.last_activity || d.updated || d.created_at || d.created || ''}`)
     .sort() // Sort for consistent hashing
     .join('|');
 
@@ -347,7 +347,7 @@ function calculateRevenueForecast(deals: any[]): any[] {
   const currentRevenue = deals
     .filter(d => {
       if (d.status !== 'won') return false;
-      const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+      const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return wonDate >= monthStart && wonDate <= now;
     })
     .reduce((sum, d) => sum + Number(d.value || 0), 0);
@@ -471,13 +471,13 @@ function calculateWeeklyTrends(deals: any[]): any[] {
 
     const closed = deals.filter(d => {
       if (d.status !== 'won') return false;
-      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      const lastActivity = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return lastActivity >= weekStart && lastActivity < weekEnd;
     }).length;
 
     const lost = deals.filter(d => {
       if (d.status !== 'lost') return false;
-      const lastActivity = new Date(d.last_activity || d.updated_at || d.created);
+      const lastActivity = new Date(d.last_activity || d.updated || d.created_at || d.created);
       return lastActivity >= weekStart && lastActivity < weekEnd;
     }).length;
 
@@ -578,7 +578,7 @@ async function calculateGoalProgress(deals: any[], organizationId: string, supab
     const monthRevenue = deals
       .filter(d => {
         if (d.status !== 'won') return false;
-        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
         return wonDate >= monthStart;
       })
       .reduce((sum, d) => sum + Number(d.value || 0), 0);
@@ -589,7 +589,7 @@ async function calculateGoalProgress(deals: any[], organizationId: string, supab
     const quarterRevenue = deals
       .filter(d => {
         if (d.status !== 'won') return false;
-        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
         return wonDate >= quarterStart;
       })
       .reduce((sum, d) => sum + Number(d.value || 0), 0);
@@ -599,7 +599,7 @@ async function calculateGoalProgress(deals: any[], organizationId: string, supab
     const yearRevenue = deals
       .filter(d => {
         if (d.status !== 'won') return false;
-        const wonDate = new Date(d.last_activity || d.updated_at || d.created);
+        const wonDate = new Date(d.last_activity || d.updated || d.created_at || d.created);
         return wonDate >= yearStart;
       })
       .reduce((sum, d) => sum + Number(d.value || 0), 0);
