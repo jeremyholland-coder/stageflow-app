@@ -22,7 +22,24 @@ import {
   Rocket,
   Activity
 } from 'lucide-react';
-import { WON_STAGES, LOST_STAGES, getStatusForStage as getStatusForStageShared } from '../../shared/stageStatusMap';
+// Stage status mappings (inlined to avoid bundling issues with shared/ directory)
+// NOTE: Backend has its own copy in shared/stageStatusMap.ts - keep in sync if modifying
+const WON_STAGES = new Set([
+  // Core won stages
+  'deal_won', 'closed_won', 'won', 'closed',
+  // Real Estate pipeline
+  'contract_signed', 'escrow_completed',
+  // VC/Investment pipeline
+  'investment_closed', 'capital_received',
+  // Standard pipeline
+  'payment_received', 'invoice_sent',
+  // Retention/Customer success
+  'retention', 'retention_renewal', 'client_retention', 'customer_retained', 'portfolio_mgmt'
+]);
+
+const LOST_STAGES = new Set([
+  'lost', 'deal_lost', 'closed_lost', 'investment_lost', 'passed'
+]);
 
 /**
  * Pipeline Templates for StageFlow CRM
@@ -526,7 +543,9 @@ export const STAGE_STATUS_MAP = {
  * @returns {string} - 'won', 'lost', or 'active'
  */
 export const getStatusForStage = (stageId) => {
-  return getStatusForStageShared(stageId);
+  if (WON_STAGES.has(stageId)) return 'won';
+  if (LOST_STAGES.has(stageId)) return 'lost';
+  return 'active';
 };
 
 /**
