@@ -390,7 +390,7 @@ const MainApp = () => {
       {activeView === VIEWS.INTEGRATIONS && (
         organization ? (
           <Suspense fallback={<ViewFallback />}>
-            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p>Failed to load Integrations. Please refresh the page.</p></div>}>
+            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p className="text-gray-300">Failed to load Integrations. Please refresh the page.</p></div>}>
               <Integrations />
             </ErrorBoundary>
           </Suspense>
@@ -402,7 +402,7 @@ const MainApp = () => {
       {activeView === VIEWS.SETTINGS && (
         organization ? (
           <Suspense fallback={<ViewFallback />}>
-            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p>Failed to load Settings. Please refresh the page.</p></div>}>
+            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p className="text-gray-300">Failed to load Settings. Please refresh the page.</p></div>}>
               <Settings />
             </ErrorBoundary>
           </Suspense>
@@ -414,7 +414,7 @@ const MainApp = () => {
       {activeView === VIEWS.TEAM && (
         organization ? (
           <Suspense fallback={<ViewFallback />}>
-            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p>Failed to load Team Dashboard. Please refresh the page.</p></div>}>
+            <ErrorBoundary fallback={<div className="p-8 text-center"><AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" /><p className="text-gray-300">Failed to load Team Dashboard. Please refresh the page.</p></div>}>
               <TeamDashboard />
             </ErrorBoundary>
           </Suspense>
