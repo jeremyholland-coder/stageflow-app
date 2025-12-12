@@ -33,6 +33,17 @@ export async function login(email, password) {
     // FIX: Import secureFetch to include CSRF token
     const { secureFetch } = await import('./csrf-client');
 
+    // SAFETY: Clear any stale auth cookies before attempting login.
+    // This prevents SESSION_INVALID loops caused by bad refresh cookies.
+    try {
+      await secureFetch('/.netlify/functions/auth-logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (logoutErr) {
+      console.warn('[Auth] Pre-login cookie reset failed (non-fatal):', logoutErr?.message);
+    }
+
     const response = await secureFetch('/.netlify/functions/auth-login', {
       method: 'POST',
       headers: {
