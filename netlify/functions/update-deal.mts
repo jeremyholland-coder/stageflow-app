@@ -20,6 +20,8 @@ import {
 } from "./lib/invariant-validator";
 // ENGINE REBUILD Phase 5: Centralized CORS config
 import { buildCorsHeaders } from "./lib/cors";
+// Canonical stage → status mapping shared with frontend
+import { getStatusForStage } from "../../shared/stageStatusMap";
 
 /**
  * UPDATE DEAL ENDPOINT
@@ -257,35 +259,40 @@ export default async (req: Request, context: Context) => {
     let status = sanitizedUpdates.status || existingDeal.status;
 
     if (sanitizedUpdates.stage && !sanitizedUpdates.status) {
-      // Check if the new stage implies a status change
-      // P0 BUG FIX 2025-12-09: Synchronized with frontend STAGE_STATUS_MAP (pipelineTemplates.js)
-      // All pipelines (standard, real estate, VC, healthcare) must have consistent won/lost mapping
-      const STAGE_TO_STATUS: Record<string, string> = {
-        // Core won stages
-        'deal_won': 'won', 'closed_won': 'won', 'won': 'won', 'closed': 'won',
-        // Real Estate pipeline won stages
-        'contract_signed': 'won', 'escrow_completed': 'won',
-        // VC/Investment pipeline won stages
-        'investment_closed': 'won', 'capital_received': 'won',
-        // Standard pipeline won stages
-        'payment_received': 'won', 'invoice_sent': 'won',
-        // Retention/Customer success stages
-        'retention': 'won', 'client_retention': 'won', 'customer_retained': 'won', 'portfolio_mgmt': 'won',
-        // Lost stages
-        'deal_lost': 'lost', 'closed_lost': 'lost', 'lost': 'lost', 'investment_lost': 'lost',
-      };
-      const impliedStatus = STAGE_TO_STATUS[sanitizedUpdates.stage];
+      // Canonical implied status from shared map
+      const impliedStatus = getStatusForStage(sanitizedUpdates.stage);
 
-      // If stage implies "active" (any non-terminal stage), revert to active
-      if (!impliedStatus && (existingDeal.status === 'lost' || existingDeal.status === 'disqualified')) {
+      // If stage implies "active" (any non-terminal stage), revert to active when leaving terminal states
+      if (impliedStatus === 'active' && (existingDeal.status === 'lost' || existingDeal.status === 'disqualified' || existingDeal.status === 'won')) {
         console.log(`[update-deal] ⚠️ Stage "${sanitizedUpdates.stage}" implies active status - reverting from "${existingDeal.status}"`);
         sanitizedUpdates.status = 'active';
         status = 'active';
-      } else if (impliedStatus && impliedStatus !== existingDeal.status) {
+      } else if (impliedStatus !== 'active' && impliedStatus !== existingDeal.status) {
         console.log(`[update-deal] Auto-syncing status from "${existingDeal.status}" to "${impliedStatus}" based on stage "${sanitizedUpdates.stage}"`);
         sanitizedUpdates.status = impliedStatus;
         status = impliedStatus;
       }
+    }
+
+    // Enforce allowed status transitions (spec: won/lost/disqualified must pass through active)
+    const ALLOWED_TRANSITIONS = new Set([
+      'active->active', 'active->won', 'active->lost', 'active->disqualified',
+      'won->won', 'won->active',
+      'lost->lost', 'lost->active',
+      'disqualified->disqualified', 'disqualified->active'
+    ]);
+    const transitionKey = `${existingDeal.status}->${status}`;
+    if (!ALLOWED_TRANSITIONS.has(transitionKey)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Invalid status transition from ${existingDeal.status} to ${status}`,
+          code: "INVALID_STATUS_TRANSITION",
+          from: existingDeal.status,
+          to: status
+        }),
+        { status: 400, headers: corsHeaders }
+      );
     }
 
     // PHASE 4: Map legacy reason IDs to unified taxonomy
@@ -351,20 +358,62 @@ export default async (req: Request, context: Context) => {
     }
 
     if (status === 'disqualified') {
-      // Disqualified deals must have a disqualified reason (check both legacy and unified fields)
-      const hasDisqReason = !!sanitizedUpdates.disqualified_reason_notes ||
-                            !!sanitizedUpdates.disqualified_reason_category ||
-                            !!sanitizedUpdates.outcome_reason_category;
+      const ALLOWED_DISQ_CATEGORIES = new Set([
+        'no_budget',
+        'not_a_fit',
+        'wrong_timing',
+        'went_with_competitor',
+        'unresponsive',
+        'other'
+      ]);
+      // Disqualified deals must have a disqualified reason category
+      const hasDisqCategory = !!sanitizedUpdates.disqualified_reason_category || !!sanitizedUpdates.outcome_reason_category;
 
-      if (sanitizedUpdates.status === 'disqualified' && !hasDisqReason) {
+      if (!hasDisqCategory) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: "Disqualified deals must include a disqualification reason.",
-            code: "VALIDATION_ERROR"
+            error: "Disqualified deals must include a disqualification reason category.",
+            code: "INVALID_PAYLOAD_REQUIRED_FIELD_MISSING",
+            field: "disqualified_reason_category"
           }),
           { status: 400, headers: corsHeaders }
         );
+      }
+
+      const categoryToValidate = sanitizedUpdates.disqualified_reason_category || sanitizedUpdates.outcome_reason_category;
+      if (categoryToValidate && !ALLOWED_DISQ_CATEGORIES.has(categoryToValidate)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Invalid disqualification category",
+            code: "INVALID_DISQUALIFICATION_CATEGORY",
+            field: "disqualified_reason_category"
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Stage snapshot/timestamp must be recorded; prevent stage mutation during disqualification
+      if (sanitizedUpdates.stage && sanitizedUpdates.stage !== existingDeal.stage) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Cannot change stage while disqualifying; stage_at_disqualification is captured automatically.",
+            code: "INVALID_STATUS_TRANSITION"
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      if (!sanitizedUpdates.stage_at_disqualification) {
+        sanitizedUpdates.stage_at_disqualification = existingDeal.stage;
+      }
+      if (!sanitizedUpdates.disqualified_at) {
+        sanitizedUpdates.disqualified_at = new Date().toISOString();
+      }
+      if (!sanitizedUpdates.disqualified_by) {
+        sanitizedUpdates.disqualified_by = userId;
       }
 
       // PHASE 4: Populate unified outcome fields from legacy fields if not already set

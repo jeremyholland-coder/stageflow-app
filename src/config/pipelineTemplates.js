@@ -22,6 +22,7 @@ import {
   Rocket,
   Activity
 } from 'lucide-react';
+import { WON_STAGES, LOST_STAGES, getStatusForStage as getStatusForStageShared } from '../../shared/stageStatusMap';
 
 /**
  * Pipeline Templates for StageFlow CRM
@@ -513,28 +514,10 @@ export const mapStage = (currentStage, toPipelineId) => {
   return mapping[currentStage] || currentStage;
 };
 
-// FIX C9: Centralized stage status definitions
-// Single source of truth for which stages map to which statuses
+// FIX C9: Centralized stage status definitions (shared with backend)
 export const STAGE_STATUS_MAP = {
-  // Won stages - automatically set status to 'won'
-  // P0 BUG FIX 2025-12-09: Synchronized with backend STAGE_TO_STATUS (update-deal.mts:259-262)
-  // Missing stages were causing frontend/backend mismatch on optimistic updates
-  WON_STAGES: new Set([
-    // Core won stages (both frontend and backend)
-    'deal_won', 'closed_won', 'won', 'closed',
-    // Real Estate pipeline won stages
-    'contract_signed', 'escrow_completed',
-    // VC/Investment pipeline won stages
-    'investment_closed', 'capital_received',
-    // Standard pipeline won stages
-    'payment_received', 'invoice_sent',
-    // Retention/Customer success stages (frontend-only but valid)
-    'retention', 'client_retention', 'customer_retained', 'portfolio_mgmt'
-  ]),
-
-  // Lost stages - automatically set status to 'lost'
-  // P0 BUG FIX 2025-12-09: Synchronized with backend STAGE_TO_STATUS
-  LOST_STAGES: new Set(['lost', 'deal_lost', 'closed_lost', 'investment_lost']),
+  WON_STAGES,
+  LOST_STAGES
 };
 
 /**
@@ -543,9 +526,7 @@ export const STAGE_STATUS_MAP = {
  * @returns {string} - 'won', 'lost', or 'active'
  */
 export const getStatusForStage = (stageId) => {
-  if (STAGE_STATUS_MAP.WON_STAGES.has(stageId)) return 'won';
-  if (STAGE_STATUS_MAP.LOST_STAGES.has(stageId)) return 'lost';
-  return 'active';
+  return getStatusForStageShared(stageId);
 };
 
 /**

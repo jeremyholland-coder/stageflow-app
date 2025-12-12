@@ -90,7 +90,11 @@ export default async (req: Request, context: Context) => {
 
     if (!dealData || !organizationId) {
       return new Response(
-        JSON.stringify({ success: false, error: "Missing required fields: dealData, organizationId" }),
+        JSON.stringify({
+          success: false,
+          error: "Missing required fields: dealData, organizationId",
+          code: "INVALID_PAYLOAD_REQUIRED_FIELD_MISSING"
+        }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -100,15 +104,45 @@ export default async (req: Request, context: Context) => {
     if (!uuidRegex.test(organizationId)) {
       console.error("[create-deal] Invalid organizationId format:", organizationId);
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid organization ID format" }),
+        JSON.stringify({
+          success: false,
+          error: "Invalid organization ID format",
+          code: "INVALID_ORGANIZATION_ID"
+        }),
         { status: 400, headers: corsHeaders }
       );
     }
 
-    // FIX: Validate required client field - frontend requires it but server should validate too
-    if (!dealData.client || typeof dealData.client !== 'string' || dealData.client.trim().length === 0) {
+    // STRICT VALIDATION: Enforce spec-required fields before defaults
+    const errors: Array<{ field: string; code: string; message: string }> = [];
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!dealData.client || typeof dealData.client !== 'string' || dealData.client.trim().length < 2 || dealData.client.trim().length > 200) {
+      errors.push({ field: 'client', code: 'INVALID_CLIENT', message: 'Client is required (2-200 chars)' });
+    }
+    if (!dealData.email || typeof dealData.email !== 'string' || !emailRegex.test(dealData.email)) {
+      errors.push({ field: 'email', code: 'INVALID_EMAIL_FORMAT', message: 'Valid email is required' });
+    }
+    if (dealData.value === undefined || dealData.value === null || Number.isNaN(Number(dealData.value))) {
+      errors.push({ field: 'value', code: 'INVALID_VALUE_RANGE', message: 'Value is required and must be a number' });
+    } else {
+      const numericValue = Number(dealData.value);
+      if (numericValue < 0 || numericValue > 999999999) {
+        errors.push({ field: 'value', code: 'INVALID_VALUE_RANGE', message: 'Value must be between 0 and 999,999,999' });
+      }
+    }
+    if (!dealData.stage || typeof dealData.stage !== 'string' || !isValidStageFormat(dealData.stage)) {
+      errors.push({ field: 'stage', code: 'INVALID_STAGE_FORMAT', message: 'Stage is required and must be lowercase snake_case' });
+    }
+
+    if (errors.length > 0) {
       return new Response(
-        JSON.stringify({ success: false, error: "Client name is required" }),
+        JSON.stringify({
+          success: false,
+          error: 'Invalid request payload',
+          code: 'INVALID_PAYLOAD_REQUIRED_FIELD_MISSING',
+          details: errors
+        }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -182,12 +216,10 @@ export default async (req: Request, context: Context) => {
 
     // Ensure required fields have defaults
     if (!sanitizedDeal.status) sanitizedDeal.status = "active";
-    if (!sanitizedDeal.value) sanitizedDeal.value = 0;
-    if (!sanitizedDeal.stage) sanitizedDeal.stage = "lead"; // Default to first stage
 
-    // Ensure value is a number
+    // Ensure value is a number (already required above)
     if (typeof sanitizedDeal.value === 'string') {
-      sanitizedDeal.value = parseFloat(sanitizedDeal.value) || 0;
+      sanitizedDeal.value = parseFloat(sanitizedDeal.value);
     }
 
     // ENGINE REBUILD Phase 5: PERMISSIVE stage validation (fixes DEAL-101)
