@@ -254,7 +254,8 @@ export default defineConfig({
     // FIX: Use 'hidden' to generate maps for Sentry without sourceMappingURL comments
     // Prevents console errors when maps are deleted after Sentry upload
     sourcemap: 'hidden',
-    minify: 'terser',
+    // EMERGENCY: Disable minification to debug TDZ error
+    minify: false,
     terserOptions: {
       compress: {
         drop_console: true, // Remove console.* in production (1017+ statements removed)
