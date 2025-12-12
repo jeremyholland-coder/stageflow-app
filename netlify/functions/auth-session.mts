@@ -24,7 +24,8 @@ import {
   parseCookies,
   COOKIE_NAMES,
   getCorsHeaders,
-  setSessionCookies
+  setSessionCookies,
+  clearSessionCookies
 } from './lib/cookie-auth';
 import {
   extractCorrelationId,
@@ -158,9 +159,13 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         hasCookie: String(hasCookieToken),
         hasAuthHeader: String(hasAuthHeader),
       });
+      // CLEAR STALE COOKIES: If we got here with a refresh token that couldn't be used,
+      // wipe both cookies so the browser will fetch a fresh session on next login.
+      const clearCookies = clearSessionCookies(origin);
       return {
         statusCode: 401,
         headers: corsHeaders,
+        multiValueHeaders: { 'Set-Cookie': clearCookies },
         body: JSON.stringify({
           error: 'Your session has expired or is invalid. Please sign in again.',
           code: 'SESSION_INVALID',
@@ -275,9 +280,14 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         trackSessionRotation(correlationId, { reason: 'refresh_token_invalid' });
       }
 
+      // CLEAR STALE COOKIES: If refresh token is present but invalid, remove it so
+      // the next auth attempt can mint clean tokens without being shadowed by stale ones.
+      const clearCookies = clearSessionCookies(origin);
+
       return {
         statusCode: 401,
         headers: corsHeaders,
+        multiValueHeaders: { 'Set-Cookie': clearCookies },
         body: JSON.stringify({
           error: 'Your session has expired or is invalid. Please sign in again.',
           code: 'SESSION_INVALID',
