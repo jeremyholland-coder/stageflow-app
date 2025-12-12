@@ -776,6 +776,7 @@ export const KanbanColumn = memo(({
   stage,
   deals,
   onUpdateDeal,
+  onQueueDealUpdate = null, // TDZ FIX 2025-12-12: Was used but never declared as prop
   onDealCreated,
   onDealSelected,
   onLostReasonRequired,
@@ -1752,6 +1753,7 @@ export const KanbanBoard = memo(({
                 stage={stage}
                 deals={safeDeals}
                 onUpdateDeal={onUpdateDeal}
+                onQueueDealUpdate={onQueueDealUpdate}
                 onDealCreated={onDealCreated}
                 onDealSelected={onDealSelected}
                 onLostReasonRequired={handleLostReasonRequired}
