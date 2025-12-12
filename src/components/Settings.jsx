@@ -1004,16 +1004,20 @@ export const Settings = () => {
             </div>
           </SettingCard>
 
-          {/* Revenue Targets */}
-          <SettingCard data-tour="revenue-targets">
-            <SectionTitle icon={TrendingUp}>Revenue Targets</SectionTitle>
-            <RevenueTargets
-              organization={organization}
-              userRole={userRole}
-              addNotification={addNotification}
-              onSwitchToBilling={() => setActiveTab('billing')}
-            />
-          </SettingCard>
+          {/* Revenue Targets - Only show for single-seat plans (free tier)
+              Team plans (2+ seats) manage targets in the Team tab instead.
+              Data is shared via organization_targets table, so no migration needed on upgrade. */}
+          {limits.users === 1 && (
+            <SettingCard data-tour="revenue-targets">
+              <SectionTitle icon={TrendingUp}>Revenue Targets</SectionTitle>
+              <RevenueTargets
+                organization={organization}
+                userRole={userRole}
+                addNotification={addNotification}
+                onSwitchToBilling={() => setActiveTab('billing')}
+              />
+            </SettingCard>
+          )}
 
           {/* Hidden Stages Management */}
           <SettingCard>
