@@ -187,6 +187,16 @@ export function aiReadinessReducer(
     // -------------------------------------------------------------------------
     case 'PROVIDER_CHECKING': {
       switch (event.type) {
+        case 'CONFIG_ERROR':
+          return {
+            state: 'CONFIG_ERROR',
+            context: {
+              ...context,
+              hasProviders: context.hasProviders ?? undefined,
+              lastErrorCode: event.code || 'CONFIG_ERROR',
+              lastErrorMessage: event.message || 'Provider fetch failed',
+            },
+          };
         case 'PROVIDERS_FOUND':
           if (event.count > 0) {
             return {

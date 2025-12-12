@@ -172,11 +172,13 @@ export async function getProvidersWithCache(
   }
 
   // Cache miss - fetch from database
+  // P0 DEFENSIVE FIX 2025-12-11: Avoid hard-coded column filters that break on schema drift.
+  // Some environments use `active`, others use legacy `is_active`, and some omit both.
+  // We select a minimal column set and normalize in-code instead of filtering in SQL.
   const { data, error } = await supabase
     .from('ai_providers')
-    .select('*')
+    .select('id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at')
     .eq('organization_id', orgId)
-    .eq('active', true)
     .order('created_at', { ascending: true }); // First connected = first in array
 
   // ============================================================================
@@ -212,7 +214,8 @@ export async function getProvidersWithCache(
 
   // Filter to active providers with valid encrypted keys (defensive)
   const providers = (data || []).filter((p: any) => {
-    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active;
+    // Accept either column name; treat missing as false
+    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active === true;
     const hasKey = !!p.api_key_encrypted;
     return isActive === true && hasKey;
   });

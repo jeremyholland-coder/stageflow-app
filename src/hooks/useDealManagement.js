@@ -179,6 +179,8 @@ export const useDealManagement = (user, organization, addNotification) => {
   // H6-C HARDENING 2025-12-04: Drag lock state prevents concurrent drag-drop operations
   // When true, KanbanBoard should disable dragging until the current update completes
   const [isDragLocked, setIsDragLocked] = useState(false);
+  // Tracks original deal state for optimistic updates so we can rollback on failure
+  const pendingOriginalDealsRef = useRef(new Map());
   const isMountedRef = useRef(true);
   const fetchInProgressRef = useRef(false);
   const wasOfflineRef = useRef(false); // Track if we were offline (for sync trigger)
@@ -195,6 +197,7 @@ export const useDealManagement = (user, organization, addNotification) => {
     return () => {
       isMountedRef.current = false;
       fetchInProgressRef.current = false;
+      pendingOriginalDealsRef.current.clear();
       if (updateTimerRef.current) {
         clearTimeout(updateTimerRef.current);
       }
@@ -1072,9 +1075,20 @@ export const useDealManagement = (user, organization, addNotification) => {
             setDeals(prevDeals => prevDeals.filter(d => d != null).map(d => d.id === dealId ? data : d));
           }
 
+          // Successful round-trip; clear any stored original for this deal
+          pendingOriginalDealsRef.current.delete(dealId);
+
           logger.log('[BatchQueue] ✓ Processed update for deal', dealId, 'queued at', timestamp);
         } catch (error) {
           console.error('[BatchQueue] Failed for deal:', dealId, error);
+          // Roll back to original state if we captured it before the optimistic update
+          const originalDeal = pendingOriginalDealsRef.current.get(dealId);
+          if (originalDeal && isMountedRef.current) {
+            setDeals(prevDeals =>
+              prevDeals.filter(d => d != null).map(d => d.id === dealId ? originalDeal : d)
+            );
+            pendingOriginalDealsRef.current.delete(dealId);
+          }
           // H6-H HARDENING 2025-12-04: Context-aware error for batch failures
           // Single notification to avoid spam during rapid operations
           const appError = parseSupabaseError(error);
@@ -1106,6 +1120,10 @@ export const useDealManagement = (user, organization, addNotification) => {
     setDeals(prevDeals =>
       prevDeals.filter(d => d != null).map(d => {
         if (d.id !== dealId) return d;
+        // Capture original state once per deal before applying optimistic updates
+        if (!pendingOriginalDealsRef.current.has(dealId)) {
+          pendingOriginalDealsRef.current.set(dealId, { ...d });
+        }
         return {
           ...d,
           ...updates,

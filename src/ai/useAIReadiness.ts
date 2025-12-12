@@ -39,7 +39,13 @@ const errorLog = (...args: any[]) => {
 
 export interface AIReadinessServices {
   checkSession: () => Promise<{ ok: boolean; code?: string }>;
-  checkProviders: () => Promise<{ hasProviders: boolean; count: number; authError?: boolean; reason?: string }>;
+  checkProviders: () => Promise<{
+    hasProviders: boolean;
+    count: number;
+    authError?: boolean;
+    reason?: string;
+    fetchError?: boolean;
+  }>;
   checkConfig: () => Promise<{ ok: boolean; code?: string; message?: string; sessionInvalid?: boolean }>;
   healthCheck: () => Promise<{
     ok: boolean;
@@ -187,6 +193,16 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
         return;
       }
 
+      if (providersResult.fetchError) {
+        dispatch({
+          type: 'CONFIG_ERROR',
+          code: 'PROVIDER_FETCH_ERROR',
+          message: providersResult.reason || 'Unable to load AI providers',
+        });
+        warnLog('[AI_DEBUG][runReadinessCheck] STOPPED at provider check - fetch error');
+        return;
+      }
+
       if (providersResult.hasProviders && providersResult.count > 0) {
         dispatch({ type: 'PROVIDERS_FOUND', count: providersResult.count });
       } else {
@@ -196,7 +212,11 @@ export function useAIReadiness(services: AIReadinessServices): UseAIReadinessRes
       }
     } catch (error) {
       errorLog('[AI_DEBUG][runReadinessCheck] Provider check threw:', error);
-      dispatch({ type: 'NO_PROVIDERS' });
+      dispatch({
+        type: 'CONFIG_ERROR',
+        code: 'PROVIDER_FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Provider check failed',
+      });
       return; // STOP - provider check threw
     }
 
@@ -407,7 +427,7 @@ export function useWiredAIReadiness(
           if (response.status === 401 || response.status === 403) {
             return { hasProviders: false, count: 0, authError: true, reason: `HTTP ${response.status}` };
           }
-          return { hasProviders: false, count: 0 };
+          return { hasProviders: false, count: 0, fetchError: true, reason: `HTTP ${response.status}` };
         }
 
         const data = await response.json();
@@ -421,7 +441,12 @@ export function useWiredAIReadiness(
           filteredOut
         };
       } catch (error) {
-        return { hasProviders: false, count: 0, authError: true, reason: error instanceof Error ? error.message : 'Provider check failed' };
+        return {
+          hasProviders: false,
+          count: 0,
+          fetchError: true,
+          reason: error instanceof Error ? error.message : 'Provider check failed'
+        };
       }
     },
 
