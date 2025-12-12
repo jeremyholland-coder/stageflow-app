@@ -30,7 +30,10 @@
  */
 export async function login(email, password) {
   try {
-    const response = await fetch('/.netlify/functions/auth-login', {
+    // FIX: Import secureFetch to include CSRF token
+    const { secureFetch } = await import('./csrf-client');
+
+    const response = await secureFetch('/.netlify/functions/auth-login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -75,7 +78,10 @@ export async function login(email, password) {
  */
 export async function logout() {
   try {
-    await fetch('/.netlify/functions/auth-logout', {
+    // FIX: Use secureFetch for CSRF protection
+    const { secureFetch } = await import('./csrf-client');
+
+    await secureFetch('/.netlify/functions/auth-logout', {
       method: 'POST',
       credentials: 'include' // Include cookies to identify session
     });
