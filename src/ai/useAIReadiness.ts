@@ -8,6 +8,7 @@
  */
 
 import { useReducer, useEffect, useRef, useCallback } from 'react';
+import { ensureValidSession, supabase } from '../lib/supabase';
 import {
   AIReadinessNode,
   AIReadinessEvent,
@@ -356,8 +357,6 @@ export function useWiredAIReadiness(
     // -------------------------------------------------------------------------
     checkSession: async () => {
       try {
-        // Dynamically import to avoid circular dependencies
-        const { ensureValidSession } = await import('../lib/supabase');
         const result = await ensureValidSession();
 
         if (result?.valid) {
@@ -371,10 +370,7 @@ export function useWiredAIReadiness(
         if (result?.code === 'THROTTLED') {
           // Try to get cached session - if it exists, the user is authenticated
           try {
-            const supabaseModule = await import('../lib/supabase');
-            // Type assertion needed because supabase.js is not typed
-            const supabaseClient = (supabaseModule as any).supabase;
-            const { data: { session } } = await supabaseClient.auth.getSession();
+            const { data: { session } } = await supabase.auth.getSession();
             if (session?.access_token) {
               return { ok: true };
             }
@@ -405,11 +401,9 @@ export function useWiredAIReadiness(
       }
 
       try {
-        const supabaseModule = await import('../lib/supabase');
-        const supabaseClient = (supabaseModule as any).supabase;
         const {
           data: { session },
-        } = await supabaseClient.auth.getSession();
+        } = await supabase.auth.getSession();
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (session?.access_token) {
