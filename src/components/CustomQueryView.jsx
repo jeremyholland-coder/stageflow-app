@@ -444,6 +444,15 @@ export const CustomQueryView = ({
   // P0 FIX 2025-12-09: Use prop if provided, otherwise use hook result (consistent pattern)
   const aiAuthError = aiAuthErrorProp !== undefined ? aiAuthErrorProp : _hookAuthError;
 
+  // APMDOS: Get activation state for adaptive onboarding
+  // TDZ FIX 2025-12-12: MUST be declared BEFORE any useEffect that references it
+  const activationState = useActivationState({
+    user,
+    organization,
+    deals,
+    hasAIProvider
+  });
+
   // FIX 2025-12-08: Log provider status for debugging (helps identify early-bail issues)
   // P0 DIAGNOSTIC 2025-12-11: Enhanced logging to diagnose blank UI issues
   useEffect(() => {
@@ -462,14 +471,6 @@ export const CustomQueryView = ({
       dealsCount: deals?.length ?? 0,
     });
   }, [hasProviders, hasAIProvider, providersLoaded, providerFetchError, aiAuthError, isOnline, activationState?.state, planMyDayRunToday, conversationHistory?.length, loading, showPlanMyDayLoading, deals?.length]);
-
-  // APMDOS: Get activation state for adaptive onboarding
-  const activationState = useActivationState({
-    user,
-    organization,
-    deals,
-    hasAIProvider
-  });
 
   // AI FALLBACK: Track connected providers for fallback chain
   const [connectedProviders, setConnectedProviders] = useState([]);
