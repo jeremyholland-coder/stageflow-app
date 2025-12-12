@@ -259,16 +259,25 @@ export default defineConfig({
       compress: {
         drop_console: true, // Remove console.* in production (1017+ statements removed)
         drop_debugger: true,
-        // CRITICAL FIX #20: Prevent TDZ errors from terser reordering
+        // CRITICAL FIX #21: Aggressive TDZ prevention - disable ALL reordering
         toplevel: false,  // Don't hoist declarations to top level
         hoist_funs: false, // Don't hoist function declarations
-        hoist_vars: false  // Don't hoist variable declarations
+        hoist_vars: false, // Don't hoist variable declarations
+        sequences: false,  // Don't combine statements (can break const ordering)
+        conditionals: false, // Don't optimize conditionals (can reorder code)
+        collapse_vars: false, // Don't collapse single-use vars (TDZ risk)
+        reduce_vars: false,  // Don't reduce variables (TDZ risk)
+        join_vars: false,  // Don't join var declarations
+        if_return: false,  // Don't optimize if-return sequences
+        unused: true,
+        dead_code: true
       },
       mangle: {
-        toplevel: false  // Don't mangle top-level names (prevents reordering)
+        toplevel: false,  // Don't mangle top-level names
+        keep_fnames: true // Keep function names for debugging
       },
-      // CRITICAL: Preserve module initialization order
-      module: true,
+      // CRITICAL FIX #21: module:false prevents ESM-specific TDZ optimizations
+      module: false,
       toplevel: false
     },
     rollupOptions: {
