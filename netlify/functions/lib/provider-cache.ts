@@ -175,11 +175,23 @@ export async function getProvidersWithCache(
   // P0 DEFENSIVE FIX 2025-12-11: Avoid hard-coded column filters that break on schema drift.
   // Some environments use `active`, others use legacy `is_active`, and some omit both.
   // We select a minimal column set and normalize in-code instead of filtering in SQL.
-  const { data, error } = await supabase
+  let data;
+  let error;
+
+  ({ data, error } = await supabase
     .from('ai_providers')
-    .select('id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at')
+    .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at')
     .eq('organization_id', orgId)
-    .order('created_at', { ascending: true }); // First connected = first in array
+    .order('created_at', { ascending: true })); // First connected = first in array
+
+  // Fallback for schema drift (active column missing)
+  if (error && (error.message?.includes('active') || error.message?.includes('is_active'))) {
+    ({ data, error } = await supabase
+      .from('ai_providers')
+      .select('id, organization_id, provider_type, api_key_encrypted, model, created_at')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: true }));
+  }
 
   // ============================================================================
   // [StageFlow][AI][PROVIDERS][DB_FETCH] Deep diagnostic log
@@ -214,8 +226,10 @@ export async function getProvidersWithCache(
 
   // Filter to active providers with valid encrypted keys (defensive)
   const providers = (data || []).filter((p: any) => {
-    // Accept either column name; treat missing as false
-    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active === true;
+    // Accept either column name; if neither present, default to active=true to avoid false negatives
+    const isActive = typeof p.active === 'boolean'
+      ? p.active
+      : (typeof p.is_active === 'boolean' ? p.is_active : true);
     const hasKey = !!p.api_key_encrypted;
     return isActive === true && hasKey;
   });

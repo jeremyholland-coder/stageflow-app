@@ -158,7 +158,7 @@ export async function getConnectedProviders(
 async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIProvider[]> {
   // Support environments that may or may not have legacy columns (is_active, updated_at).
   // We keep the select minimal to avoid schema drift errors.
-  const baseSelect = 'id, organization_id, provider_type, api_key_encrypted, model, active, is_active, created_at';
+  const baseSelect = 'id, organization_id, provider_type, api_key_encrypted, model, active, created_at';
 
   let data;
   let error;
@@ -169,11 +169,11 @@ async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIPro
     .eq('organization_id', orgId)
     .order('created_at', { ascending: true }));
 
-  if (error && (error.message?.includes('is_active') || error.message?.includes('updated_at'))) {
+  if (error && (error.message?.includes('active') || error.message?.includes('is_active') || error.message?.includes('updated_at'))) {
     // Fallback for schemas without the legacy column
     ({ data, error } = await supabase
       .from('ai_providers')
-      .select('id, organization_id, provider_type, api_key_encrypted, model, active, created_at')
+      .select('id, organization_id, provider_type, api_key_encrypted, model, created_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: true }));
   }
@@ -184,7 +184,9 @@ async function fetchProvidersDirect(supabase: any, orgId: string): Promise<AIPro
 
   // Normalize the active flag to handle either column name
   const normalized = (data || []).filter((p: any) => {
-    const isActive = typeof p.active === 'boolean' ? p.active : p.is_active;
+    const isActive = typeof p.active === 'boolean'
+      ? p.active
+      : (typeof p.is_active === 'boolean' ? p.is_active : true);
     return isActive === true;
   });
 

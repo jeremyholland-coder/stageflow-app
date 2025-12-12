@@ -117,9 +117,16 @@ export default async (req: Request, context: Context) => {
 
     if (fetchError) {
       console.error('[get-ai-providers] Failed to fetch providers:', errorMessage);
+      // Graceful degradation: return 200 with ok:false so frontend can render guidance
       return new Response(
-        JSON.stringify({ error: 'Failed to fetch AI providers', details: errorMessage }),
-        { status: 503, headers }
+        JSON.stringify({
+          ok: false,
+          error: 'PROVIDER_FETCH_ERROR',
+          code: 'PROVIDER_FETCH_ERROR',
+          message: errorMessage || 'Unable to load AI providers',
+          retryable: true
+        }),
+        { status: 200, headers }
       );
     }
 
