@@ -303,7 +303,8 @@ export const KanbanCard = memo(({ deal, onSelect, index, isDarkMode = false, isO
       dealId: deal.id,
       dealName: deal.client || 'Unnamed Deal',
       currentStage: deal.stage,
-      currentStatus: deal.status
+      currentStatus: deal.status,
+      timestamp: Date.now()
     });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('dealId', deal.id);
@@ -909,7 +910,8 @@ export const KanbanColumn = memo(({
       dealName,
       currentStatus,
       targetStage: stage.id,
-      targetStageName: stage.name
+      targetStageName: stage.name,
+      timestamp: Date.now()
     });
 
     // Phase 9: Announce drop action to screen readers

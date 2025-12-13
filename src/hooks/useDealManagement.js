@@ -821,7 +821,25 @@ export const useDealManagement = (user, organization, addNotification) => {
         });
 
         if (!deal) {
-          console.error('Deal not found:', dealId);
+          // Enhanced diagnostic logging to understand why deal is not found
+          console.error('Deal not found:', dealId, {
+            dealsCount: (() => {
+              let count = 0;
+              setDeals(prev => { count = prev?.length || 0; return prev; });
+              return count;
+            })(),
+            dealIdType: typeof dealId,
+            dealIdLength: dealId?.length,
+            // Check if deal exists with different comparison
+            searchAttempt: (() => {
+              let found = false;
+              setDeals(prev => {
+                found = prev?.some(d => d && String(d.id) === String(dealId));
+                return prev;
+              });
+              return found ? 'found with String comparison' : 'not found';
+            })()
+          });
           return false;
         }
 
