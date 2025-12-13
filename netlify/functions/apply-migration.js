@@ -1,21 +1,61 @@
 /**
  * Netlify Function: Apply Database Migration
  * Executes SQL migration via Supabase Management API
+ *
+ * SECURITY: Requires admin authentication
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { requireAuth } from './lib/auth-middleware';
+import { buildCorsHeaders } from './lib/cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Sanitize error messages to prevent leaking internal details
+ */
+function sanitizeError(error) {
+  const message = error?.message || String(error);
+  // Remove database paths, SQL details, connection strings
+  const sanitized = message
+    .replace(/postgresql?:\/\/[^\s]+/gi, '[DATABASE_URL]')
+    .replace(/supabase\.co[^\s]*/gi, '[SUPABASE_URL]')
+    .replace(/relation "[^"]+"/gi, 'relation "[TABLE]"')
+    .replace(/column "[^"]+"/gi, 'column "[COLUMN]"')
+    .replace(/function "[^"]+"/gi, 'function "[FUNCTION]"')
+    .replace(/at position \d+/gi, 'at position [N]')
+    .replace(/line \d+/gi, 'line [N]');
+  return sanitized;
+}
+
 export default async (req, context) => {
+  const headers = buildCorsHeaders(req);
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers });
+  }
+
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...headers, 'Content-Type': 'application/json' }
+    });
+  }
+
+  // SECURITY FIX: Require authentication
+  const authResult = await requireAuth(req, { requireAdmin: true });
+  if (!authResult.authenticated) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: authResult.error || 'Authentication required'
+    }), {
+      status: authResult.status || 401,
+      headers: { ...headers, 'Content-Type': 'application/json' }
     });
   }
 
@@ -58,12 +98,12 @@ export default async (req, context) => {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error('❌ Supabase API error:', error);
+      const errorText = await response.text();
+      // Log full error internally (server-side only)
+      console.error('❌ Supabase API error:', errorText);
 
-      // If RPC exec doesn't exist, we need to use a different approach
-      // Let's try using the pg library through a database connection
-      throw new Error(`Supabase API returned ${response.status}: ${error}`);
+      // SECURITY: Don't expose internal error details to client
+      throw new Error(`Migration failed with status ${response.status}`);
     }
 
     const result = await response.json();
@@ -85,18 +125,20 @@ export default async (req, context) => {
     });
 
   } catch (error) {
+    // Log full error internally
     console.error('❌ Migration failed:', error);
 
+    // SECURITY: Sanitize error message before sending to client
     return new Response(JSON.stringify({
       success: false,
-      error: error.message,
+      error: sanitizeError(error),
       details: {
         migration: 'fix_mobile_organization_setup.sql',
         timestamp: new Date().toISOString()
       }
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...headers, 'Content-Type': 'application/json' }
     });
   }
 };

@@ -43,25 +43,42 @@ export class CsrfProtection {
 
   /**
    * Get or create CSRF token
+   * SECURITY FIX: Cookie is source of truth, sessionStorage is backup for perf
    */
   getToken() {
-    let token = sessionStorage.getItem(this.tokenName);
-    
-    if (!token) {
-      token = this.generateToken();
-      sessionStorage.setItem(this.tokenName, token);
-      this.setCookie(token);
+    // SECURITY: Prefer cookie as source of truth (survives tab close, works cross-tab)
+    let cookieToken = this.getCookie();
+    let sessionToken = null;
+
+    try {
+      sessionToken = sessionStorage.getItem(this.tokenName);
+    } catch (e) {
+      // sessionStorage may be unavailable in some contexts
     }
-    
-    const cookieToken = this.getCookie();
-    if (cookieToken && cookieToken !== token) {
-      console.warn('[CSRF] Token mismatch detected, regenerating...');
-      token = this.generateToken();
-      sessionStorage.setItem(this.tokenName, token);
-      this.setCookie(token);
+
+    if (cookieToken) {
+      // Cookie exists - use it as authoritative source
+      // Sync to sessionStorage if mismatched (for performance on subsequent reads)
+      if (sessionToken !== cookieToken) {
+        try {
+          sessionStorage.setItem(this.tokenName, cookieToken);
+        } catch (e) {
+          // Ignore sessionStorage errors
+        }
+      }
+      return cookieToken;
     }
-    
-    return token;
+
+    // No cookie - generate new token
+    const newToken = this.generateToken();
+    this.setCookie(newToken);
+    try {
+      sessionStorage.setItem(this.tokenName, newToken);
+    } catch (e) {
+      // Ignore sessionStorage errors
+    }
+
+    return newToken;
   }
 
   /**
@@ -115,8 +132,12 @@ export class CsrfProtection {
    * Clear CSRF token
    */
   clearToken() {
-    sessionStorage.removeItem(this.tokenName);
-    document.cookie = `${this.cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    try {
+      sessionStorage.removeItem(this.tokenName);
+    } catch (e) {
+      // Ignore sessionStorage errors
+    }
+    document.cookie = `${this.cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; samesite=strict`;
   }
 
   /**

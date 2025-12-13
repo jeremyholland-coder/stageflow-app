@@ -204,6 +204,52 @@ export function ChartErrorBoundary({ children, chartName = 'Chart' }) {
   );
 }
 
+/**
+ * SECURITY FIX: Error boundary specifically for KanbanBoard
+ * Prevents drag-drop errors from crashing the entire board
+ */
+export function KanbanBoardErrorBoundary({ children, onRetry }) {
+  return (
+    <BaseErrorBoundary
+      componentName="KanbanBoard"
+      errorTitle="Pipeline Error"
+      errorMessage="Unable to load the pipeline. Your deals are safe. Try refreshing or click Retry."
+      showDetails={process.env.NODE_ENV === 'development'}
+      onReset={onRetry}
+      fallback={
+        <div className="p-8 bg-gradient-to-br from-gray-900/50 to-black/50 border border-teal-500/30 rounded-2xl">
+          <div className="flex flex-col items-center justify-center text-center">
+            <AlertTriangle className="w-12 h-12 text-amber-400 mb-4" />
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Pipeline temporarily unavailable
+            </h3>
+            <p className="text-sm text-gray-400 mb-4 max-w-md">
+              We encountered an issue loading your pipeline. Your deals are safe.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={onRetry}
+                className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Retry
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
+              >
+                Refresh Page
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      {children}
+    </BaseErrorBoundary>
+  );
+}
+
 export class SilentErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

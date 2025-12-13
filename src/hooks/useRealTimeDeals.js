@@ -28,7 +28,12 @@ const subscriptionState = {
   channel: null,
   callbacks: new Map(),
   organizationId: null,
-  reconnectTimeoutId: null // MEDIUM FIX: Track reconnection timeout for cleanup
+  reconnectTimeoutId: null, // MEDIUM FIX: Track reconnection timeout for cleanup
+  // SECURITY FIX: Track retry count to prevent infinite reconnection loops
+  retryCount: 0,
+  maxRetries: 5,
+  baseRetryDelay: 1000, // 1 second
+  maxRetryDelay: 30000, // 30 seconds max
 };
 
 /**
@@ -120,12 +125,36 @@ export const useRealTimeDeals = (organizationId, callback) => {
           // MEDIUM FIX: Handle subscription status and errors
           if (status === 'SUBSCRIBED') {
             logger.log('[RealTime] ✅ Successfully subscribed to deals channel');
+            // Reset retry count on successful connection
+            subscriptionState.retryCount = 0;
           } else if (status === 'CHANNEL_ERROR') {
             console.error('[RealTime] ❌ Channel error:', err);
+
+            // SECURITY FIX: Implement max retries with exponential backoff
+            if (subscriptionState.retryCount >= subscriptionState.maxRetries) {
+              console.error('[RealTime] ⛔ Max retries exceeded, stopping reconnection attempts');
+              // Clean up but don't retry
+              if (subscriptionState.channel) {
+                supabase.removeChannel(subscriptionState.channel);
+                subscriptionState.channel = null;
+              }
+              return;
+            }
+
             // MEDIUM FIX: Clear any existing reconnect timeout before creating a new one
             if (subscriptionState.reconnectTimeoutId) {
               clearTimeout(subscriptionState.reconnectTimeoutId);
             }
+
+            // Calculate exponential backoff delay
+            const delay = Math.min(
+              subscriptionState.baseRetryDelay * Math.pow(2, subscriptionState.retryCount),
+              subscriptionState.maxRetryDelay
+            );
+            subscriptionState.retryCount++;
+
+            logger.log(`[RealTime] Retry ${subscriptionState.retryCount}/${subscriptionState.maxRetries} in ${delay}ms`);
+
             // Attempt reconnection after delay
             subscriptionState.reconnectTimeoutId = setTimeout(() => {
               if (subscriptionState.channel && subscriptionState.organizationId === organizationId) {
@@ -134,7 +163,7 @@ export const useRealTimeDeals = (organizationId, callback) => {
                 subscriptionState.channel = null;
                 subscriptionState.reconnectTimeoutId = null;
               }
-            }, 5000);
+            }, delay);
           } else if (status === 'TIMED_OUT') {
             console.warn('[RealTime] ⏱️ Subscription timed out, will retry');
           } else if (status === 'CLOSED') {
@@ -156,6 +185,8 @@ export const useRealTimeDeals = (organizationId, callback) => {
         supabase.removeChannel(subscriptionState.channel);
         subscriptionState.channel = null;
         subscriptionState.organizationId = null;
+        // Reset retry count when fully disconnected
+        subscriptionState.retryCount = 0;
 
         // MEDIUM FIX: Clear reconnect timeout to prevent memory leaks
         if (subscriptionState.reconnectTimeoutId) {

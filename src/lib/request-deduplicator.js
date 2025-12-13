@@ -27,6 +27,11 @@ class RequestDeduplicator {
 
     // Debounce timers for batching
     this.batchTimers = new Map();
+
+    // SECURITY FIX: TTL for in-flight requests to prevent indefinite hangs
+    // Requests older than this will be evicted from cache
+    this.requestTTL = 30000; // 30 seconds max
+    this.requestTimestamps = new Map();
   }
 
   /**
@@ -37,19 +42,33 @@ class RequestDeduplicator {
    * @returns {Promise} - The request promise (either new or existing)
    */
   async deduplicate(key, requestFn) {
-    // Check if same request already in flight
+    // SECURITY FIX: Check if existing request has expired (hung request protection)
     if (this.inFlightRequests.has(key)) {
-      logger.log('[Dedup] ⚠️ Request already in flight, reusing:', key);
-      return this.inFlightRequests.get(key);
+      const timestamp = this.requestTimestamps.get(key) || 0;
+      const age = Date.now() - timestamp;
+
+      if (age > this.requestTTL) {
+        // Request is stale - evict it and allow new request
+        logger.log('[Dedup] ⏰ Evicting stale request (age:', age, 'ms):', key);
+        this.inFlightRequests.delete(key);
+        this.requestTimestamps.delete(key);
+      } else {
+        logger.log('[Dedup] ⚠️ Request already in flight, reusing:', key);
+        return this.inFlightRequests.get(key);
+      }
     }
 
     logger.log('[Dedup] ✓ New request:', key);
+
+    // Track timestamp for TTL expiration
+    this.requestTimestamps.set(key, Date.now());
 
     // Execute request and track it
     const promise = requestFn()
       .finally(() => {
         // Clean up after request completes
         this.inFlightRequests.delete(key);
+        this.requestTimestamps.delete(key);
       });
 
     this.inFlightRequests.set(key, promise);
@@ -141,7 +160,27 @@ class RequestDeduplicator {
     this.inFlightRequests.clear();
     this.pendingUpdates.clear();
     this.batchTimers.clear();
+    this.requestTimestamps.clear();
     logger.log('[Dedup] Cleared all pending requests');
+  }
+
+  /**
+   * Evict stale requests (can be called periodically)
+   */
+  evictStale() {
+    const now = Date.now();
+    let evicted = 0;
+    for (const [key, timestamp] of this.requestTimestamps.entries()) {
+      if (now - timestamp > this.requestTTL) {
+        this.inFlightRequests.delete(key);
+        this.requestTimestamps.delete(key);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      logger.log('[Dedup] Evicted', evicted, 'stale requests');
+    }
+    return evicted;
   }
 }
 
