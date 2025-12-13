@@ -776,7 +776,8 @@ export const KanbanColumn = memo(({
   stage,
   deals,
   onUpdateDeal,
-  onQueueDealUpdate = null, // TDZ FIX 2025-12-12: Was used but never declared as prop
+  onQueueDealUpdate = null,
+  queueDealUpdateSafe = async () => false, // TDZ FIX 2025-12-12: Safe wrapper for deal updates
   onDealCreated,
   onDealSelected,
   onLostReasonRequired,
@@ -799,7 +800,7 @@ export const KanbanColumn = memo(({
   isDragLocked = false,
   addNotification = () => {},
   failedMoves = new Set(),
-  setFailedMoves = () => {}, // TDZ FIX 2025-12-12: Was used but never declared as prop
+  setFailedMoves = () => {},
   onRetryMove = () => {}
 }) => {
   const [dragOver, setDragOver] = useState(false);
@@ -1756,6 +1757,7 @@ export const KanbanBoard = memo(({
                 deals={safeDeals}
                 onUpdateDeal={onUpdateDeal}
                 onQueueDealUpdate={onQueueDealUpdate}
+                queueDealUpdateSafe={queueDealUpdateSafe}
                 onDealCreated={onDealCreated}
                 onDealSelected={onDealSelected}
                 onLostReasonRequired={handleLostReasonRequired}
