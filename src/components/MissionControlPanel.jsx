@@ -491,35 +491,6 @@ export const MissionControlPanel = ({
 
   const isAIDisabled = aiVariant === 'disabled';
 
-  // FIX 2025-12-13: When user manually turns AI off, show a minimal "Enable AI" strip
-  // instead of the "Offline Mode" view. The emerald green non-AI dashboard shows below this.
-  if (!aiDashboardEnabled) {
-    return (
-      <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mb-6">
-        <div className="relative bg-gradient-to-br from-[#1a1f2e]/90 to-[#151922]/95 backdrop-blur-sm border border-white/[0.08] rounded-2xl overflow-hidden">
-          <div className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-400/20 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-white">AI Mission Control</h3>
-                <p className="text-xs text-white/50">AI features are turned off</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setAIDashboardEnabled(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 border bg-emerald-500/15 border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/25"
-            >
-              <span className="w-2 h-2 rounded-full bg-white/40" />
-              <span>Enable AI</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Unified offline guard: show non-AI experience when session/provider/config issues
   const shouldRenderOffline = isSessionInvalid
     || shouldShowConnectProvider
@@ -706,6 +677,36 @@ export const MissionControlPanel = ({
       setActiveTab('tasks');
     }
   }, [tasks.length, activeTab]);
+
+  // FIX 2025-12-13: When user manually turns AI off, show a minimal "Enable AI" strip
+  // instead of the full panel. The emerald green non-AI dashboard shows below this.
+  // IMPORTANT: This must be AFTER all hooks to avoid React hooks violation error #300
+  if (!aiDashboardEnabled) {
+    return (
+      <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mb-6">
+        <div className="relative bg-gradient-to-br from-[#1a1f2e]/90 to-[#151922]/95 backdrop-blur-sm border border-white/[0.08] rounded-2xl overflow-hidden">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-400/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">AI Mission Control</h3>
+                <p className="text-xs text-white/50">AI features are turned off</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setAIDashboardEnabled(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 border bg-emerald-500/15 border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/25"
+            >
+              <span className="w-2 h-2 rounded-full bg-white/40" />
+              <span>Enable AI</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.25)] overflow-hidden">
