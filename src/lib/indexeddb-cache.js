@@ -26,12 +26,11 @@ const DB_NAME = 'stageflow_cache';
 const DB_VERSION = 2; // OFFLINE: Bumped to add OFFLINE_QUEUE store
 
 // Store names
+// FIX 2025-12-13: Removed unused USERS and METADATA stores
 const STORES = {
   DEALS: 'deals',
   PIPELINE: 'pipeline',
   ANALYTICS: 'analytics',
-  USERS: 'users',
-  METADATA: 'metadata',
   OFFLINE_QUEUE: 'offline_queue', // OFFLINE: Queue for mutations made while offline
 };
 

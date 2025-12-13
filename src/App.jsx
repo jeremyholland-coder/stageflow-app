@@ -14,7 +14,7 @@ import { logger } from './lib/logger';
 import { timerManager, initTimerManager } from './lib/timerManager';
 import { cleanupMemoryCaches, initMemoryCaches } from './lib/memory-cache';
 import { initIndexedDBCache } from './lib/indexeddb-cache';
-import { backgroundSync } from './lib/background-sync';
+// FIX 2025-12-13: Removed legacy background-sync (replaced by IndexedDB offlineStore)
 import { initPerformanceBudget } from './lib/performance-budget';
 import { QueryProvider } from './context/QueryProvider'; // Area 4: TanStack Query for caching
 
@@ -488,7 +488,7 @@ export default function App() {
     initTimerManager(); // Initialize timer cleanup listener
     initMemoryCaches(); // Initialize memory cache timers and event listeners
     initIndexedDBCache(); // Initialize IndexedDB and cleanup timer
-    backgroundSync.init(); // Initialize background sync event listeners
+    // FIX 2025-12-13: Removed legacy backgroundSync.init() - using IndexedDB offlineStore instead
     initPerformanceBudget(); // Initialize performance budget monitoring
   }, []);
 
