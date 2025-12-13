@@ -925,7 +925,16 @@ export const KanbanColumn = memo(({
         onLostReasonRequired(dealId, dealName, stage.id);
       } else if (isWonStage(stage.id)) {
         console.log('[KANBAN][DROP] → Moving to won stage:', stage.id, '(status: won)');
-        const ok = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
+        // Use the safe queue/update wrapper so we never hit undefined callbacks
+        let ok = await queueDealUpdateSafe(dealId, { stage: stage.id, status: 'won' });
+
+        // If the server said "not found" or failed, try a single refresh + retry
+        if (!ok && typeof onRetryDeals === 'function') {
+          console.warn('[KANBAN][DROP] Won move failed - refreshing deals then retrying once');
+          await onRetryDeals();
+          ok = await queueDealUpdateSafe(dealId, { stage: stage.id, status: 'won' });
+        }
+
         if (!ok) {
           setFailedMoves(prev => {
             const next = new Set(prev);
@@ -935,7 +944,7 @@ export const KanbanColumn = memo(({
           addNotification('Move to Won did not save. Please retry.', 'error', {
             label: 'Retry',
             onClick: async () => {
-              const retryOk = await onUpdateDeal(dealId, { stage: stage.id, status: 'won' });
+              const retryOk = await queueDealUpdateSafe(dealId, { stage: stage.id, status: 'won' });
               if (!retryOk) {
                 addNotification('Retry failed. Please refresh and try again.', 'error');
               } else {
