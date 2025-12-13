@@ -178,6 +178,17 @@ export const Dashboard = () => {
     return localStorage.getItem('stageflow_welcome_dismissed') === 'true';
   });
 
+  // FIX 2025-12-13: Track when user manually turns AI off to show non-AI dashboard
+  // This state triggers re-render so non-AI cards appear immediately
+  const [aiDashboardManuallyOff, setAIDashboardManuallyOff] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('stageflow_ai_dashboard_enabled') === 'false';
+    } catch (e) {
+      return false;
+    }
+  });
+
   const { handleError } = useErrorHandler(addNotification);
 
   // NEXT-LEVEL: Use shared hook instead of duplicate logic (eliminates 50KB of duplicate code)
@@ -598,12 +609,18 @@ export const Dashboard = () => {
     pipelineStages,
     healthAlert,
     orphanedDealIds,
+    // FIX 2025-12-13: Include AI manual off state so non-AI cards can show
+    aiDashboardManuallyOff,
+    // FIX 2025-12-13: Callback for MissionControlPanel to notify when AI is toggled
+    onAIToggle: (isEnabled) => {
+      setAIDashboardManuallyOff(!isEnabled);
+    },
     onDismissAlert: () => {
       setHealthAlert(null);
       const dismissKey = `health_dismissed_${organization.id}`;
       localStorage.setItem(dismissKey, 'true');
     }
-  }), [hasAIProvider, checkingAI, aiAuthError, deals, user, organization, pipelineStages, healthAlert, orphanedDealIds]);
+  }), [hasAIProvider, checkingAI, aiAuthError, deals, user, organization, pipelineStages, healthAlert, orphanedDealIds, aiDashboardManuallyOff]);
 
   // FIX v1.7.62 (#4): Prevent empty state flash before skeleton (HIGH)
   // Show skeleton while ANY critical data is loading: org, deals, or pipeline stages

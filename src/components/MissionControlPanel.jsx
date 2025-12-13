@@ -431,7 +431,9 @@ export const MissionControlPanel = ({
   // P0 FIX 2025-12-09: Auth error state - when true, show "session expired" not "AI unavailable"
   aiAuthError: aiAuthErrorProp,
   user: userProp,
-  organization: organizationProp
+  organization: organizationProp,
+  // FIX 2025-12-13: Callback to notify Dashboard when AI is toggled
+  onAIToggle = () => {}
 }) => {
   const appContext = useApp();
   // APMDOS: Use props if provided, otherwise fall back to context
@@ -453,10 +455,12 @@ export const MissionControlPanel = ({
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem('stageflow_ai_dashboard_enabled', aiDashboardEnabled ? 'true' : 'false');
+      // FIX 2025-12-13: Notify Dashboard so non-AI cards can re-render immediately
+      onAIToggle(aiDashboardEnabled);
     } catch (e) {
       // best-effort persistence only
     }
-  }, [aiDashboardEnabled]);
+  }, [aiDashboardEnabled, onAIToggle]);
 
   // STEP 3: AI Readiness State Machine - single source of truth for AI availability
   const {

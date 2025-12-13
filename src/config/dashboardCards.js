@@ -10,16 +10,6 @@ const GoalForecastWidget = lazy(() => import('../components/GoalForecastWidget')
 // P0 FIX 2025-12-10: Use SafeMissionControlPanel which includes internal error boundary
 const MissionControlPanel = lazy(() => import('../components/MissionControlPanel').then(m => ({ default: m.SafeMissionControlPanel })));
 
-// FIX 2025-12-13: Helper to check if user manually turned AI dashboard off
-// This allows showing non-AI cards when user clicks "AI Off" in Mission Control
-const isAIDashboardManuallyOff = () => {
-  if (typeof window === 'undefined') return false;
-  try {
-    return localStorage.getItem('stageflow_ai_dashboard_enabled') === 'false';
-  } catch (e) {
-    return false;
-  }
-};
 
 /**
  * Dashboard Card Registry
@@ -37,7 +27,8 @@ export const DASHBOARD_CARDS = {
     defaultVisible: true,
 
     // Show if user doesn't have AI provider OR manually turned AI off
-    isAvailable: ({ hasAIProvider }) => !hasAIProvider || isAIDashboardManuallyOff(),
+    // FIX 2025-12-13: Use context state instead of localStorage for proper React re-renders
+    isAvailable: ({ hasAIProvider, aiDashboardManuallyOff }) => !hasAIProvider || aiDashboardManuallyOff,
 
     // Props to pass to component
     getProps: ({ deals, currentUser }) => ({ deals, currentUser })
@@ -95,7 +86,8 @@ export const DASHBOARD_CARDS = {
     isAvailable: ({ checkingAI }) => !checkingAI,
 
     // P0 FIX 2025-12-09: Added aiAuthError to distinguish session errors from "no provider"
-    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, hasAIProvider, aiAuthError, user, organization }) => ({
+    // FIX 2025-12-13: Added onAIToggle callback to sync AI off state with Dashboard
+    getProps: ({ healthAlert, orphanedDealIds, onDismissAlert, deals, targets, hasAIProvider, aiAuthError, user, organization, onAIToggle }) => ({
       healthAlert,
       orphanedDealIds,
       onDismissAlert,
@@ -106,7 +98,9 @@ export const DASHBOARD_CARDS = {
       // P0 FIX 2025-12-09: Pass auth error state so CustomQueryView can show "session expired" instead of "AI unavailable"
       aiAuthError,
       user,
-      organization
+      organization,
+      // FIX 2025-12-13: Callback to notify Dashboard when AI is toggled
+      onAIToggle
     })
   },
 
@@ -119,7 +113,8 @@ export const DASHBOARD_CARDS = {
     defaultVisible: true,
 
     // Show if user doesn't have AI provider OR manually turned AI off
-    isAvailable: ({ hasAIProvider, checkingAI }) => (!hasAIProvider && !checkingAI) || isAIDashboardManuallyOff(),
+    // FIX 2025-12-13: Use context state instead of localStorage for proper React re-renders
+    isAvailable: ({ hasAIProvider, checkingAI, aiDashboardManuallyOff }) => (!hasAIProvider && !checkingAI) || aiDashboardManuallyOff,
 
     getProps: ({ deals, pipelineStages }) => ({
       deals,
