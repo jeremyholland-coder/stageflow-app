@@ -799,6 +799,7 @@ export const KanbanColumn = memo(({
   isDragLocked = false,
   addNotification = () => {},
   failedMoves = new Set(),
+  setFailedMoves = () => {}, // TDZ FIX 2025-12-12: Was used but never declared as prop
   onRetryMove = () => {}
 }) => {
   const [dragOver, setDragOver] = useState(false);
@@ -957,23 +958,18 @@ export const KanbanColumn = memo(({
         const isMovingFromWonOrLost = currentStatus === 'won' || currentStatus === 'lost';
         const isMovingToActiveStage = !isWonStage(stage.id) && !isLostStage(stage.id);
 
-        if (isMovingFromWonOrLost && isMovingToActiveStage) {
-          console.log('[KANBAN][DROP] → Opening status change confirmation modal');
-          onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
-        } else {
-          // Use queue for higher resilience; fall back to direct update
-          console.log('[KANBAN][DROP] → Calling deal update with stage:', stage.id);
-          let ok = true;
-          if (onQueueDealUpdate) {
-            onQueueDealUpdate(dealId, { stage: stage.id });
-          } else if (onUpdateDeal) {
-            ok = await onUpdateDeal(dealId, { stage: stage.id });
-          }
-          if (!ok) {
-            setFailedMoves(prev => {
-              const next = new Set(prev);
-              next.add(dealId);
-              return next;
+      if (isMovingFromWonOrLost && isMovingToActiveStage) {
+        console.log('[KANBAN][DROP] → Opening status change confirmation modal');
+        onLostReasonRequired(dealId, dealName, stage.id, currentStatus, 'status-change');
+      } else {
+        // Use queue for higher resilience; fall back to direct update
+        console.log('[KANBAN][DROP] → Calling deal update with stage:', stage.id);
+        const ok = await queueDealUpdateSafe(dealId, { stage: stage.id });
+        if (!ok) {
+          setFailedMoves(prev => {
+            const next = new Set(prev);
+            next.add(dealId);
+            return next;
             });
             addNotification('Move not saved. Please retry.', 'error', {
               label: 'Retry',
@@ -1010,12 +1006,7 @@ export const KanbanColumn = memo(({
 
   // Inline retry handler for failed moves
   const retryMove = useCallback(async (dealId, targetStageId) => {
-    let ok = true;
-    if (onQueueDealUpdate) {
-      onQueueDealUpdate(dealId, { stage: targetStageId });
-    } else if (onUpdateDeal) {
-      ok = await onUpdateDeal(dealId, { stage: targetStageId });
-    }
+    const ok = await queueDealUpdateSafe(dealId, { stage: targetStageId });
     if (ok) {
       setFailedMoves(prev => {
         if (!prev.has(dealId)) return prev;
@@ -1027,7 +1018,7 @@ export const KanbanColumn = memo(({
     } else {
       addNotification('Retry failed. Please refresh and try again.', 'error');
     }
-  }, [onQueueDealUpdate, onUpdateDeal, addNotification]);
+  }, [queueDealUpdateSafe, addNotification]);
 
   // MOBILE FIX: Add touch drop event listener
   useEffect(() => {
@@ -1266,6 +1257,17 @@ export const KanbanBoard = memo(({
 
   // State for column drag-and-drop reordering
   const [draggedColumnIndex, setDraggedColumnIndex] = useState(null);
+
+  // SAFETY: Always expose a callable queue function to avoid ReferenceError in callbacks
+  const queueDealUpdateSafe = useCallback((...args) => {
+    if (typeof onQueueDealUpdate === 'function') {
+      return onQueueDealUpdate(...args);
+    }
+    if (typeof onUpdateDeal === 'function') {
+      return onUpdateDeal(...args);
+    }
+    return false;
+  }, [onQueueDealUpdate, onUpdateDeal]);
 
   const stages = useMemo(() => {
     // FIX PHASE 8: Removed hardcoded STAGES fallback - pipelineStages always provided by Dashboard
@@ -1775,6 +1777,7 @@ export const KanbanBoard = memo(({
                 isDragLocked={isDragLocked}
                 addNotification={addNotification}
                 failedMoves={failedMoves}
+                setFailedMoves={setFailedMoves}
                 onRetryMove={(dealId, targetStageId) => retryMove(dealId, targetStageId)}
               />
             </div>
