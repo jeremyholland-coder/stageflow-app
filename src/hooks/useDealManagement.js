@@ -1113,8 +1113,9 @@ export const useDealManagement = (user, organization, addNotification) => {
 
   // v1.7.98: Queue a deal update for batched FIFO processing
   // Use this for rapid updates (e.g., drag-and-drop) where batching improves performance
+  // FIX 2025-12-12: Return true for optimistic success to prevent false "Move not saved" errors
   const queueDealUpdate = useCallback((dealId, updates) => {
-    if (!dealId || !updates) return;
+    if (!dealId || !updates) return false;
 
     // Optimistic local update for immediate UI feedback (drag/drop, assign, etc.)
     setDeals(prevDeals =>
@@ -1150,6 +1151,10 @@ export const useDealManagement = (user, organization, addNotification) => {
     }, 100);
 
     logger.log('[BatchQueue] Queued update for deal', dealId, '- queue size:', updateQueueRef.current.length);
+
+    // FIX 2025-12-12: Return true to indicate optimistic success
+    // The actual backend save happens asynchronously via processBatchedUpdates
+    return true;
   }, [processBatchedUpdates]);
 
   const handleDealCreated = useCallback(async (newDeal) => {
