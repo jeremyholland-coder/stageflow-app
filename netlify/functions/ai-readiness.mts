@@ -3,6 +3,56 @@ import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './lib/auth-middleware';
 import { buildCorsHeaders } from './lib/cors';
 import { getConnectedProviders } from './lib/provider-registry';
+import { decryptApiKey } from './lib/ai-orchestrator';
+
+// Lightweight provider health check (first connected provider only)
+async function verifyProviderHealth(provider: any): Promise<{ ok: boolean; reason?: string; status?: number }> {
+  const timeoutMs = 4000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const apiKey = decryptApiKey(provider.api_key_encrypted);
+
+    let response: Response | null = null;
+    if (provider.provider_type === 'anthropic') {
+      response = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        signal: controller.signal
+      });
+    } else if (provider.provider_type === 'openai') {
+      response = await fetch('https://api.openai.com/v1/models', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        },
+        signal: controller.signal
+      });
+    } else if (provider.provider_type === 'google') {
+      const url = `https://generativelanguage.googleapis.com/v1/models?key=${encodeURIComponent(apiKey)}`;
+      response = await fetch(url, { method: 'GET', signal: controller.signal });
+    }
+
+    clearTimeout(timer);
+
+    if (!response) {
+      return { ok: false, reason: 'UNSUPPORTED_PROVIDER' };
+    }
+
+    if (response.ok) {
+      return { ok: true, status: response.status };
+    }
+
+    return { ok: false, reason: 'HEALTH_CHECK_FAILED', status: response.status };
+  } catch (err: any) {
+    clearTimeout(timer);
+    return { ok: false, reason: err?.name === 'AbortError' ? 'TIMEOUT' : 'DECRYPT_OR_NETWORK' };
+  }
+}
 
 /**
  * AI Readiness Endpoint
@@ -99,14 +149,20 @@ export default async (req: Request, context: Context) => {
 
     const ready = providers.length > 0;
     const activeProvider = ready ? providers[0] : null;
-    const variant = ready ? 'ready' : 'connect_provider';
+    // Health check only the first provider to keep latency low
+    let health = { ok: ready, reason: ready ? undefined : 'NO_PROVIDERS' };
+    if (activeProvider) {
+      health = await verifyProviderHealth(activeProvider);
+    }
+
+    const variant = ready && health.ok ? 'ready' : 'connect_provider';
     // Pass through provider types so frontend can show a hint when providers are filtered out
     const filteredProviders = providers.map(p => p.provider_type);
 
     return new Response(
       JSON.stringify({
         success: true,
-        ready,
+        ready: ready && health.ok,
         variant,
         providerCount: providers.length,
         activeProvider: activeProvider
@@ -118,7 +174,8 @@ export default async (req: Request, context: Context) => {
             }
           : null,
         filteredProviders,
-        organizationId: orgId
+        organizationId: orgId,
+        health
       }),
       { status: 200, headers }
     );
