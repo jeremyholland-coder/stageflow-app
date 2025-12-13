@@ -487,15 +487,42 @@ export const MissionControlPanel = ({
 
   const isAIDisabled = aiVariant === 'disabled';
 
-  // Unified offline guard: show non-AI experience when session/provider/config issues or user toggles AI off
-  const shouldRenderOffline = !aiDashboardEnabled
-    || isSessionInvalid
+  // FIX 2025-12-13: When user manually turns AI off, show a minimal "Enable AI" strip
+  // instead of the "Offline Mode" view. The emerald green non-AI dashboard shows below this.
+  if (!aiDashboardEnabled) {
+    return (
+      <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mb-6">
+        <div className="relative bg-gradient-to-br from-[#1a1f2e]/90 to-[#151922]/95 backdrop-blur-sm border border-white/[0.08] rounded-2xl overflow-hidden">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-400/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">AI Mission Control</h3>
+                <p className="text-xs text-white/50">AI features are turned off</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setAIDashboardEnabled(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 border bg-emerald-500/15 border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/25"
+            >
+              <span className="w-2 h-2 rounded-full bg-white/40" />
+              <span>Enable AI</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Unified offline guard: show non-AI experience when session/provider/config issues
+  const shouldRenderOffline = isSessionInvalid
     || shouldShowConnectProvider
     || isConfigError
     || isAIDisabled;
 
   const offlineReason = (() => {
-    if (!aiDashboardEnabled) return 'AI dashboard has been turned off. Toggle it back on when you are ready.';
     if (isSessionInvalid) return 'Your session expired. Refresh or sign in again to restore AI features.';
     if (shouldShowConnectProvider) return 'Connect an AI provider in Integrations to unlock Mission Control.';
     if (isConfigError) return 'AI configuration issue detected. Please retry or contact support.';

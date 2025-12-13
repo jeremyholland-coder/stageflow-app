@@ -10,6 +10,17 @@ const GoalForecastWidget = lazy(() => import('../components/GoalForecastWidget')
 // P0 FIX 2025-12-10: Use SafeMissionControlPanel which includes internal error boundary
 const MissionControlPanel = lazy(() => import('../components/MissionControlPanel').then(m => ({ default: m.SafeMissionControlPanel })));
 
+// FIX 2025-12-13: Helper to check if user manually turned AI dashboard off
+// This allows showing non-AI cards when user clicks "AI Off" in Mission Control
+const isAIDashboardManuallyOff = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem('stageflow_ai_dashboard_enabled') === 'false';
+  } catch (e) {
+    return false;
+  }
+};
+
 /**
  * Dashboard Card Registry
  * Centralized configuration for all dashboard cards
@@ -25,8 +36,8 @@ export const DASHBOARD_CARDS = {
     icon: BarChart3,
     defaultVisible: true,
 
-    // Only show if user doesn't have AI provider
-    isAvailable: ({ hasAIProvider }) => !hasAIProvider,
+    // Show if user doesn't have AI provider OR manually turned AI off
+    isAvailable: ({ hasAIProvider }) => !hasAIProvider || isAIDashboardManuallyOff(),
 
     // Props to pass to component
     getProps: ({ deals, currentUser }) => ({ deals, currentUser })
@@ -107,8 +118,8 @@ export const DASHBOARD_CARDS = {
     icon: TrendingUp,
     defaultVisible: true,
 
-    // Only show if user doesn't have AI provider
-    isAvailable: ({ hasAIProvider, checkingAI }) => !hasAIProvider && !checkingAI,
+    // Show if user doesn't have AI provider OR manually turned AI off
+    isAvailable: ({ hasAIProvider, checkingAI }) => (!hasAIProvider && !checkingAI) || isAIDashboardManuallyOff(),
 
     getProps: ({ deals, pipelineStages }) => ({
       deals,
